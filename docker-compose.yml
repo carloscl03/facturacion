@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  api-maravia:
+    build: .
+    container_name: maravia_backend
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    restart: always
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TOKEN_SUNAT=${TOKEN_SUNAT}
