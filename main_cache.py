@@ -268,24 +268,25 @@ async def clasificar_mensaje(mensaje: str):
     MENSAJE DEL USUARIO: "{mensaje}"
     
     REGLAS DE CLASIFICACIÓN (JERARQUÍA):
-    1. ELIMINAR: Intención clara de borrar, cancelar, limpiar o "empezar de cero". (Prioridad máxima para evitar basura).
-
-    2. FINALIZAR: **ÚNICAMENTE** si el usuario confirma el envío final Y todos los datos críticos en 'DATOS EN DB' están completos (Monto, Entidad, Comprobante y Pago). 
-       - Ejemplos: "Procesa la factura", "Envíalo ya", "Todo conforme, emite el documento".
-       - NOTA: Un simple "Sí" o "Correcto" o "Proceder" o "Exacto" NO es finalizar, es una confirmación de actualización.
-
-    3. RESUMEN: El usuario pide ver el estado actual o pregunta qué falta. 
-       - Ejemplos: "¿Qué llevo?", "Resumen", "¿Qué falta?".
-
-    4. ACTUALIZAR (CLAVE): Se elige si el mensaje contiene:
+    1. ACTUALIZAR (CLAVE): Se elige si el mensaje contiene:
        - Datos técnicos (RUC, DNI, montos, productos, nombres). o intención de actualizar un campo de un comprobante de pago.
        - Confirmaciones o Negaciones a preguntas previas (Ej: "Sí", "No", "Es correcto", "Ese no es"). 
        - Si el bot preguntó "¿Es este el cliente?" y el usuario dice "Sí", esto es ACTUALIZAR para marcar la validación, NO es finalizar la venta.
+       - Registro de productos con cantidad y precios
 
-    5. VENTA / COMPRA: Solo si el usuario manifiesta el deseo de iniciar pero NO da datos. 
-       - Ejemplos: "Quiero vender", "Registrar compra".
+    2. RESUMEN: El usuario pide ver el estado actual o pregunta qué falta. 
+       - Ejemplos: "¿Qué llevo?", "Resumen", "¿Qué falta?".
 
-    6. CASUAL: Saludos, charla trivial o mensajes sin intención contable.
+    3. VENTA / COMPRA: Solo si el usuario manifiesta el deseo de iniciar pero NO da datos. 
+       - Ejemplos: "Quiero vender", "Registrar compra".   
+    
+    4. FINALIZAR: **ÚNICAMENTE** si el usuario confirma el envío final Y todos los datos críticos en 'DATOS EN DB' están completos (Monto, Entidad, Comprobante y Pago). 
+       - Ejemplos: "Procesa la factura", "Envíalo ya", "Todo conforme, emite el documento".
+       - NOTA: Un simple "Sí" o "Correcto" o "Proceder" o "Exacto" NO es finalizar, es una confirmación de actualización.
+
+    5. CASUAL: Saludos, charla trivial o mensajes sin intención contable.
+
+    6. ELIMINAR: Intención clara de borrar, cancelar, limpiar o "empezar de cero". (Prioridad máxima para evitar basura).
 
     RESPONDE EXCLUSIVAMENTE EN JSON:
     {{
@@ -666,10 +667,6 @@ async def servicio_8_unificado(wa_id: str, mensaje: str):
     3. DIAGNÓSTICO: Identifica qué falta según la MATRIZ DE PRIORIDAD.
     4. PREGUNTA: Haz la pregunta para llenar el dato que falta.
 
-    ### 5. LÓGICA DE BOTONES
-    - **requiere_botones = TRUE** solo en: Identificación (DNI/RUC), Tipo Comprobante (Boleta/Factura), Pago (a contado/ a crédito).
-    - **REGLA DE ORO**: los botones deben ayudar a llenar un campo a la vez. no debe intentar indicar que campos llenar.
-
     RESPONDE ESTRICTAMENTE EN ESTE FORMATO JSON:
     {{
         "datos_db": {{
@@ -695,7 +692,7 @@ async def servicio_8_unificado(wa_id: str, mensaje: str):
             "ultima_pregunta": "Breve resumen de la acción realizada (Ej: 'Se agregaron 2 productos por S/ 45.00')"
         }},
         "respuesta_usuario": {{
-            "resumen_y_guia": str, "requiere_botones": bool, "btn1_id": str, "btn1_title": str, "btn2_id": str, "btn2_title": str
+            "resumen_y_guia": str, "requiere_botones": FALSE, "btn1_id": str, "btn1_title": str, "btn2_id": str, "btn2_title": str
         }}
     }}
     """
