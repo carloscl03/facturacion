@@ -20,9 +20,9 @@ URL_PROVEEDOR = "https://api.maravia.pe/servicio/n8n_asistente/ws_proveedor.php"
 
 # --- SERVICIO 1: EXTRACCIÓN (MODIFICADO) ---
 @app.post("/procesar-extraccion")
-async def procesar_extraccion(wa_id: str, mensaje: str):
+async def procesar_extraccion(wa_id: str, mensaje: str, id_empresa: int):
     # 1. Obtener estado actual
-    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": 2}
+    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": id_empresa}
     res_db = requests.get(URL_API, params=params_leer)
     data_db = res_db.json().get('data', [])
     estado_actual = data_db[0] if data_db else {}
@@ -110,7 +110,7 @@ async def procesar_extraccion(wa_id: str, mensaje: str):
     payload = {
         "codOpe": "INSERTAR_CACHE" if es_registro_nuevo else "ACTUALIZAR_CACHE",
         "ws_whatsapp": wa_id,
-        "id_empresa": 2,
+        "id_empresa": id_empresa,
         "cod_ope": nuevo_contexto, # Ahora sí recibirá "compras" si la IA lo detecta
         **{k: v for k, v in cambios_ia.items() if k not in ["requiere_identificacion", "cod_ope"] and v is not None}
     }
@@ -134,9 +134,9 @@ async def procesar_extraccion(wa_id: str, mensaje: str):
 
 # --- SERVICIO 2: PREGUNTADOR (VERSIÓN OPTIMIZADA) ---
 @app.post("/generar-pregunta")
-async def generar_pregunta(wa_id: str):
+async def generar_pregunta(wa_id: str, id_empresa: int):
     # 1. Obtener el estado actual del caché
-    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": 2}
+    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": id_empresa}
     res_db = requests.get(URL_API, params=params_leer)
     data_db = res_db.json().get('data', [])
     registro = data_db[0] if data_db else {}
@@ -317,8 +317,8 @@ async def clasificar_mensaje(mensaje: str):
 
 # --- SERVICIO 4: ELIMINACIÓN ---
 @app.post("/eliminar-operacion")
-async def eliminar_operacion(wa_id: str):
-    payload = {"codOpe": "ELIMINAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": 2}
+async def eliminar_operacion(wa_id: str, id_empresa: int):
+    payload = {"codOpe": "ELIMINAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": id_empresa}
     try:
         res = requests.post(URL_API, json=payload)
         resultado = res.json()
@@ -334,8 +334,8 @@ async def eliminar_operacion(wa_id: str):
 
 # --- SERVICIO 5: RESUMEN ---
 @app.get("/generar-resumen")
-async def generar_resumen(wa_id: str):
-    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": 2}
+async def generar_resumen(wa_id: str, id_empresa: int):
+    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": id_empresa}
     res_db = requests.get(URL_API, params=params_leer)
     data = res_db.json().get('data', [])
     
@@ -415,7 +415,7 @@ async def generar_resumen(wa_id: str):
 
 # --- SERVICIO 6: IDENTIFICADOR (ACTUALIZADO) ---
 @app.post("/identificar-entidad")
-async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str):
+async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str, id_empresa: int):
     """
     SERVICIO DE SOLO LECTURA: Busca la entidad por DNI/RUC/Nombre.
     No crea registros nuevos en la base de datos de Maravia.
@@ -427,11 +427,11 @@ async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str):
         # 1. Búsqueda selectiva según el flujo (Ventas -> Cliente / Compras -> Proveedor)
         if tipo_ope == "ventas":
             # Usamos GET y empresa_id (según estructura ws_cliente.php)
-            params = {"codOpe": "BUSCAR_CLIENTE", "empresa_id": 2, "termino": termino}
+            params = {"codOpe": "BUSCAR_CLIENTE", "empresa_id": id_empresa, "termino": termino}
             r = requests.get(URL_CLIENTE, params=params, timeout=5)
         else:
             # Usamos POST y id_empresa (según estructura ws_proveedor.php)
-            payload = {"codOpe": "BUSCAR_PROVEEDOR", "id_empresa": 2, "nombre_completo": termino}
+            payload = {"codOpe": "BUSCAR_PROVEEDOR", "id_empresa": id_empresa, "nombre_completo": termino}
             r = requests.post(URL_PROVEEDOR, json=payload, timeout=5)
 
         res_data = r.json()
@@ -461,7 +461,7 @@ async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str):
             payload_cache = {
                 "codOpe": "ACTUALIZAR_CACHE",
                 "ws_whatsapp": wa_id,
-                "id_empresa": 2,
+                "id_empresa": id_empresa,
                 "entidad_nombre": nombre_final,
                 "entidad_numero_documento": doc_num,
                 "entidad_id_tipo_documento": tipo_doc_id,
@@ -498,9 +498,9 @@ TOKEN = os.getenv("TOKEN_SUNAT")
 
 # --- SERVICIO 7: fINALIZAR Y GENERAR PDF
 @app.post("/finalizar-operacion")
-async def finalizar_operacion(wa_id: str):
+async def finalizar_operacion(wa_id: str, id_empresa: int):
     # 1. Obtener datos del historial (Cache)
-    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": 2}
+    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": id_empresa}
     res_db = requests.get(URL_API, params=params_leer)
     data_db = res_db.json().get('data', [])
     
@@ -597,15 +597,15 @@ async def finalizar_operacion(wa_id: str):
 
 # --- SERVICIO 8: CEREBRO UNIFICADO (S1 + S2) ---
 @app.post("/unificado")
-async def servicio_8_unificado(wa_id: str, mensaje: str):
+async def servicio_8_unificado(wa_id: str, mensaje: str, id_empresa: int):
     # 1. Obtener estado actual (Contexto para la IA)
-    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": 2}
+    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": id_empresa}
     res_db = requests.get(URL_API, params=params_leer)
     data_db = res_db.json().get('data', [])
     estado_actual = data_db[0] if data_db else {}
     es_registro_nuevo = len(data_db) == 0
 
-    contexto_operacion = estado_actual.get('cod_ope', 'ventas')
+    contexto_operacion = estado_actual.get('cod_ope', 'compras')
     ultima_pregunta_bot = estado_actual.get('ultima_pregunta', '')
 
     prompt_unico = f"""
@@ -655,12 +655,12 @@ async def servicio_8_unificado(wa_id: str, mensaje: str):
         💰 *RESUMEN ECONÓMICO:*
         ├─ Subtotal: [moneda_simbolo] [monto_base]
         ├─ IGV (18%): [moneda_simbolo] [monto_impuesto]
-        └─ **TOTAL: [moneda_simbolo] [monto_total]**
+        └─ *TOTAL: [moneda_simbolo] [monto_total]*
         ━━━━━━━━━━━━━━━━━━━
         📍 *Sucursal:* [sucursal_nombre] | 💳 *Pago:* [tipo_operacion] | 💵 *Moneda:* [moneda_nombre]
         ━━━━━━━━━━━━━━━━━━━
 
-    LA GUÍA ('resumen_y_guia'):
+    LA GUÍA ('resumen_y_guia') unificado en un str:
     aquí se almacena los 4 campos que deben enviarse en 'resumen_y_guia'. La intención de esta variable es generar una pregunta contextualizada.
     1. RESUMEN: conforme a la estructura de RESPUESTA VISUAL
     2. RETROALIMENTACIÓN: Confirma el último cambio (Ej: "Factura configurada").
@@ -712,7 +712,7 @@ async def servicio_8_unificado(wa_id: str, mensaje: str):
     payload = {
         "codOpe": "INSERTAR_CACHE" if es_registro_nuevo else "ACTUALIZAR_CACHE",
         "ws_whatsapp": wa_id,
-        "id_empresa": 2,
+        "id_empresa": id_empresa,
         **{k: v for k, v in cambios_db.items() if v is not None}
     }
     requests.post(URL_API, json=payload)
