@@ -270,9 +270,11 @@ async def clasificar_mensaje(mensaje: str):
     REGLAS DE CLASIFICACIÓN (JERARQUÍA):
     1. ACTUALIZAR (CLAVE): Se elige si el mensaje contiene:
        - Datos técnicos (RUC, DNI, montos, productos, nombres). o intención de actualizar un campo de un comprobante de pago.
+       - Registro de productos con cantidad y precios
+    
+    2. CONFIRMACION
        - Confirmaciones o Negaciones a preguntas previas (Ej: "Sí", "No", "Es correcto", "Ese no es"). 
        - Si el bot preguntó "¿Es este el cliente?" y el usuario dice "Sí", esto es ACTUALIZAR para marcar la validación, NO es finalizar la venta.
-       - Registro de productos con cantidad y precios
 
     2. RESUMEN: El usuario pide ver el estado actual o pregunta qué falta. 
        - Ejemplos: "¿Qué llevo?", "Resumen", "¿Qué falta?".
@@ -290,7 +292,7 @@ async def clasificar_mensaje(mensaje: str):
 
     RESPONDE EXCLUSIVAMENTE EN JSON:
     {{
-        "intencion": "venta|compra|actualizar|casual|eliminar|resumen|finalizar",
+        "intencion": "venta|compra|actualizar|casual|eliminar|resumen|finalizar|confirmacion",
         "confianza": float,
         "urgencia": "alta|media|baja",
         "necesita_extraccion": bool,
@@ -416,81 +418,81 @@ async def generar_resumen(wa_id: str, id_empresa: int):
 # --- SERVICIO 6: IDENTIFICADOR (ACTUALIZADO) ---
 @app.post("/identificar-entidad")
 async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str, id_empresa: int):
-    """
-    SERVICIO DE SOLO LECTURA: Busca la entidad por DNI/RUC/Nombre.
-    No crea registros nuevos en la base de datos de Maravia.
-    """
-    if not termino:
-        return {"found": False, "mensaje": "No se proporcionó un término de búsqueda."}
-
     try:
-        # 1. Búsqueda selectiva según el flujo (Ventas -> Cliente / Compras -> Proveedor)
-        if tipo_ope == "ventas":
-            # Usamos GET y empresa_id (según estructura ws_cliente.php)
-            params = {"codOpe": "BUSCAR_CLIENTE", "empresa_id": id_empresa, "termino": termino}
-            r = requests.get(URL_CLIENTE, params=params, timeout=5)
-        else:
-            # Usamos POST y id_empresa (según estructura ws_proveedor.php)
-            payload = {"codOpe": "BUSCAR_PROVEEDOR", "id_empresa": id_empresa, "nombre_completo": termino}
-            r = requests.post(URL_PROVEEDOR, json=payload, timeout=5)
-
-        res_data = r.json()
+        data_cli = None
+        data_prov = None
         
-        # 2. Verificación de existencia
-        if res_data.get('found'):
-            info = res_data.get('data', {})
-            
-            # --- CONSTRUCCIÓN DE IDENTIDAD (Basado en tus resultados reales) ---
-            # Extraemos nombres y apellidos manejando los nulos que vimos en el test
-            nombres = (info.get('nombres') or "").strip()
-            ap_pat = (info.get('apellido_paterno') or "").strip()
-            ap_mat = (info.get('apellido_materno') or "").strip()
-            
-            # Formateamos el nombre completo
-            nombre_persona = f"{nombres} {ap_pat} {ap_mat}".strip()
-            nombre_final = info.get('razon_social') or nombre_persona or "Sin nombre identificado"
-            
-            # Identificación de documento
-            doc_num = info.get('numero_documento') or info.get('ruc') or termino
-            tipo_doc_id = info.get('id_tipo_documento') or (6 if len(str(doc_num)) == 11 else 1)
-            tipo_doc_nombre = "RUC" if tipo_doc_id == 6 else "DNI"
+        # 1. BÚSQUEDA (Mantenemos la lógica dual)
+        r_c = requests.get(URL_CLIENTE, params={"codOpe": "BUSCAR_CLIENTE", "empresa_id": id_empresa, "termino": termino}).json()
+        if r_c.get('found'): data_cli = r_c['data']
 
-            confirmacion = f"Identidad detectada: {nombre_final} ({tipo_doc_nombre}: {doc_num}). ¿Es correcto?"
+        r_p = requests.post(URL_PROVEEDOR, json={"codOpe": "BUSCAR_PROVEEDOR", "id_empresa": id_empresa, "nombre_completo": termino}).json()
+        if r_p.get('found'): data_prov = r_p['data']
 
-            # 3. Guardar en Caché (Para que el bot "recuerde" a quién encontró)
-            payload_cache = {
-                "codOpe": "ACTUALIZAR_CACHE",
-                "ws_whatsapp": wa_id,
-                "id_empresa": id_empresa,
-                "entidad_nombre": nombre_final,
-                "entidad_numero_documento": doc_num,
-                "entidad_id_tipo_documento": tipo_doc_id,
-                "ultima_pregunta": confirmacion 
-            }
-            requests.post(URL_API, json=payload_cache, timeout=5)
+        if not data_cli and not data_prov:
+            return {"identificado": False, "mensaje": f"❌ No se encontró información para '{termino}'."}
 
-            return {
-                "found": True,
-                "mensaje": confirmacion,
-                "data_minima": {"nombre": nombre_final, "documento": doc_num}
-            }
-            
-        else:
-            # Si no existe, NO REGISTRAMOS. Solo informamos y actualizamos caché con el error.
-            mensaje_no_existe = f"No encontré registros para '{termino}'. ¿Deseas intentar con otro número o registrar uno nuevo?"
-            
-            requests.post(URL_API, json={
-                "codOpe": "ACTUALIZAR_CACHE",
-                "ws_whatsapp": wa_id,
-                "id_empresa": 2,
-                "ultima_pregunta": mensaje_no_existe
-            }, timeout=5)
+        # 2. CONSOLIDACIÓN DE DATOS (Prioridad Proveedor si es compra, Cliente si es venta)
+        base = data_prov if (tipo_ope == "compras" and data_prov) else (data_cli if data_cli else data_prov)
+        
+        # 3. EXTRACCIÓN DE CAMPOS (Con manejo de vacíos)
+        def clean(val): return str(val).strip() if val and str(val).strip() not in ["None", "null", ""] else "_No registrado_"
 
-            return {"found": False, "mensaje": mensaje_no_existe}
+        nombre_entidad = clean(base.get('razon_social') or base.get('nombre_completo'))
+        doc_identidad = clean(base.get('ruc') or base.get('numero_documento'))
+        tipo_doc_txt  = clean(base.get('tipo_documento_nombre') or ("RUC" if len(doc_identidad) == 11 else "DNI"))
+        correo_ent    = clean(base.get('correo'))
+        telf_ent      = clean(base.get('telefono'))
+        dir_ent       = clean(base.get('direccion'))
+        comercial     = clean(base.get('nombre_comercial'))
+        
+        # Determinación de Rol
+        roles = []
+        if data_cli: roles.append("Cliente")
+        if data_prov: roles.append("Proveedor")
+        rol_txt = " / ".join(roles)
+
+        # 4. CONSTRUCCIÓN DEL MENSAJE EXTENDIDO
+        mensaje_bot = (
+            f"✅ *FICHA DE IDENTIDAD LOCALIZADA*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 *Nombre/Razón:* {nombre_entidad}\n"
+            f"🏪 *N. Comercial:* {comercial}\n"
+            f"🆔 *{tipo_doc_txt}:* {doc_identidad}\n"
+            f"💼 *Rol:* {rol_txt}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📧 *Correo:* {correo_ent}\n"
+            f"📞 *Teléfono:* {telf_ent}\n"
+            f"📍 *Dirección:* {dir_ent}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"¿Los datos son correctos para continuar con la operación de *{tipo_ope.upper()}*?"
+        )
+
+        # 5. ACTUALIZAR CACHÉ CON IDs Y MENSAJE LARGO
+        p_id = (data_cli or data_prov).get('persona_id')
+        c_id = data_cli.get('cliente_id') if data_cli else None
+        pr_id = data_prov.get('proveedor_id') if data_prov else None
+
+        payload_cache = {
+            "codOpe": "ACTUALIZAR_CACHE",
+            "ws_whatsapp": wa_id,
+            "id_empresa": id_empresa,
+            "persona_id": p_id,
+            "cliente_id": c_id,
+            "proveedor_id": pr_id,
+            "entidad_nombre": nombre_entidad,
+            "ultima_pregunta": mensaje_bot 
+        }
+        requests.post(URL_API, json=payload_cache)
+
+        return {
+            "identificado": True, 
+            "mensaje": mensaje_bot,
+            "ids": {"p_id": p_id, "c_id": c_id, "pr_id": pr_id}
+        }
 
     except Exception as e:
-        # En caso de error de conexión o JSON inválido
-        return {"found": False, "mensaje": f"Error de conexión con el servidor de datos."}
+        return {"identificado": False, "mensaje": f"💥 Error técnico: {str(e)}"}
 
 # --- CONFIGURACIÓN DE URLS ---
 URL_VENTA_SUNAT = "https://api.maravia.pe/servicio/ws_ventas.php"
@@ -598,6 +600,8 @@ async def finalizar_operacion(wa_id: str, id_empresa: int):
 # --- SERVICIO 8: CEREBRO UNIFICADO (S1 + S2) ---
 @app.post("/unificado")
 async def servicio_8_unificado(wa_id: str, mensaje: str, id_empresa: int):
+
+
     # 1. Obtener estado actual (Contexto para la IA)
     params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": id_empresa}
     res_db = requests.get(URL_API, params=params_leer)
@@ -660,6 +664,8 @@ async def servicio_8_unificado(wa_id: str, mensaje: str, id_empresa: int):
         📍 *Sucursal:* [sucursal_nombre] | 💳 *Pago:* [tipo_operacion] | 💵 *Moneda:* [moneda_nombre]
         ━━━━━━━━━━━━━━━━━━━
 
+    ### 
+
     LA GUÍA ('resumen_y_guia') unificado en un str:
     aquí se almacena los 4 campos que deben enviarse en 'resumen_y_guia'. La intención de esta variable es generar una pregunta contextualizada.
     1. RESUMEN: conforme a la estructura de RESPUESTA VISUAL
@@ -692,7 +698,7 @@ async def servicio_8_unificado(wa_id: str, mensaje: str, id_empresa: int):
             "ultima_pregunta": "Breve resumen de la acción realizada (Ej: 'Se agregaron 2 productos por S/ 45.00')"
         }},
         "respuesta_usuario": {{
-            "resumen_y_guia": str, "requiere_botones": FALSE, "btn1_id": str, "btn1_title": str, "btn2_id": str, "btn2_title": str
+            "resumen_y_guia": str, "requiere_botones": bool, "btn1_id": str, "btn1_title": str, "btn2_id": str, "btn2_title": str
         }}
     }}
     """
@@ -735,6 +741,247 @@ async def servicio_8_unificado(wa_id: str, mensaje: str, id_empresa: int):
             }
         }
     }
+
+@app.post("/analizador")
+async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
+    # 1. Obtener estado actual
+    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": str(wa_id), "id_empresa": id_empresa}
+    res_db = requests.get(URL_API, params=params_leer)
+    data_db = res_db.json().get('data', [])
+    estado_actual = data_db[0] if data_db else {}
+    es_registro_nuevo = not bool(estado_actual)
+
+    # Definición de contexto
+    contexto_previo = "compras" if any(x in mensaje.lower() for x in ["compr", "gasto"]) else "ventas"
+    if estado_actual:
+        contexto_previo = estado_actual.get('cod_ope', contexto_previo)
+
+    # 2. PROMPT EVOLUCIONADO (Lógica Condicional y Resumen Dinámico)
+    prompt_analisis = f"""
+    Eres el Analizador Experto de MaravIA. Tu misión es extraer datos contables y generar un resumen visual humano y profesional.
+
+    ### REGLAS DE EXTRACCIÓN TÉCNICA:
+    - cod_ope: "{contexto_previo}" (Obligatorio: 'ventas' o 'compras').
+    - paso_actual: 2 (Entero).
+    - is_ready: 0 (Entero).
+    - Comprobante: FACTURA=1, BOLETA=2, RECIBO=3, NOTA_VENTA=4.
+    - Moneda: SOLES=1 (PEN), DÓLARES=2 (USD).
+    - IGV: 18% siempre incluido en el monto_total. Calcula monto_base y monto_impuesto.
+
+    ### REGLAS PARA EL RESUMEN VISUAL (resumen_visual):
+    1. **DINAMISMO**: Solo muestra las líneas de datos que hayas logrado extraer. Si no hay RUC, no pongas la línea de RUC.
+    2. **EMOJIS CONDICIONALES**:
+    - 📄 [Tipo de Comprobante] + [Serie/Número si existen].
+    - 🏢 [Cliente/Proveedor]: [Nombre] + (RUC/DNI: [Número] si existen).
+    - 📦 [Productos]: [Nombre] x [Cantidad].
+    - 💰 [Montos]: Mostrar Base, IGV y Total con el símbolo de moneda (S/ o $).
+    - 📍 [Ubicación]: Solo si detectas Sucursal o Centro de Costo.
+    - 📅 [Fechas]: Emisión y Pago (formato DD/MM/YYYY).
+    - 💳 [Pago]: Tipo (Contado/Crédito) y Medio (Transferencia, Efectivo, etc.).
+    - 🔄 [Crédito]: Solo si es crédito, mostrar cuotas/días.
+    3. **CONCATENACIÓN**: El resumen debe empezar con un saludo cordial y terminar con una pregunta de confirmación directa.
+
+    ### MENSAJE DEL USUARIO:
+    "{mensaje}"
+
+    ### FORMATO DE RESPUESTA JSON:
+    {{
+        "propuesta_cache": {{
+            "cod_ope": "{contexto_previo}",
+            "entidad_nombre": "...",
+            "entidad_numero_documento": "...",
+            "entidad_id_tipo_documento": int,
+            "id_moneda": int,
+            "id_comprobante_tipo": int,
+            "tipo_operacion": "contado/credito",
+            "monto_total": float,
+            "monto_base": float,
+            "monto_impuesto": float,
+            "productos_json": [{{ "nombre": str, "cantidad": float, "precio": float }}],
+            "paso_actual": 2,
+            "is_ready": 0
+        }},
+        "resumen_visual": "Ejemplo: Perfecto, aquí va el resumen:\\n📄 Factura de Venta...\\n🏢 Cliente: ...\\n💰 Total: ...\\n¿Todo correcto para registrar? ✅"
+    }}
+    """
+
+    response = client.chat.completions.create(
+        model=MODELO_IA,
+        messages=[{"role": "system", "content": prompt_analisis}],
+        response_format={"type": "json_object"}
+    )
+
+    try:
+        output_ia = json.loads(response.choices[0].message.content)
+        propuesta = output_ia.get("propuesta_cache", {})
+        resumen_visual = output_ia.get("resumen_visual", "")
+
+        # --- PREPARACIÓN PARA LA DB ---
+
+        # 1. productos_json: Se envía como String JSON (Requisito PHP)
+        productos_str = json.dumps(propuesta.get("productos_json", []), ensure_ascii=False)
+
+        # 2. ultima_pregunta: AQUÍ guardamos el JSON de la propuesta (Sin emojis)
+        # Esto permite que n8n o cualquier sistema recupere la data técnica pura.
+        ultima_pregunta_json_tecnico = json.dumps(propuesta, ensure_ascii=False)
+
+        payload_db = {
+            "codOpe": "INSERTAR_CACHE" if es_registro_nuevo else "ACTUALIZAR_CACHE",
+            "ws_whatsapp": str(wa_id),
+            "id_empresa": int(id_empresa),
+            "cod_ope": propuesta.get("cod_ope", contexto_previo),
+            "entidad_nombre": propuesta.get("entidad_nombre", ""),
+            "entidad_numero_documento": propuesta.get("entidad_numero_documento", ""),
+            "entidad_id_tipo_documento": propuesta.get("entidad_id_tipo_documento"),
+            "id_moneda": propuesta.get("id_moneda", 1),
+            "id_comprobante_tipo": propuesta.get("id_comprobante_tipo", 2),
+            "tipo_operacion": propuesta.get("tipo_operacion", "contado"),
+            "monto_total": float(propuesta.get("monto_total", 0)),
+            "monto_base": float(propuesta.get("monto_base", 0)),
+            "monto_impuesto": float(propuesta.get("monto_impuesto", 0)),
+            "productos_json": productos_str,
+            "paso_actual": 2, # Entero
+            "ultima_pregunta": ultima_pregunta_json_tecnico, # <--- DATA TÉCNICA EN JSON STRING
+            "is_ready": 0
+        }
+
+        # 4. EJECUCIÓN
+        headers = {'Content-Type': 'application/json'}
+        res_post = requests.post(URL_API, data=json.dumps(payload_db, ensure_ascii=False).encode('utf-8'), headers=headers)
+        
+        return {
+            "status": "analizado_y_guardado",
+            "db_res": res_post.json(),
+            "whatsapp_output": {
+                "texto": resumen_visual # El usuario sigue viendo sus emojis aquí
+            }
+        }
+
+    except Exception as e:
+        return {"status": "error", "detalle": str(e)}
+    
+@app.post("/registrador")
+async def servicio_registrador(wa_id: str, id_empresa: int):
+    """
+    Este endpoint se dispara cuando el usuario dice 'SÍ'. 
+    Recupera el JSON de 'ultima_pregunta' y lo esparce en la DB.
+    """
+    try:
+        # 1. BUSCAMOS EL REGISTRO ACTUAL PARA SACAR EL JSON TÉCNICO
+        params_leer = {
+            "codOpe": "CONSULTAR_CACHE", 
+            "ws_whatsapp": str(wa_id), 
+            "id_empresa": id_empresa
+        }
+        res_check = requests.get(URL_API, params=params_leer)
+        data_db = res_check.json().get('data', [])
+
+        if not data_db:
+            return {"status": "error", "mensaje": "No hay una propuesta pendiente para confirmar."}
+
+        registro_pendiete = data_db[0]
+        
+        # 2. EXTRAEMOS LA DATA TÉCNICA DE 'ultima_pregunta'
+        # Recordar que lo guardamos como un string JSON en el Analizador
+        try:
+            raw_json_ia = registro_pendiete.get("ultima_pregunta", "{}")
+            payload_analizado = json.loads(raw_json_ia)
+        except Exception:
+            return {"status": "error", "mensaje": "El formato de la propuesta guardada es inválido."}
+
+        # 3. CONSTRUIMOS EL PAYLOAD PARA EL UPDATE FINAL
+        # Forzamos los tipos que el PHP y la DB requieren (int, float, string json)
+        payload_db = {
+            "codOpe": "ACTUALIZAR_CACHE",
+            "ws_whatsapp": str(wa_id),
+            "id_empresa": int(id_empresa),
+            "cod_ope": payload_analizado.get("cod_ope", registro_pendiete.get("cod_ope")),
+            "entidad_nombre": payload_analizado.get("entidad_nombre", ""),
+            "entidad_numero_documento": payload_analizado.get("entidad_numero_documento", ""),
+            "entidad_id_tipo_documento": payload_analizado.get("entidad_id_tipo_documento"),
+            "id_moneda": payload_analizado.get("id_moneda", 1),
+            "id_comprobante_tipo": payload_analizado.get("id_comprobante_tipo", 2),
+            "tipo_operacion": payload_analizado.get("tipo_operacion", "contado"),
+            "monto_total": float(payload_analizado.get("monto_total", 0)),
+            "monto_base": float(payload_analizado.get("monto_base", 0)),
+            "monto_impuesto": float(payload_analizado.get("monto_impuesto", 0)),
+            # Convertimos la lista de productos de vuelta a string JSON para el PHP
+            "productos_json": json.dumps(payload_analizado.get("productos_json", []), ensure_ascii=False),
+            "paso_actual": 3,  # <--- INT: 3 significa 'Confirmado por usuario'
+            "is_ready": 1,     # <--- ACTIVADOR: n8n ahora puede procesarlo
+            "ultima_pregunta": "CONFIRMADO" # Limpiamos el campo para cerrar el ciclo
+        }
+
+        # 4. ESCRITURA FINAL
+        headers = {'Content-Type': 'application/json'}
+        res_escritura = requests.post(
+            URL_API, 
+            data=json.dumps(payload_db, ensure_ascii=False).encode('utf-8'), 
+            headers=headers
+        )
+        
+        res_json = res_escritura.json()
+
+        if res_json.get("success"):
+            return {
+                "status": "exito",
+                "mensaje": "✅ ¡Excelente! He registrado la operación correctamente.",
+                "db_res": res_json
+            }
+        else:
+            return {"status": "error", "detalle": res_json.get("error", "Error desconocido en DB")}
+
+    except Exception as e:
+        return {"status": "error", "mensaje": str(e)}
+
+@app.post("/iniciar-flujo")
+async def iniciar_flujo(wa_id: str, id_empresa: int, tipo: str):
+    """
+    Crea un registro inicial en el caché de PHP para comenzar el flujo de N8N.
+    """
+    
+    # 1. NORMALIZACIÓN DE INTENCIÓN: 
+    # El PHP valida estrictamente in_array($data['cod_ope'], ['ventas', 'compras'])
+    tipo_lower = tipo.lower()
+    if "compr" in tipo_lower:
+        intencion = "compras"
+    elif "vent" in tipo_lower:
+        intencion = "ventas"
+    else:
+        # Si no es ninguno, el PHP lanzará una excepción 400
+        raise HTTPException(status_code=400, detail="El tipo debe ser relacionado a compras o ventas")
+
+    # 2. CONSTRUCCIÓN DEL PAYLOAD:
+    # Según el PHP, para INSERTAR_CACHE los campos requeridos son:
+    # codOpe, ws_whatsapp, id_empresa y cod_ope
+    payload_minimo = {
+        "codOpe": "INSERTAR_CACHE",
+        "ws_whatsapp": str(wa_id),
+        "id_empresa": int(id_empresa),
+        "cod_ope": intencion,  # "compras" o "ventas"
+        "is_ready": 0,         # Iniciamos como no listo
+        "paso_actual": 0
+    }
+
+    try:
+        # Enviamos como JSON (el PHP usa file_get_contents('php://input'))
+        res = requests.post(URL_API, json=payload_minimo, timeout=10)
+        
+        # El PHP devuelve un 400 si hay error de validación (Exception)
+        if res.status_code != 200:
+            print(f"Error del Servidor PHP ({res.status_code}): {res.text}")
+            return {
+                "success": False, 
+                "status_code": res.status_code,
+                "error": res.json().get("error", "Error desconocido en el backend")
+            }
+        
+        return res.json()
+
+    except requests.exceptions.RequestException as e:
+        return {"success": False, "error": f"Error de conexión: {str(e)}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
