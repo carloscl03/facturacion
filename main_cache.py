@@ -23,6 +23,12 @@ URL_PROVEEDOR = "https://api.maravia.pe/servicio/n8n_asistente/ws_proveedor.php"
 PLANTILLA_VISUAL = """
 ESTRUCTURA DE SECCIONES (usa estos nombres de campo del registro; cada línea se muestra SOLO si el campo tiene valor definido):
 
+0) TIPO DE OPERACIÓN (primera línea del encabezado; mostrar solo si cod_ope está definido)
+   ━━━━━━━━━━━━━━━━━━━
+   🛒 *COMPRA*  — mostrar si: cod_ope = "compras"
+   📤 *VENTA*   — mostrar si: cod_ope = "ventas"
+   ━━━━━━━━━━━━━━━━━━━
+
 1) ENCABEZADO OPERACIÓN
    ━━━━━━━━━━━━━━━━━━━
    📄 *[comprobante_tipo_nombre]*  — mostrar si: id_comprobante_tipo definido
@@ -50,6 +56,18 @@ ESTRUCTURA DE SECCIONES (usa estos nombres de campo del registro; cada línea se
    ━━━━━━━━━━━━━━━━━━━
 
 Regla crítica: NO escribas ninguna línea cuya condición "mostrar si" no se cumpla. Si un campo está vacío, null o 0, esa línea NO debe aparecer en la síntesis (irá al diagnóstico).
+"""
+
+# --- REGLAS DE NORMALIZACIÓN (analizador, preguntador) — lenguaje natural, nunca IDs ---
+REGLAS_NORMALIZACION = """
+REGLAS DE NORMALIZACIÓN (OBLIGATORIAS — lenguaje natural, nunca IDs):
+En la Síntesis, el Resumen y el Diagnóstico NUNCA uses números ni códigos internos. Siempre traduce a lenguaje natural usando esta tabla:
+- id_comprobante_tipo: 1 → "Factura", 2 → "Boleta", 3 → "Recibo". Pregunta p. ej. "¿Deseas emitir Factura o Boleta?" nunca "¿id_comprobante_tipo?"
+- id_moneda: 1 → "Soles" (S/), 2 → "Dólares" ($).
+- entidad_id_tipo_documento: 1 → "DNI", 6 → "RUC". Pregunta "¿Me das el RUC o DNI del cliente?" no el id.
+- tipo_operacion: "contado" → "Contado", "credito" → "Crédito". Pregunta "¿Fue al contado o a crédito?"
+- Sucursal, centro de costo, forma de pago, cuenta: usa siempre los nombres (sucursal_nombre, centro_costo_nombre, etc.), nunca id_sucursal ni números.
+Las preguntas deben sonar naturales: "¿Cuál es el monto o detalle de los productos?", "¿Cuál es el RUC o nombre del cliente?", "¿Emitimos Factura o Boleta?", "¿En qué sucursal se realizó?", "¿Fue al contado o a crédito?"
 """
 
 # --- SERVICIO 1: EXTRACCIÓN (MODIFICADO) ---
@@ -292,11 +310,33 @@ async def generar_pregunta(wa_id: str, id_empresa: int):
 # --- SERVICIO 3: CLASIFICADOR (OPTIMIZADO) ---
 # Flujo del sistema: CONFIRMACION → registrador, luego preguntador | RESUMEN → generar-resumen | FINALIZAR → finalizar-operacion | INFORMACION → agente no implementado
 @app.post("/clasificar-mensaje")
-async def clasificar_mensaje(mensaje: str):
+async def clasificar_mensaje(mensaje: str, wa_id: str = None, id_empresa: int = None):
+    """
+    Clasifica la intención del mensaje. Si se envían wa_id e id_empresa y existe registro en cache,
+    se lee ultima_pregunta (retroalimentación o estado, ej. "IDENTIFICACION PENDIENTE") para mejorar el enrutado.
+    """
+    ultima_pregunta = ""
+    if wa_id is not None and id_empresa is not None:
+        try:
+            params = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": str(wa_id), "id_empresa": int(id_empresa)}
+            res = requests.get(URL_API, params=params)
+            data = res.json().get("data", [])
+            if data:
+                registro = data[0]
+                ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
+        except Exception:
+            pass
+
+    ctx_ultima = f"""
+    ### CONTEXTO (retroalimentación / estado de la última consulta al usuario):
+    "{ultima_pregunta or '—'}"
+    """ if ultima_pregunta else ""
+
     prompt_router = f"""
     Eres el Director de Orquesta de un sistema ERP contable. Clasifica la intención del usuario para enrutar al servicio correcto.
     
     MENSAJE DEL USUARIO: "{mensaje}"
+    {ctx_ultima}
     
     ### FLUJO DEL SISTEMA (destino de cada intención):
     - actualizar → Analizador (extrae y guarda datos en cache).
@@ -304,7 +344,6 @@ async def clasificar_mensaje(mensaje: str):
     - resumen → Generar-resumen (devuelve estado actual).
     - finalizar → Finalizar-operacion (emite el comprobante).
     - informacion → Informador (endpoint /informador): responde con guía de llenado.
-    - venta|compra → Analizador (inicio de flujo).
     - eliminar → Eliminar-operacion. casual → Respuesta casual.
     
     ### 1. REGLAS DE CLASIFICACIÓN (JERARQUÍA ESTRICTA):
@@ -327,10 +366,6 @@ async def clasificar_mensaje(mensaje: str):
        Pide ver el estado actual o qué falta. Ej: "¿Qué llevo?", "Dime el resumen", "¿Qué datos faltan?".
        Destino: generar-resumen.
 
-    4. VENTA / COMPRA:
-       Quiere iniciar venta o compra pero NO aporta datos todavía. Ej: "Quiero vender", "Registrar una compra".
-       Destino: analizador (inicio de flujo).
-
     5. FINALIZAR:
        Ordena emitir el documento oficial. Ej: "Procesa la factura", "Envíalo ya", "Emite el documento", "Todo conforme, emite".
        Destino: finalizar-operacion.
@@ -349,7 +384,7 @@ async def clasificar_mensaje(mensaje: str):
 
     RESPONDE EXCLUSIVAMENTE EN JSON:
     {{
-        "intencion": "actualizar|confirmacion|resumen|venta|compra|finalizar|casual|eliminar|informacion",
+        "intencion": "actualizar|confirmacion|resumen|finalizar|casual|eliminar|informacion",
         "destino": "analizador|registrador|generar-resumen|finalizar-operacion|eliminar-operacion|informador|casual",
         "confianza": float,
         "urgencia": "alta|media|baja",
@@ -368,11 +403,11 @@ async def clasificar_mensaje(mensaje: str):
         
         resultado = json.loads(response.choices[0].message.content)
         
-        # Necesita extracción/analizador cuando debe ir a analizador o es venta/compra/actualizar
+        # Necesita extracción/analizador solo cuando la intención es actualizar (venta/compra ya no son intenciones)
         intencion = resultado.get("intencion", "")
-        resultado['necesita_extraccion'] = intencion in ['venta', 'compra', 'actualizar']
+        resultado['necesita_extraccion'] = intencion == "actualizar"
         
-        # Mapear destino si la IA no lo devolvió
+        # Mapear destino si la IA no lo devolvió (sin venta/compra)
         if "destino" not in resultado or not resultado["destino"]:
             mapeo = {
                 "actualizar": "analizador",
@@ -381,8 +416,6 @@ async def clasificar_mensaje(mensaje: str):
                 "finalizar": "finalizar-operacion",
                 "eliminar": "eliminar-operacion",
                 "informacion": "informador",
-                "venta": "analizador",
-                "compra": "analizador",
                 "casual": "casual"
             }
             resultado["destino"] = mapeo.get(intencion, "analizador")
@@ -392,29 +425,47 @@ async def clasificar_mensaje(mensaje: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- SERVICIO 3B: INFORMADOR (guía de llenado para el usuario) ---
+# --- SERVICIO 3B: INFORMADOR (guía de llenado con retroalimentación del estado del registro) ---
 @app.post("/informador")
 async def servicio_informador(mensaje: str, wa_id: str = None, id_empresa: int = None):
     """
     Responde preguntas de ayuda sobre cómo llenar datos en el flujo contable.
-    Se invoca cuando el clasificador devuelve intencion=informacion.
+    Si se envían wa_id e id_empresa, se consulta el estado actual del registro (cache) y se inserta en el prompt para dar guía contextual.
     """
+    estado_registro = ""
+    if wa_id is not None and id_empresa is not None:
+        try:
+            params = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": str(wa_id), "id_empresa": id_empresa}
+            res = requests.get(URL_API, params=params)
+            data = res.json().get("data", [])
+            if data:
+                registro = data[0]
+                estado_registro = json.dumps(registro, ensure_ascii=False, indent=0)
+            else:
+                estado_registro = "(No hay registro activo; el usuario puede estar por iniciar una operación.)"
+        except Exception:
+            estado_registro = "(No se pudo leer el estado actual del registro.)"
+    else:
+        estado_registro = "(No se proporcionó wa_id/id_empresa; no hay contexto de registro.)"
+
     prompt_info = f"""
-    Eres el Agente de Información de MaravIA. El usuario tiene dudas sobre cómo registrar datos en el sistema. Responde de forma breve y clara, solo con guías de llenado. No inventes datos ni des respuestas genéricas fuera del contexto contable.
+    Eres el Agente de Información de MaravIA. El usuario tiene dudas sobre cómo registrar datos en el sistema. Responde de forma breve y clara, con guías de llenado. Usa el estado actual del registro (si existe) para dar una respuesta contextual: indica qué ya tiene y qué le falta.
 
-    MENSAJE DEL USUARIO: "{mensaje}"
+    ### ESTADO ACTUAL DEL REGISTRO (retroalimentación para el prompt):
+    {estado_registro}
 
-    ### GUÍA DE LLENADO (usa solo lo que aplique a la duda):
-    - **ENTIDAD (Cliente/Proveedor):** Puedes indicar RUC (11 dígitos), DNI (8 dígitos) o nombre/razón social. El sistema buscará en la base de clientes (ventas) o proveedores (compras).
-    - **PRODUCTOS:** Indica cantidad, nombre y precio. Ejemplo: "2 laptops a 1500 soles" o "3 unidades de producto X a S/ 50".
-    - **COMPROBANTES:** Factura (para RUC), Boleta (para DNI), Recibo, Nota de Venta.
-    - **MONEDA:** Di "en soles" o "en dólares" (S/ o $).
-    - **PAGO:** Indica si es "contado" o "crédito". Si es crédito, puedes mencionar cuotas o días.
-    - **SUCURSAL / CENTRO DE COSTO:** Nombra la sede o el área (ej: "Lima Centro", "Operaciones").
-    - **FORMA DE PAGO:** Transferencia, Efectivo, Yape, Plin, Tarjeta, etc.
-    - **CAJA/BANCO:** Desde qué cuenta o caja se pagó (ej: "BCP", "Caja Chica").
+    ### MENSAJE DEL USUARIO:
+    "{mensaje}"
 
-    Responde en un solo bloque de texto, amigable para WhatsApp (saltos de línea, sin IDs numéricos). Si el mensaje no es una pregunta clara, ofrece un resumen corto de qué puede indicar en cada paso.
+    ### GUÍA DE LLENADO (usa lo que aplique a la duda y al estado actual):
+    - **ENTIDAD (Cliente/Proveedor):** RUC (11 dígitos), DNI (8 dígitos) o nombre/razón social. El sistema buscará en la base; si no está, puede indicar los datos para anotarlos sin identificar.
+    - **PRODUCTOS:** Cantidad, nombre y precio. Ejemplo: "2 laptops a 1500 soles".
+    - **COMPROBANTES:** Factura (RUC), Boleta (DNI), Recibo, Nota de Venta.
+    - **MONEDA:** "En soles" o "en dólares" (S/ o $).
+    - **PAGO:** "Contado" o "crédito". Si es crédito, cuotas o días.
+    - **SUCURSAL / CENTRO DE COSTO / FORMA DE PAGO / CAJA-BANCO:** Nombres descriptivos.
+
+    Responde en un solo bloque de texto, amigable para WhatsApp (saltos de línea, sin IDs numéricos). Si hay registro activo, menciona brevemente qué lleva y qué le falta; si no hay registro, ofrece un resumen de qué puede indicar en cada paso.
     """
     try:
         response = client.chat.completions.create(
@@ -488,13 +539,13 @@ async def generar_resumen(wa_id: str, id_empresa: int):
     {PLANTILLA_VISUAL}
 
     ### JERARQUÍA PARA EL DIAGNÓSTICO (misma que preguntador y finalizar):
-    **Indispensables** (orden 1→2→3): 1) Monto/Detalle (monto_total o productos_json), 2) Cliente/Proveedor (entidad_nombre + entidad_numero_documento o cliente_id/entidad_id_maestro), 3) Tipo comprobante (id_comprobante_tipo).
+    **Indispensables** (los 3 deben estar completos): 1) Monto/Detalle (monto_total > 0 o productos_json con ítems), 2) Cliente/Proveedor (entidad + documento o cliente_id/entidad_id_maestro/proveedor_id), 3) Tipo comprobante (id_comprobante_tipo definido).
     **Opcionales:** tipo_operacion, forma_pago, sucursal, centro_costo, caja_banco, fecha_emision, etc.
 
     ### INSTRUCCIONES:
     - Resumen: Sigue la plantilla línea a línea; incluye SOLO las líneas cuyo "mostrar si" se cumpla con DATOS EN DB. No inventes valores.
     - Usa nombres (Factura, Soles, Cliente/Proveedor), nunca IDs numéricos.
-    - Después del resumen, escribe un breve **Diagnóstico**: primero faltantes indispensables (en orden 1, 2, 3), luego opcionales. Si todo indispensable está listo: "✅ Listo para confirmar y emitir." y sugiere el siguiente paso (ej. "¿Deseas finalizar la emisión?").
+    - Diagnóstico: Lista primero los indispensables que falten (1, 2, 3), luego opcionales. **Solo escribe "✅ Listo para confirmar y emitir" si los 3 indispensables están completos.** Si falta monto/detalle, cliente/proveedor o tipo comprobante, dilo en el diagnóstico; no digas que está listo.
     - Si entidad_numero_documento tiene valor, no cuentes "RUC/DNI" como faltante de identificación.
     """
 
@@ -505,7 +556,7 @@ async def generar_resumen(wa_id: str, id_empresa: int):
     
     return {"resumen": response.choices[0].message.content}
 
-# --- SERVICIO 6: IDENTIFICADOR (ultima_pregunta en JSON, sin nulos, para confirmar) ---
+# --- SERVICIO 6: IDENTIFICADOR (actualiza metadata_ia.dato_identificado y ultima_pregunta = "IDENTIFICACION PENDIENTE") ---
 def _sin_nulos(d):
     """Devuelve un dict solo con claves cuyo valor no es None, vacío ni 'null'."""
     if not isinstance(d, dict):
@@ -526,7 +577,18 @@ async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str, id_empres
         if r_p.get('found'): data_prov = r_p['data']
 
         if not data_cli and not data_prov:
-            return {"identificado": False, "mensaje": f"❌ No se encontró información para '{termino}'."}
+            # No identificado en base: invitar a llenar el campo sin identificar (nombre + documento) para poder registrar al finalizar
+            rol = "cliente" if (tipo_ope or "").lower() == "ventas" else "proveedor"
+            return {
+                "identificado": False,
+                "mensaje": (
+                    f"❌ No encontré ese RUC/DNI o nombre en la base de {rol}es.\n\n"
+                    f"Puedes *llenar el campo sin identificar*: indícame el **nombre o razón social** y el **número de documento** (RUC o DNI) "
+                    f"y lo anotaré para continuar. Al finalizar la operación podré registrarlo si es necesario.\n\n"
+                    f"Ejemplo: «Razón Social SAC, RUC 20123456789» o «Juan Pérez, DNI 12345678»."
+                ),
+                "sugiere_llenar_sin_identificar": True,
+            }
 
         # 2. CONSOLIDACIÓN DE DATOS (Prioridad Proveedor si es compra, Cliente si es venta)
         base = data_prov if (tipo_ope == "compras" and data_prov) else (data_cli if data_cli else data_prov)
@@ -593,31 +655,49 @@ async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str, id_empres
             "proveedor_id": pr_id,
         })
 
-        # 7. Obtener cache actual para fusionar con ultima_pregunta existente (analizador)
+        # 7. Obtener cache actual y metadata_ia (estructura { dato_registrado, dato_identificado })
         params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": id_empresa}
         res_cache = requests.get(URL_API, params=params_leer)
         data_cache = res_cache.json().get("data", [])
         registro_actual = data_cache[0] if data_cache else {}
-        ultima_actual = registro_actual.get("ultima_pregunta") or ""
-
+        raw_metadata = registro_actual.get("metadata_ia") or "{}"
         try:
-            base_json = json.loads(ultima_actual) if ultima_actual.strip() else {}
+            metadata_ia = json.loads(raw_metadata) if raw_metadata.strip() else {}
         except Exception:
-            base_json = {}
+            metadata_ia = {}
+        dato_registrado = metadata_ia.get("dato_registrado") or {}
+        # Si no hay metadata_ia previa (cache antiguo), reconstruir dato_registrado desde campos planos
+        if not dato_registrado and registro_actual:
+            prod = registro_actual.get("productos_json")
+            if isinstance(prod, str):
+                try:
+                    prod = json.loads(prod) if (prod or "").strip() else []
+                except Exception:
+                    prod = []
+            dato_registrado = _sin_nulos({
+                "cod_ope": registro_actual.get("cod_ope"),
+                "entidad_nombre": registro_actual.get("entidad_nombre"),
+                "entidad_numero_documento": registro_actual.get("entidad_numero_documento"),
+                "entidad_id_tipo_documento": registro_actual.get("entidad_id_tipo_documento"),
+                "id_moneda": registro_actual.get("id_moneda"),
+                "id_comprobante_tipo": registro_actual.get("id_comprobante_tipo"),
+                "tipo_operacion": registro_actual.get("tipo_operacion"),
+                "monto_total": registro_actual.get("monto_total"),
+                "monto_base": registro_actual.get("monto_base"),
+                "monto_impuesto": registro_actual.get("monto_impuesto"),
+                "productos_json": prod,
+            })
+        metadata_ia["dato_identificado"] = _sin_nulos(propuesta_identidad)
+        metadata_ia["dato_registrado"] = dato_registrado
 
-        # Fusionar propuesta identidad con lo que ya haya (ej. propuesta del analizador)
-        merged = {**base_json, **propuesta_identidad}
-        ultima_pregunta_json = _sin_nulos(merged)
-        ultima_pregunta_str = json.dumps(ultima_pregunta_json, ensure_ascii=False)
-
-        # 8. ACTUALIZAR CACHÉ con los mismos nombres/IDs que acepta el registro (como el analizador)
+        # 8. ACTUALIZAR CACHÉ: metadata_ia, ultima_pregunta y campos planos de identidad (para resumen/finalizar)
         payload_cache = {
             "codOpe": "ACTUALIZAR_CACHE",
             "ws_whatsapp": wa_id,
             "id_empresa": id_empresa,
-            "ultima_pregunta": ultima_pregunta_str,
+            "metadata_ia": json.dumps(metadata_ia, ensure_ascii=False),
+            "ultima_pregunta": "IDENTIFICACION PENDIENTE",
         }
-        # Solo añadir campos permitidos en el registro, sin nulos
         for key in ("cod_ope", "entidad_nombre", "entidad_numero_documento", "entidad_id_tipo_documento",
                     "entidad_id_maestro", "persona_id", "cliente_id", "proveedor_id"):
             val = propuesta_identidad.get(key)
@@ -629,7 +709,7 @@ async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str, id_empres
             "identificado": True,
             "mensaje": mensaje_bot,
             "ids": {"p_id": p_id, "c_id": c_id, "pr_id": pr_id},
-            "ultima_pregunta_json": ultima_pregunta_json,
+            "metadata_ia": metadata_ia,
         }
 
     except Exception as e:
@@ -738,8 +818,9 @@ async def finalizar_operacion(wa_id: str, id_empresa: int):
         }
 
     try:
-        # --- VENTAS: id_cliente obligatorio; si no existe, REGISTRAR_CLIENTE ---
+        # --- VENTAS: apartado actualizar y/o registrar cliente (id_cliente obligatorio para CREAR_VENTA) ---
         if "VENTA" in tipo_ope:
+            # Registrar cliente: si no hay id_cliente pero sí nombre + documento, REGISTRAR_CLIENTE
             if not id_cliente and (reg.get('entidad_nombre') or "").strip() and (reg.get('entidad_numero_documento') or "").strip():
                 resp_cli = _registrar_cliente(reg, id_empresa)
                 if resp_cli.get("success") and resp_cli.get("cliente_id"):
@@ -749,8 +830,13 @@ async def finalizar_operacion(wa_id: str, id_empresa: int):
                         "status": "error",
                         "mensaje": f"❌ No se pudo registrar el cliente: {resp_cli.get('message', 'Error desconocido')}."
                     }
+            # Actualizar cliente: si ya hay id_cliente y el cache tiene datos (nombre, doc, teléfono, etc.), ACTUALIZAR_CLIENTE
+            if id_cliente and (reg.get('entidad_nombre') or reg.get('entidad_numero_documento')):
+                resp_act = _actualizar_cliente(id_cliente, reg, id_empresa)
+                if not resp_act.get("success"):
+                    pass  # No bloqueamos la venta; solo no se actualizó la ficha del cliente
             if not id_cliente:
-                return {"status": "incompleto", "mensaje": "⚠️ Falta identificar al cliente (RUC/DNI y nombre) para emitir el comprobante."}
+                return {"status": "incompleto", "mensaje": "⚠️ Falta el cliente (RUC/DNI y nombre). Indica los datos para registrarlo o búscalos en la base."}
 
             # Detalle: mismo formato que test_pdf_sunat (indispensables para CREAR_VENTA)
             productos = []
@@ -981,12 +1067,18 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
     res_db = requests.get(URL_API, params=params_leer)
     data_db = res_db.json().get('data', [])
     estado_actual = data_db[0] if data_db else {}
-    es_registro_nuevo = not bool(estado_actual)
+    # Si ya existe fila en la tabla (data_db tiene al menos un registro), siempre ACTUALIZAR para no duplicar
+    es_registro_nuevo = len(data_db) == 0
 
-    # Definición de contexto
-    contexto_previo = "compras" if any(x in mensaje.lower() for x in ["compr", "gasto"]) else "ventas"
-    if estado_actual:
-        contexto_previo = estado_actual.get('cod_ope', contexto_previo)
+    # Definición de contexto: NO asumir venta/compra ni tipo comprobante/moneda/pago si el usuario no lo indicó
+    # Solo usar "compras"/"ventas" cuando el mensaje lo diga o ya exista en el registro
+    contexto_previo = None
+    if estado_actual and (estado_actual.get("cod_ope") or "").strip():
+        contexto_previo = (estado_actual.get("cod_ope") or "").strip().lower()
+    if not contexto_previo and any(x in mensaje.lower() for x in ["compr", "gasto"]):
+        contexto_previo = "compras"
+    if not contexto_previo and any(x in mensaje.lower() for x in ["vent", "venta", "vender", "vendiendo"]):
+        contexto_previo = "ventas"
 
     ultima_pregunta_enviada = estado_actual.get("ultima_pregunta") or ""
     if len(ultima_pregunta_enviada) > 800:
@@ -1001,10 +1093,9 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
     "{ultima_pregunta_enviada or 'Ninguna aún.'}"
 
     ### REGLAS DE EXTRACCIÓN TÉCNICA:
-    - cod_ope: "{contexto_previo}" (ventas o compras).
-    - paso_actual: 2 (Entero).
-    - is_ready: 0 (Entero).
-    - Comprobante: FACTURA=1, BOLETA=2, RECIBO=3, NOTA_VENTA=4.
+    - cod_ope: solo "ventas" o "compras" si el usuario lo dice o ya está en el registro; si no está definido, deja null (no asumir).
+    - paso_actual: 2 (Entero). is_ready: 0 (Entero).
+    - Comprobante: FACTURA=1, BOLETA=2, RECIBO=3, NOTA_VENTA=4. No asumas tipo ni moneda ni forma de pago si el usuario no lo indica.
     - Moneda: SOLES=1 (S/), DÓLARES=2 ($).
     - Impuestos: IGV 18% incluido en monto_total. Desglosar monto_base y monto_impuesto.
 
@@ -1015,10 +1106,18 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
     - forma_pago: "Transferencia", "Efectivo", "Yape", "Plin", "Tarjeta".
     - caja_banco: Entidad financiera (Ej: "BCP", "BBVA", "Caja Chica").
 
-    ### REGLAS PARA EL RESUMEN VISUAL (resumen_visual) — misma plantilla que preguntador y resumen:
-    Usa la estructura compartida; incluye en el texto ÚNICAMENTE las líneas para las que el dato exista en tu propuesta_cache (no null, no vacío, no 0). Si un campo no lo extrajiste, no escribas esa línea.
-    Estructura (solo líneas con dato definido): 📄 comprobante_tipo_nombre | 👤 Cliente/Proveedor: entidad_nombre | 🆔 DNI/RUC: entidad_numero_documento | 📦 Detalle (productos_json: Cant x nombre — total_item) | 💰 Subtotal, IGV, TOTAL | 📍 Sucursal, 💳 Pago, 💵 Moneda | 🏦 Cuenta/forma_pago | 📅 Emisión | 🔄 Crédito (plazo_dias, vencimiento).
-    Sin IDs numéricos; usa nombres (Factura, Soles). Saludo cordial al inicio y pregunta de confirmación al final.
+    ### MENSAJE DE ENTENDIMIENTO (obligatorio para lenguaje fluido):
+    Antes del resumen, genera una frase corta que muestre que entendiste el mensaje del usuario. Ejemplos: "Entendido, anoté 2 laptops por S/ 3000.", "Perfecto, quedó como Factura.", "Anotado: cliente con RUC 20123456789.", "Listo, lo dejo en Soles y al contado." Así el usuario siente que lo escuchaste antes de ver el resumen.
+    **Si el usuario solo indica que quiere registrar una compra o una venta** (ej: "registrar una compra", "quiero hacer una venta", "es una compra") sin dar más datos: guarda cod_ope (compras/ventas), crea el registro con solo ese dato. En ese caso el resumen_visual debe ser ÚNICAMENTE: (1) la línea 🛒 *COMPRA* o 📤 *VENTA* según corresponda, (2) una sola pregunta de confirmación: "¿Es correcto que deseas registrar una compra?" (o venta). NO incluyas en ese mensaje listado de lo que falta (cliente, comprobante, productos, etc.); solo pide confirmar la intención. Ejemplo de mensaje_entendimiento: "Anotado: es una compra." y en resumen_visual solo el encabezado y "¿Es correcto? Indica los datos cuando quieras."
+
+    ### REGLAS PARA EL RESUMEN VISUAL (resumen_visual) — solo lo extraído en ESTE mensaje:
+    {PLANTILLA_VISUAL}
+
+    {REGLAS_NORMALIZACION}
+
+    **Regla crítica del analizador:** El resumen_visual debe mostrar ÚNICAMENTE los apartados para los que hay dato en tu propuesta_cache (lo que extrajiste de este mensaje). Si el usuario solo registró productos, despliega solo el detalle de productos (y monto/total si aplica); NO muestres encabezado compra/venta (🛒/📤), ni comprobante, ni cliente/proveedor, ni moneda/pago si están vacíos en la propuesta. Los apartados sin dato en esta extracción no se despliegan aquí (el preguntador sí los mostrará después si ya están en el registro).
+    **Caso solo compra/venta:** Si la propuesta solo tiene cod_ope (compras o ventas) y el resto vacío, el resumen_visual debe ser SOLO: línea 🛒 *COMPRA* o 📤 *VENTA* + una pregunta de confirmación ("¿Es correcto que deseas registrar una compra/venta? Indica los datos cuando quieras."). NO escribas "Aún no hay datos capturados" ni listes lo que falta (cliente, comprobante, productos); solo confirmación de intención.
+    Para cada línea, comprueba en tu propuesta_cache si el campo indicado en "mostrar si" tiene valor (no null, no vacío, no 0). Si no lo extrajiste, no escribas esa línea. Aplica las reglas de normalización: nunca IDs; usa solo lenguaje natural. Tras el mensaje de entendimiento, el resumen debe terminar con una pregunta de confirmación natural.
 
     ### MENSAJE DEL USUARIO:
     "{mensaje}"
@@ -1030,9 +1129,10 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
     - **mensaje**: mensaje breve para mostrar al usuario mientras se busca, ej. "Buscando RUC 20123456789...". Opcional si activo = false.
 
     ### FORMATO DE RESPUESTA JSON (tres partes obligatorias):
+    (cod_ope: solo "ventas" o "compras" si el usuario lo dijo o ya está en registro; si no, null. No inventes tipo de comprobante ni moneda.)
     {{
         "propuesta_cache": {{
-            "cod_ope": "{contexto_previo}",
+            "cod_ope": "ventas o compras o null",
             "entidad_nombre": "...",
             "entidad_numero_documento": "...",
             "entidad_id_tipo_documento": int,
@@ -1051,7 +1151,8 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
             "paso_actual": 2,
             "is_ready": 0
         }},
-        "resumen_visual": "Ejemplo: Perfecto, aquí va el resumen:\\n📄 Factura de Venta...\\n🏢 Cliente: ...\\n💰 Total: ...\\n¿Todo correcto para registrar? ✅",
+        "mensaje_entendimiento": "Una frase corta que muestre que entendiste al usuario (ej: 'Entendido, anoté 2 laptops por S/ 3000.' o 'Perfecto, quedó como Factura.')",
+        "resumen_visual": "Ejemplo (incluir primero 🛒 COMPRA o 📤 VENTA si cod_ope está definido):\\n🛒 *COMPRA*\\n━━━\\n¿Es correcto? Indica los datos cuando quieras. O: 📄 Factura... 👤 Cliente... 💰 Total... ¿Todo correcto?",
         "requiere_identificacion": {{
             "activo": false,
             "termino": "",
@@ -1070,7 +1171,10 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
     try:
         output_ia = json.loads(response.choices[0].message.content)
         propuesta = output_ia.get("propuesta_cache", {})
+        mensaje_entendimiento = (output_ia.get("mensaje_entendimiento") or "").strip()
         resumen_visual = output_ia.get("resumen_visual", "")
+        if mensaje_entendimiento:
+            resumen_visual = f"{mensaje_entendimiento}\n\n{resumen_visual}".strip()
         req_id = output_ia.get("requiere_identificacion") or {}
         requiere_identificacion = {
             "activo": bool(req_id.get("activo")),
@@ -1085,10 +1189,6 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
 
         # 1. productos_json: Se envía como String JSON (Requisito PHP)
         productos_str = json.dumps(propuesta.get("productos_json", []), ensure_ascii=False)
-
-        # 2. ultima_pregunta: AQUÍ guardamos el JSON de la propuesta (Sin emojis)
-        # Esto permite que n8n o cualquier sistema recupere la data técnica pura.
-        ultima_pregunta_json_tecnico = json.dumps(propuesta, ensure_ascii=False)
 
         # Función auxiliar para decidir qué valor usar
         def obtener_valor(campo, default=None):
@@ -1120,27 +1220,59 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
             "entidad_nombre": obtener_valor("entidad_nombre", ""),
             "entidad_numero_documento": obtener_valor("entidad_numero_documento", ""),
             "entidad_id_tipo_documento": propuesta.get("entidad_id_tipo_documento") or estado_actual.get("entidad_id_tipo_documento"),
-            "id_moneda": obtener_valor("id_moneda", 1),
-            "id_comprobante_tipo": obtener_valor("id_comprobante_tipo", 2),
-            "tipo_operacion": obtener_valor("tipo_operacion", "contado"),
+            "id_moneda": obtener_valor("id_moneda", None),
+            "id_comprobante_tipo": obtener_valor("id_comprobante_tipo", None),
+            "tipo_operacion": obtener_valor("tipo_operacion", None),
             "monto_total": float(propuesta.get("monto_total") or estado_actual.get("monto_total") or 0),
             "monto_base": float(propuesta.get("monto_base") or estado_actual.get("monto_base") or 0),
             "monto_impuesto": float(propuesta.get("monto_impuesto") or estado_actual.get("monto_impuesto") or 0),
             "productos_json": productos_str,
             "paso_actual": 2,
-            "ultima_pregunta": ultima_pregunta_json_tecnico,
             "is_ready": 0
         }
         payload_db = {k: v for k, v in payload_base.items() if es_valor_no_nulo(v)}
 
-        # Siempre incluir campos obligatorios del API
+        # 2. metadata_ia: fusionar dato_registrado previo con lo nuevo (cambio compra↔venta y demás no deben perder datos)
+        try:
+            metadata_prev = json.loads(estado_actual.get("metadata_ia") or "{}")
+            dato_identificado_existente = metadata_prev.get("dato_identificado") or {}
+            dato_registrado_prev = metadata_prev.get("dato_registrado") or {}
+        except Exception:
+            dato_identificado_existente = {}
+            dato_registrado_prev = {}
+        # Productos: si la IA no envió ítems en esta extracción, no sobrescribir (se conserva lo previo en la fusión)
+        productos_propuesta = propuesta.get("productos_json") or []
+        tiene_productos_nuevos = isinstance(productos_propuesta, list) and len(productos_propuesta) > 0
+        nuevo_parcial = _sin_nulos({
+            "cod_ope": payload_base.get("cod_ope"),
+            "entidad_nombre": payload_base.get("entidad_nombre"),
+            "entidad_numero_documento": payload_base.get("entidad_numero_documento"),
+            "entidad_id_tipo_documento": payload_base.get("entidad_id_tipo_documento"),
+            "id_moneda": payload_base.get("id_moneda"),
+            "id_comprobante_tipo": payload_base.get("id_comprobante_tipo"),
+            "tipo_operacion": payload_base.get("tipo_operacion"),
+            "monto_total": payload_base.get("monto_total"),
+            "monto_base": payload_base.get("monto_base"),
+            "monto_impuesto": payload_base.get("monto_impuesto"),
+            **({"productos_json": productos_propuesta} if tiene_productos_nuevos else {}),
+        })
+        # Fusión: lo previo + lo nuevo (lo nuevo sobrescribe). Así "es una venta" actualiza cod_ope sin borrar productos/resto
+        dato_registrado = _sin_nulos({**dato_registrado_prev, **nuevo_parcial})
+        metadata_ia = {"dato_registrado": dato_registrado, "dato_identificado": dato_identificado_existente}
+        payload_db["metadata_ia"] = json.dumps(metadata_ia, ensure_ascii=False)
+
+        # 3. ultima_pregunta: solo retroalimentación de la última consulta (no JSON técnico)
+        retroalimentacion = (mensaje_entendimiento or "Propuesta actualizada. Revisa el resumen arriba.").strip()
+        payload_db["ultima_pregunta"] = retroalimentacion
+
+        # Siempre incluir campos obligatorios del API (y cod_ope cuando exista, para que el cache quede actualizado)
         payload_db["codOpe"] = payload_base["codOpe"]
         payload_db["ws_whatsapp"] = payload_base["ws_whatsapp"]
         payload_db["id_empresa"] = payload_base["id_empresa"]
-        # ultima_pregunta y paso_actual/is_ready son parte del flujo del analizador, los enviamos siempre
-        payload_db["ultima_pregunta"] = ultima_pregunta_json_tecnico
         payload_db["paso_actual"] = 2
         payload_db["is_ready"] = 0
+        if payload_base.get("cod_ope") and str(payload_base.get("cod_ope")).strip():
+            payload_db["cod_ope"] = str(payload_base["cod_ope"]).strip().lower()
 
         # 4. EJECUCIÓN
         headers = {'Content-Type': 'application/json'}
@@ -1167,14 +1299,15 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
 @app.post("/registrador")
 async def servicio_registrador(wa_id: str, id_empresa: int):
     """
-    Este endpoint se dispara cuando el usuario dice 'SÍ'. 
-    Recupera el JSON de 'ultima_pregunta' y lo esparce en la DB.
+    Se dispara cuando el usuario confirma con un "Sí" claro.
+    Lee metadata_ia ({ dato_registrado, dato_identificado }), fusiona ambos y esparce en la DB.
+    dato_identificado suele estar vacío salvo que haya corrido el agente de identificar.
     """
     try:
-        # 1. BUSCAMOS EL REGISTRO ACTUAL PARA SACAR EL JSON TÉCNICO
+        # 1. Obtener registro actual y metadata_ia
         params_leer = {
-            "codOpe": "CONSULTAR_CACHE", 
-            "ws_whatsapp": str(wa_id), 
+            "codOpe": "CONSULTAR_CACHE",
+            "ws_whatsapp": str(wa_id),
             "id_empresa": id_empresa
         }
         res_check = requests.get(URL_API, params=params_leer)
@@ -1183,22 +1316,54 @@ async def servicio_registrador(wa_id: str, id_empresa: int):
         if not data_db:
             return {"status": "error", "mensaje": "No hay una propuesta pendiente para confirmar."}
 
-        registro_pendiete = data_db[0]
-        
-        # 2. EXTRAEMOS LA DATA TÉCNICA DE 'ultima_pregunta'
-        # Recordar que lo guardamos como un string JSON en el Analizador
-        try:
-            raw_json_ia = registro_pendiete.get("ultima_pregunta", "{}")
-            payload_analizado = json.loads(raw_json_ia)
-        except Exception:
-            return {"status": "error", "mensaje": "El formato de la propuesta guardada es inválido."}
+        registro_pendiente = data_db[0]
 
-        # 3. CONSTRUIMOS EL PAYLOAD PARA EL UPDATE FINAL (incluye campos del identificador si vinieron en ultima_pregunta)
+        # 2. Extraer metadata_ia: { dato_registrado: {...}, dato_identificado: {...} }
+        try:
+            raw_metadata = registro_pendiente.get("metadata_ia", "{}")
+            metadata_ia = json.loads(raw_metadata) if (raw_metadata or "").strip() else {}
+        except Exception:
+            return {"status": "error", "mensaje": "El formato de metadata_ia es inválido."}
+
+        dato_registrado = metadata_ia.get("dato_registrado") or {}
+        dato_identificado = metadata_ia.get("dato_identificado") or {}
+        # Fusionar: dato_identificado sobrescribe donde aplique (ej. cliente_id, entidad_id_maestro)
+        payload_analizado = {**dato_registrado, **dato_identificado}
+        # Compatibilidad: si no hay metadata_ia (cache antiguo), usar campos planos del registro
+        if not payload_analizado and registro_pendiente:
+            prod = registro_pendiente.get("productos_json")
+            if isinstance(prod, str):
+                try:
+                    prod = json.loads(prod) if (prod or "").strip() else []
+                except Exception:
+                    prod = []
+            payload_analizado = {
+                "cod_ope": registro_pendiente.get("cod_ope"),
+                "entidad_nombre": registro_pendiente.get("entidad_nombre"),
+                "entidad_numero_documento": registro_pendiente.get("entidad_numero_documento"),
+                "entidad_id_tipo_documento": registro_pendiente.get("entidad_id_tipo_documento"),
+                "id_moneda": registro_pendiente.get("id_moneda"),
+                "id_comprobante_tipo": registro_pendiente.get("id_comprobante_tipo"),
+                "tipo_operacion": registro_pendiente.get("tipo_operacion"),
+                "monto_total": registro_pendiente.get("monto_total"),
+                "monto_base": registro_pendiente.get("monto_base"),
+                "monto_impuesto": registro_pendiente.get("monto_impuesto"),
+                "productos_json": prod,
+                "persona_id": registro_pendiente.get("persona_id"),
+                "cliente_id": registro_pendiente.get("cliente_id"),
+                "proveedor_id": registro_pendiente.get("proveedor_id"),
+                "entidad_id_maestro": registro_pendiente.get("entidad_id_maestro"),
+            }
+            payload_analizado = {k: v for k, v in payload_analizado.items() if v is not None and v != ""}
+
+        # 3. Construir payload para ACTUALIZAR_CACHE (valores del registro como fallback)
+        productos = payload_analizado.get("productos_json", [])
+        productos_str = json.dumps(productos, ensure_ascii=False) if isinstance(productos, list) else (productos or "[]")
         base_db = {
             "codOpe": "ACTUALIZAR_CACHE",
             "ws_whatsapp": str(wa_id),
             "id_empresa": int(id_empresa),
-            "cod_ope": payload_analizado.get("cod_ope", registro_pendiete.get("cod_ope")),
+            "cod_ope": payload_analizado.get("cod_ope", registro_pendiente.get("cod_ope")),
             "entidad_nombre": payload_analizado.get("entidad_nombre", ""),
             "entidad_numero_documento": payload_analizado.get("entidad_numero_documento", ""),
             "entidad_id_tipo_documento": payload_analizado.get("entidad_id_tipo_documento"),
@@ -1208,16 +1373,18 @@ async def servicio_registrador(wa_id: str, id_empresa: int):
             "monto_total": float(payload_analizado.get("monto_total", 0)),
             "monto_base": float(payload_analizado.get("monto_base", 0)),
             "monto_impuesto": float(payload_analizado.get("monto_impuesto", 0)),
-            "productos_json": json.dumps(payload_analizado.get("productos_json", []), ensure_ascii=False),
+            "productos_json": productos_str,
             "paso_actual": 3,
             "is_ready": 1,
             "ultima_pregunta": "CONFIRMADO",
         }
-        # Incluir IDs de identidad y entidad_id_maestro si el identificador los dejó en el JSON
         for key in ("persona_id", "cliente_id", "proveedor_id", "entidad_id_maestro"):
             if payload_analizado.get(key) is not None:
                 base_db[key] = payload_analizado[key]
         payload_db = base_db
+
+        # Limpiar metadata_ia tras confirmar (opcional: dejar vacío para siguiente flujo)
+        payload_db["metadata_ia"] = json.dumps({"dato_registrado": {}, "dato_identificado": {}}, ensure_ascii=False)
 
         # 4. ESCRITURA FINAL
         headers = {'Content-Type': 'application/json'}
@@ -1301,29 +1468,34 @@ async def servicio_preguntador(wa_id: str, id_empresa: int):
     if not registro:
         return {"pregunta": "¡Hola! Soy MaravIA. 🤖 ¿Qué operación deseas registrar hoy? Puedes enviarme una foto de un comprobante o decirme, por ejemplo: 'Venta de 2 laptops a Inversiones Sur'."}
 
-    cod_ope = (registro.get("cod_ope") or "ventas").lower()
+    cod_ope = (registro.get("cod_ope") or "").strip().lower() or None
 
     # 2. PROMPT: plantilla detallada compartida con analizador/resumen; SOLO datos definidos; jerarquía en diagnóstico
     prompt_pregunta = f"""
-    Eres el Asistente Contable de MaravIA. Genera dos bloques: (1) SÍNTESIS VISUAL y (2) DIAGNÓSTICO. Usa la PLANTILLA VISUAL compartida (misma que el analizador y el resumen). **Regla crítica: en la Síntesis incluye ÚNICAMENTE las líneas para las que el dato exista en DATOS EN DB; si un campo está null, vacío o 0, esa línea NO debe aparecer.**
+    Eres el Asistente Contable de MaravIA. Genera dos bloques: (1) SÍNTESIS VISUAL y (2) DIAGNÓSTICO. Usa la PLANTILLA VISUAL compartida. **A diferencia del analizador, aquí sí despliegas todo lo que YA está registrado en DATOS EN DB:** si cod_ope está definido muestra 🛒 COMPRA o 📤 VENTA; si hay comprobante, cliente/proveedor, productos, montos, etc., muéstralos. Incluye en la Síntesis cada línea para la que el dato exista en DATOS EN DB (no null, no vacío, no 0); si un campo está vacío, esa línea NO debe aparecer.
 
     DATOS ACTUALES EN DB: {json.dumps(registro, ensure_ascii=False)}
 
     {PLANTILLA_VISUAL}
 
-    ### JERARQUÍA PARA EL DIAGNÓSTICO (igual que finalizar y resumen):
-    **Indispensables** (preguntar en este orden: 1 → 2 → 3):
-    1. Monto/Detalle: monto_total > 0 o productos_json con ítems.
-    2. Cliente (ventas) o Proveedor (compras): entidad_nombre + entidad_numero_documento, o cliente_id/entidad_id_maestro.
-    3. Tipo de comprobante: id_comprobante_tipo (Factura, Boleta, Recibo).
-    **Opcionales** (después): tipo_operacion, forma_pago, sucursal_nombre, centro_costo_nombre, caja_banco_nombre, fecha_emision, plazo_dias, fecha_vencimiento.
+    {REGLAS_NORMALIZACION}
+
+    ### JERARQUÍA PARA EL DIAGNÓSTICO (solo lo que REALMENTE falta en DATOS EN DB):
+    **Regla crítica:** Antes de listar un ítem como "falta", comprueba en DATOS EN DB que ese campo esté vacío (null, "", 0 o ausente). Si el campo YA tiene valor, NO lo incluyas en el diagnóstico.
+    **Los 3 indispensables para poder registrar** (todos deben estar completos; si falta uno, NO digas que no falta nada):
+    1. Monto/Detalle: FALTA si monto_total no existe o es 0 Y productos_json está vacío o sin ítems.
+    2. Cliente (ventas) o Proveedor (compras): FALTA si no hay (entidad_nombre + entidad_numero_documento) ni cliente_id/entidad_id_maestro (ventas) ni proveedor_id (compras).
+    3. Tipo de comprobante: FALTA si id_comprobante_tipo no existe o es 0.
+    **Solo escribe "✅ No falta ningún dato indispensable" si y solo si los TRES están completos.** Si falta monto/detalle, cliente/proveedor o tipo de comprobante, debes listarlos como faltantes; nunca afirmes que se puede confirmar si falta alguno.
+    **Opcionales** (solo si faltan): tipo_operacion, forma de pago, sucursal, centro de costo, cuenta/caja, fechas.
+    **Regla obligatoria:** Si cod_ope YA tiene valor ("compras" o "ventas"), NUNCA incluyas en el diagnóstico "¿Es una venta o una compra?". Solo si cod_ope está vacío, el primer ítem del diagnóstico es "¿Es una venta o una compra?".
 
     ### SECCIÓN 1 — SÍNTESIS VISUAL:
     Construye el texto siguiendo la plantilla. Para cada línea, comprueba en DATOS EN DB si el campo indicado en "mostrar si" tiene valor (no null, no "", no 0). Si no tiene valor, **no escribas esa línea**. Si no queda ninguna línea por mostrar, escribe: "Aún no hay datos capturados."
-    Usa nombres (Factura, Soles, Cliente/Proveedor), nunca IDs. cod_ope = "{cod_ope}" (usa "Cliente" si ventas, "Proveedor" si compras).
+    Aplica las REGLAS DE NORMALIZACIÓN: en el texto usa solo "Factura", "Boleta", "Soles", "Dólares", "DNI", "RUC", "Contado", "Crédito" y nombres de sucursal/forma de pago; NUNCA escribas 1, 2, 6, 14 ni ningún ID. cod_ope = "{cod_ope or 'no definido'}" (usa "Cliente" si ventas, "Proveedor" si compras; si no hay cod_ope, no inventes).
 
-    ### SECCIÓN 2 — DIAGNÓSTICO:
-    Lista lo que falta: primero indispensables en orden 1️⃣ 2️⃣ 3️⃣, luego opcionales (4️⃣, 5️⃣…). Preguntas concretas. Si todo indispensable está completo: "✅ No falta ningún dato indispensable; puedes confirmar para registrar." y opcionalmente opcionales pendientes.
+    ### SECCIÓN 2 — DIAGNÓSTICO (dinámico: solo campos sin valor):
+    Incluye en el diagnóstico ÚNICAMENTE los campos que en DATOS EN DB están vacíos/null/0. Si cod_ope = "compras" o "ventas", NO preguntes "¿Es una venta o una compra?". No preguntes por Factura/Boleta si id_comprobante_tipo ya tiene valor. No preguntes por monto si monto_total > 0 o hay productos. No preguntes por cliente si ya hay entidad_nombre y entidad_numero_documento o cliente_id. Redacta en lenguaje natural. **Solo escribe "✅ No falta ningún dato indispensable; puedes confirmar para registrar." cuando los 3 indispensables estén completos (monto o productos + cliente/proveedor + tipo comprobante). Si falta alguno, lista los que faltan y no digas que puede confirmar.**
 
     RESPONDE ÚNICAMENTE EN JSON:
     {{
