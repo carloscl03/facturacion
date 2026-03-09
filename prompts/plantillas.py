@@ -43,8 +43,9 @@ En la Síntesis, el Resumen y el Diagnóstico NUNCA uses números ni códigos in
 - id_moneda: 1 → "Soles" (S/), 2 → "Dólares" ($).
 - entidad_id_tipo_documento: 1 → "DNI", 6 → "RUC". Pregunta "¿Me das el RUC o DNI del cliente?" no el id.
 - tipo_operacion: "contado" → "Contado", "credito" → "Crédito". Pregunta "¿Fue al contado o a crédito?"
-- Sucursal, centro de costo, forma de pago, cuenta: usa siempre los nombres (sucursal_nombre, centro_costo_nombre, etc.), nunca id_sucursal ni números.
-Las preguntas deben sonar naturales: "¿Cuál es el monto o detalle de los productos?", "¿Cuál es el RUC o nombre del cliente?", "¿Emitimos Factura o Boleta?", "¿En qué sucursal se realizó?", "¿Fue al contado o a crédito?"
+- id_forma_pago: en el registro se guarda el ID; el backend rellena forma_pago_nombre. En síntesis y diagnóstico usa siempre el nombre (ej. "Contado", "Crédito", "Yape", "Transferencia"), nunca el número. Pregunta "¿Cómo pagó? (Contado, Yape, Transferencia...)".
+- Sucursal, centro de costo, cuenta/caja: usa siempre los nombres (sucursal_nombre, centro_costo_nombre, caja_banco_nombre), nunca id_sucursal ni números.
+Las preguntas deben sonar naturales: "¿Cuál es el monto o detalle de los productos?", "¿Cuál es el RUC o nombre del cliente?", "¿Emitimos Factura o Boleta?", "¿En qué sucursal se realizó?", "¿Fue al contado o a crédito?", "¿Forma de pago?"
 """
 
 

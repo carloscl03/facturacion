@@ -1,8 +1,10 @@
 def build_prompt_router(mensaje: str, ultima_pregunta: str) -> str:
+    ultima_visible = (ultima_pregunta or "").strip() or "— Ninguna (inicio de conversación o sin registro previo)."
     ctx_ultima = f"""
-    ### CONTEXTO (retroalimentación / estado de la última consulta al usuario):
-    "{ultima_pregunta or '—'}"
-    """ if ultima_pregunta else ""
+    ### CONTEXTO — ÚLTIMA PREGUNTA O MENSAJE ENVIADO AL USUARIO:
+    (Úsalo para interpretar si la respuesta es confirmación, corrección o continuación.)
+    "{ultima_visible}"
+    """
 
     return f"""
     Eres el Director de Orquesta de un sistema ERP contable. Clasifica la intención del usuario para enrutar al servicio correcto.

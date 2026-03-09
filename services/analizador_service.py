@@ -5,6 +5,22 @@ from repositories.base import CacheRepository
 from services.ai_service import AIService
 
 
+def _parsear_metadata(raw) -> dict:
+    """Parsea metadata_ia (str o dict) para pasarlo al prompt del analizador."""
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    raw_str = str(raw).strip()
+    if not raw_str:
+        return {}
+    try:
+        parsed = json.loads(raw_str)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
 def _sin_nulos(d: dict) -> dict:
     if not isinstance(d, dict):
         return d
@@ -36,8 +52,13 @@ class AnalizadorService:
         if len(ultima_pregunta_enviada) > 800:
             ultima_pregunta_enviada = ultima_pregunta_enviada[:800] + "..."
 
+        metadata_ia = _parsear_metadata(estado_actual.get("metadata_ia"))
+
         prompt = build_prompt_analisis(
-            ultima_pregunta_enviada, mensaje, cod_ope_para_escribir
+            ultima_pregunta_enviada,
+            mensaje,
+            cod_ope_para_escribir,
+            metadata_registro=metadata_ia,
         )
 
         try:
@@ -85,8 +106,9 @@ class AnalizadorService:
             )
             payload_db["metadata_ia"] = json.dumps(metadata_ia, ensure_ascii=False)
 
-            retroalimentacion = (mensaje_entendimiento or "Propuesta actualizada. Revisa el resumen arriba.").strip()
-            payload_db["ultima_pregunta"] = retroalimentacion
+            # ultima_pregunta = lo que el usuario vio (estado REGISTRADO): resumen + pregunta de confirmación
+            texto_registrado = (resumen_visual or "¿Los datos son correctos? Indique si desea confirmar o modificar algo.").strip()
+            payload_db["ultima_pregunta"] = texto_registrado
             payload_db["paso_actual"] = 2
             payload_db["is_ready"] = 0
 

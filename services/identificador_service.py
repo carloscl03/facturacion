@@ -16,6 +16,22 @@ def _sin_nulos(d: dict) -> dict:
     }
 
 
+def _parsear_metadata(raw) -> dict:
+    """Parsea metadata_ia si llega como str o dict (API puede devolverlo ya parseado)."""
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    raw_str = str(raw).strip()
+    if not raw_str:
+        return {}
+    try:
+        parsed = json.loads(raw_str)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
 class IdentificadorService:
     def __init__(self, cache_repo: CacheRepository, entity_repo: EntityRepository) -> None:
         self._cache = cache_repo
@@ -112,11 +128,7 @@ class IdentificadorService:
             })
 
             registro_actual = self._cache.consultar(wa_id, id_empresa) or {}
-            raw_metadata = registro_actual.get("metadata_ia") or "{}"
-            try:
-                metadata_ia = json.loads(raw_metadata) if raw_metadata.strip() else {}
-            except Exception:
-                metadata_ia = {}
+            metadata_ia = _parsear_metadata(registro_actual.get("metadata_ia"))
 
             dato_registrado = metadata_ia.get("dato_registrado") or {}
             if not dato_registrado and registro_actual:
@@ -126,6 +138,8 @@ class IdentificadorService:
                         prod = json.loads(prod) if (prod or "").strip() else []
                     except Exception:
                         prod = []
+                else:
+                    prod = prod if isinstance(prod, list) else []
                 dato_registrado = _sin_nulos({
                     "cod_ope": registro_actual.get("cod_ope"),
                     "entidad_nombre": registro_actual.get("entidad_nombre"),

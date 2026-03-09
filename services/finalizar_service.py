@@ -49,7 +49,7 @@ class FinalizarService:
 
             return {
                 "status": "finalizado",
-                "mensaje_completo": (
+                "mensaje": (
                     f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
                     f"🏢 *Proveedor:* {reg.get('entidad_nombre')}\n"
                     f"💰 *Monto:* {moneda_simbolo} {monto_total}\n"
@@ -114,7 +114,7 @@ class FinalizarService:
         if url_pdf:
             return {
                 "status": "finalizado",
-                "mensaje_completo": (
+                "mensaje": (
                     f"✨ *¡VENTA REGISTRADA EN SUNAT!*\n\n"
                     f"👤 *Cliente:* {reg.get('entidad_nombre')}\n"
                     f"💰 *Total:* {moneda_simbolo} {monto_total}\n"

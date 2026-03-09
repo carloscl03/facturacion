@@ -97,9 +97,9 @@ def build_prompt_pregunta(registro: dict) -> str:
 
 
 def build_prompt_preguntador_v2(registro: dict, cod_ope: str | None) -> str:
-    """Prompt para el servicio /preguntador (versión mejorada con síntesis y diagnóstico separados)."""
+    """Prompt para el servicio /preguntador: síntesis + diagnóstico separado en preguntas obligatorias y opcionales."""
     return f"""
-    Eres el Asistente Contable de MaravIA. Genera dos bloques: (1) SÍNTESIS VISUAL y (2) DIAGNÓSTICO. Usa la PLANTILLA VISUAL compartida. **A diferencia del analizador, aquí sí despliegas todo lo que YA está registrado en DATOS EN DB:** si cod_ope está definido muestra 🛒 COMPRA o 📤 VENTA; si hay comprobante, cliente/proveedor, productos, montos, etc., muéstralos. Incluye en la Síntesis cada línea para la que el dato exista en DATOS EN DB (no null, no vacío, no 0); si un campo está vacío, esa línea NO debe aparecer.
+    Eres el Asistente Contable de MaravIA. Genera (1) SÍNTESIS VISUAL y (2) DIAGNÓSTICO en dos bloques: preguntas de datos OBLIGATORIOS y preguntas de datos OPCIONALES. Usa la PLANTILLA VISUAL compartida. **En la Síntesis despliega SOLO lo que YA está registrado en DATOS EN DB:** si cod_ope está definido muestra 🛒 COMPRA o 📤 VENTA; si hay comprobante, cliente/proveedor, productos, montos, etc., muéstralos. Si un campo está vacío, esa línea NO debe aparecer en la síntesis.
 
     DATOS ACTUALES EN DB: {json.dumps(registro, ensure_ascii=False)}
 
@@ -107,26 +107,36 @@ def build_prompt_preguntador_v2(registro: dict, cod_ope: str | None) -> str:
 
     {REGLAS_NORMALIZACION}
 
-    ### JERARQUÍA PARA EL DIAGNÓSTICO (solo lo que REALMENTE falta en DATOS EN DB):
-    **Regla crítica:** Antes de listar un ítem como "falta", comprueba en DATOS EN DB que ese campo esté vacío (null, "", 0 o ausente). Si el campo YA tiene valor, NO lo incluyas en el diagnóstico.
-    **Los 3 indispensables para poder registrar** (todos deben estar completos; si falta uno, NO digas que no falta nada):
-    1. Monto/Detalle: FALTA si monto_total no existe o es 0 Y productos_json está vacío o sin ítems.
-    2. Cliente (ventas) o Proveedor (compras): FALTA si no hay (entidad_nombre + entidad_numero_documento) ni cliente_id/entidad_id_maestro (ventas) ni proveedor_id (compras).
-    3. Tipo de comprobante: FALTA si id_comprobante_tipo no existe o es 0.
-    **Solo escribe "✅ No falta ningún dato indispensable" si y solo si los TRES están completos.** Si falta monto/detalle, cliente/proveedor o tipo de comprobante, debes listarlos como faltantes; nunca afirmes que se puede confirmar si falta alguno.
-    **Opcionales** (solo si faltan): tipo_operacion, forma de pago, sucursal, centro de costo, cuenta/caja, fechas.
-    **Regla obligatoria:** Si cod_ope YA tiene valor ("compras" o "ventas"), NUNCA incluyas en el diagnóstico "¿Es una venta o una compra?". Solo si cod_ope está vacío, el primer ítem del diagnóstico es "¿Es una venta o una compra?".
+    ### DATOS OBLIGATORIOS (solo estos 3; si falta uno, no se puede finalizar):
+    1. **Monto/Detalle:** FALTA si monto_total no existe o es 0 Y productos_json está vacío o sin ítems.
+    2. **Cliente (ventas) o Proveedor (compras):** FALTA si no hay (entidad_nombre + entidad_numero_documento) ni entidad_id_maestro.
+    3. **Tipo de comprobante:** FALTA si id_comprobante_tipo no existe o es 0.
+
+    ### DATOS OPCIONALES (el resto; el usuario puede completarlos si desea):
+    - tipo_operacion (contado/crédito)
+    - forma de pago (id_forma_pago; el backend rellena forma_pago_nombre)
+    - sucursal (id_sucursal o sucursal_nombre)
+    - centro de costo (id_centro_costo o centro_costo_nombre)
+    - cuenta/caja (id_caja_banco o caja_banco_nombre)
+    - fechas (fecha_emision, fecha_pago)
+    - moneda (id_moneda)
+
+    **Regla:** Si cod_ope YA tiene valor ("compras" o "ventas"), NUNCA incluyas "¿Es una venta o una compra?". Solo si cod_ope está vacío, el primer ítem obligatorio es preguntar el tipo de operación.
 
     ### SECCIÓN 1 — SÍNTESIS VISUAL:
-    Construye el texto siguiendo la plantilla. Para cada línea, comprueba en DATOS EN DB si el campo indicado en "mostrar si" tiene valor (no null, no "", no 0). Si no tiene valor, **no escribas esa línea**. Si no queda ninguna línea por mostrar, escribe: "Aún no hay datos capturados."
-    Aplica las REGLAS DE NORMALIZACIÓN: en el texto usa solo "Factura", "Boleta", "Soles", "Dólares", "DNI", "RUC", "Contado", "Crédito" y nombres de sucursal/forma de pago; NUNCA escribas 1, 2, 6, 14 ni ningún ID. cod_ope = "{cod_ope or 'no definido'}" (usa "Cliente" si ventas, "Proveedor" si compras; si no hay cod_ope, no inventes).
+    Construye el texto siguiendo la plantilla. Para cada línea, comprueba en DATOS EN DB si el campo tiene valor (no null, no "", no 0). Si no tiene valor, **no escribas esa línea**. Si no queda ninguna línea por mostrar, escribe: "Aún no hay datos capturados."
+    Aplica las REGLAS DE NORMALIZACIÓN: usa "Factura", "Boleta", "Soles", "Dólares", "DNI", "RUC", "Contado", "Crédito" y nombres (forma_pago_nombre, sucursal_nombre, etc.); NUNCA IDs numéricos. cod_ope = "{cod_ope or 'no definido'}" (Cliente si ventas, Proveedor si compras).
 
-    ### SECCIÓN 2 — DIAGNÓSTICO (dinámico: solo campos sin valor):
-    Incluye en el diagnóstico ÚNICAMENTE los campos que en DATOS EN DB están vacíos/null/0. Si cod_ope = "compras" o "ventas", NO preguntes "¿Es una venta o una compra?". No preguntes por Factura/Boleta si id_comprobante_tipo ya tiene valor. No preguntes por monto si monto_total > 0 o hay productos. No preguntes por cliente si ya hay entidad_nombre y entidad_numero_documento o cliente_id. Redacta en lenguaje natural. **Solo escribe "✅ No falta ningún dato indispensable; puedes confirmar para registrar." cuando los 3 indispensables estén completos (monto o productos + cliente/proveedor + tipo comprobante). Si falta alguno, lista los que faltan y no digas que puede confirmar.**
+    ### SECCIÓN 2 — DIAGNÓSTICO (separar obligatorios y opcionales):
+    **Regla crítica:** Incluye ÚNICAMENTE campos que en DATOS EN DB están vacíos (null, "", 0 o ausentes). Si un campo YA tiene valor, NO lo menciones.
+    - **preguntas_obligatorias:** Solo los 3 datos obligatorios que falten. Una pregunta o frase en lenguaje natural por cada uno (ej: "Falta el detalle o monto de la operación.", "Falta indicar el cliente (nombre o RUC).", "Falta el tipo de comprobante (Factura o Boleta)."). Si los 3 obligatorios están completos, escribe aquí la **sugerencia de finalizar** (ej: "No falta ningún dato obligatorio. ¿Desea finalizar el registro y emitir el comprobante? Puede decir *finalizar* o *emitir*.") y deja preguntas_opcionales como quieras.
+    - **preguntas_opcionales:** Solo datos opcionales pendientes que quieras sugerir (ej: "¿En qué sucursal se realizó?", "¿Fue al contado o a crédito?", "¿Forma de pago?"). En lenguaje natural. Si no quieres sugerir ninguno, cadena vacía "".
+    **Prohibido:** No digas "puedes confirmar" sin incluir la invitación a finalizar/emitir cuando no falten obligatorios.
 
     RESPONDE ÚNICAMENTE EN JSON:
     {{
         "sintesis_visual": "Texto SÍNTESIS (solo líneas con dato definido) con \\n",
-        "diagnostico": "Texto DIAGNÓSTICO (jerarquía indispensable → opcional) con \\n"
+        "preguntas_obligatorias": "Preguntas o frases solo para datos OBLIGATORIOS pendientes; si no hay ninguno, texto de sugerencia de finalizar. Con \\n",
+        "preguntas_opcionales": "Preguntas solo para datos OPCIONALES pendientes (sucursal, forma de pago, fechas, etc.) o vacío. Con \\n"
     }}
     """

@@ -1,3 +1,5 @@
+import json
+
 from prompts.plantillas import PLANTILLA_VISUAL, REGLAS_NORMALIZACION
 
 
@@ -5,6 +7,7 @@ def build_prompt_analisis(
     ultima_pregunta_enviada: str,
     mensaje: str,
     cod_ope_registro: str | None = None,
+    metadata_registro: dict | None = None,
 ) -> str:
     cod_ope_bloqueado = cod_ope_registro in ("ventas", "compras")
     regla_cambio_operacion = ""
@@ -14,10 +17,12 @@ def build_prompt_analisis(
     ### REGLA CRÍTICA — CAMBIO DE TIPO DE OPERACIÓN BLOQUEADO:
     El registro actual ya tiene cod_ope = "{cod_ope_registro}". NO está permitido cambiarlo por "{opuesto}".
     - Si el usuario dice algo que implica "{opuesto}" (ej: "compré algo", "es una compra", "quiero registrar una compra" cuando el registro es ventas; o "vendí", "es una venta" cuando el registro es compras):
-      1. NO pongas en propuesta_cache cod_ope = "{opuesto}". Mantén o deja cod_ope como "{cod_ope_registro}" o null (el sistema conservará el actual).
+      1. NO pongas en propuesta_cache cod_ope = "{opuesto}". Mantén cod_ope como "{cod_ope_registro}" (el sistema conservará el actual).
       2. NO digas en mensaje_entendimiento que entendiste una intención de "{opuesto}" (ej. no escribas "Entendido, es una compra" ni "Anotado: compra").
-      3. SÍ extrae y muestra cualquier OTRO dato útil del mensaje (productos, montos, cliente, comprobante, etc.) en el resumen_visual, como si fuera un mensaje de actualización para el registro actual de {cod_ope_registro}.
-      4. En el resumen_visual o al final del mensaje_entendimiento, incluye SIEMPRE una pregunta clara: "¿Desea eliminar el registro de *{cod_ope_registro.upper()}* actual e iniciar uno de *{opuesto.upper()}*? Si es así, puede decir 'eliminar' o 'empezar de cero'."
+      **Solo si el mensaje tiene ÚNICAMENTE intención de cambiar a {opuesto} (sin productos, montos, entidad, comprobante ni ningún otro dato):**
+      3a. En resumen_visual incluye la pregunta: "¿Desea eliminar el registro de *{cod_ope_registro.upper()}* actual e iniciar uno de *{opuesto.upper()}*? Si es así, puede decir 'eliminar' o 'empezar de cero'."
+      **Si el mensaje además trae otros datos** (productos, montos, cliente/proveedor, comprobante, moneda, etc.):
+      3b. Extrae y muestra esos otros datos en el resumen_visual como actualización del registro actual de {cod_ope_registro}. Pide confirmación en lenguaje natural (ej: "¿Los datos son correctos? Indique si desea confirmar o modificar algo."). NO incluyas en ese caso la pregunta de eliminar/cambiar a {opuesto}; procede a identificar los datos y pedir confirmación normal.
     - Si el usuario confirma o aporta datos coherentes con {cod_ope_registro} (venta cuando el registro es ventas, compra cuando es compras), comportate con normalidad: reconoce los datos y muestra el resumen según la plantilla.
 """
 
@@ -30,14 +35,29 @@ def build_prompt_analisis(
     - Si el mensaje SÍ indica claramente venta o compra (ej: "es una venta", "quiero hacer una compra", "registrar compra", "ventas"), entonces sí extrae cod_ope y cualquier otro dato que aporte; comportate con normalidad.
 """
 
+    metadata_ctx = ""
+    if metadata_registro and isinstance(metadata_registro, dict):
+        try:
+            metadata_str = json.dumps(metadata_registro, ensure_ascii=False, indent=2)
+        except (TypeError, ValueError):
+            metadata_str = "{}"
+        metadata_ctx = f"""
+    ### METADATA DEL REGISTRO ACTUAL (contexto ya capturado/identificado — úsalo para fusionar con lo que extraigas del mensaje):
+    (dato_registrado: lo ya guardado en cache; dato_identificado: entidad encontrada en BD si hubo identificación.)
+    ```json
+    {metadata_str}
+    ```
+    """
+
     return f"""
     Eres el Analizador Experto de MaravIA. Tu misión es extraer datos contables y generar un resumen visual humano y profesional.
     {regla_cambio_operacion}
     {regla_sin_cod_ope}
 
-    ### RETROALIMENTACIÓN — ÚLTIMA PREGUNTA O MENSAJE ENVIADO AL USUARIO:
-    (Úsala para interpretar si el mensaje actual es una corrección, respuesta o cambio respecto a lo que se le mostró.)
-    "{ultima_pregunta_enviada or 'Ninguna aún.'}"
+    ### RETROALIMENTACIÓN — ÚLTIMA PREGUNTA O MENSAJE ENVIADO AL USUARIO (estado REGISTRADO):
+    (Es lo que el usuario vio por última vez; úsala para interpretar si el mensaje actual es confirmación, corrección o continuación.)
+    "{ultima_pregunta_enviada or '¿Los datos son correctos? Indique si desea confirmar o modificar algo.'}"
+    {metadata_ctx}
 
     ### REGLAS DE EXTRACCIÓN TÉCNICA:
     - cod_ope: solo "ventas" o "compras" si el usuario lo dice o ya está en el registro; si no está definido, deja null (no asumir). Si el registro ya tiene cod_ope y el usuario dice lo contrario, NO cambies cod_ope (ver regla de cambio bloqueado arriba).

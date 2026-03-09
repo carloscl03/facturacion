@@ -95,7 +95,14 @@ class PreguntadorV2Service:
         resultado = self._ai.completar_json(prompt)
 
         sintesis = (resultado.get("sintesis_visual") or "").strip() or "Aún no hay datos capturados."
-        diagnostico = (resultado.get("diagnostico") or "").strip() or "Revisa los datos arriba y dime qué falta o si confirmas."
+        obligatorias = (resultado.get("preguntas_obligatorias") or "").strip()
+        opcionales = (resultado.get("preguntas_opcionales") or "").strip()
+        # Retrocompatibilidad: si la IA devuelve "diagnostico", usarlo; si no, armar desde obligatorias + opcionales
+        if resultado.get("diagnostico") is not None and (resultado.get("diagnostico") or "").strip():
+            diagnostico = (resultado.get("diagnostico") or "").strip()
+        else:
+            partes = [p for p in (obligatorias, opcionales) if p]
+            diagnostico = "\n\n".join(partes) if partes else "Revisa los datos arriba y dime qué falta o si confirmas."
         texto_final = f"{sintesis}\n\n{diagnostico}"
         if bloques_previos:
             texto_final = "\n\n".join(bloques_previos) + "\n\n" + texto_final
