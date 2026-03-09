@@ -1,0 +1,175 @@
+import json
+import re
+
+from prompts.analizador import build_prompt_analisis
+from repositories.base import CacheRepository
+from services.ai_service import AIService
+
+
+def _sin_nulos(d: dict) -> dict:
+    if not isinstance(d, dict):
+        return d
+    return {
+        k: v
+        for k, v in d.items()
+        if v is not None and v != "" and v != "null" and (not isinstance(v, str) or v.strip())
+    }
+
+
+class AnalizadorService:
+    def __init__(self, repo: CacheRepository, ai: AIService) -> None:
+        self._repo = repo
+        self._ai = ai
+
+    def ejecutar(self, wa_id: str, mensaje: str, id_empresa: int) -> dict:
+        lista = self._repo.consultar_lista(wa_id, id_empresa)
+        estado_actual = lista[0] if lista else {}
+        es_registro_nuevo = len(lista) == 0
+
+        contexto_previo = self._detectar_contexto(mensaje, estado_actual)
+        ultima_pregunta_enviada = estado_actual.get("ultima_pregunta") or ""
+        if len(ultima_pregunta_enviada) > 800:
+            ultima_pregunta_enviada = ultima_pregunta_enviada[:800] + "..."
+
+        prompt = build_prompt_analisis(ultima_pregunta_enviada, mensaje)
+
+        try:
+            output_ia = self._ai.completar_json(prompt)
+            propuesta = output_ia.get("propuesta_cache", {})
+            mensaje_entendimiento = (output_ia.get("mensaje_entendimiento") or "").strip()
+            resumen_visual = output_ia.get("resumen_visual", "")
+            if mensaje_entendimiento:
+                resumen_visual = f"{mensaje_entendimiento}\n\n{resumen_visual}".strip()
+
+            req_id = output_ia.get("requiere_identificacion") or {}
+            requiere_identificacion = {
+                "activo": bool(req_id.get("activo")),
+                "termino": (req_id.get("termino") or "").strip(),
+                "tipo_ope": req_id.get("tipo_ope") or contexto_previo,
+                "mensaje": (req_id.get("mensaje") or "").strip(),
+            }
+            if requiere_identificacion["activo"] and not requiere_identificacion["termino"]:
+                requiere_identificacion["activo"] = False
+
+            payload_base = self._construir_payload(propuesta, estado_actual, contexto_previo)
+
+            def es_valor_no_nulo(v):
+                if v is None:
+                    return False
+                if isinstance(v, str) and v.strip() == "":
+                    return False
+                if v == "null":
+                    return False
+                return True
+
+            payload_db = {k: v for k, v in payload_base.items() if es_valor_no_nulo(v)}
+
+            metadata_ia = self._construir_metadata(propuesta, estado_actual, payload_base, contexto_previo)
+            payload_db["metadata_ia"] = json.dumps(metadata_ia, ensure_ascii=False)
+
+            retroalimentacion = (mensaje_entendimiento or "Propuesta actualizada. Revisa el resumen arriba.").strip()
+            payload_db["ultima_pregunta"] = retroalimentacion
+
+            payload_db["paso_actual"] = 2
+            payload_db["is_ready"] = 0
+            if payload_base.get("cod_ope") and str(payload_base.get("cod_ope")).strip():
+                payload_db["cod_ope"] = str(payload_base["cod_ope"]).strip().lower()
+
+            db_res = self._repo.upsert(wa_id, id_empresa, payload_db, es_registro_nuevo)
+
+            out = {
+                "status": "analizado_y_guardado",
+                "db_res": db_res,
+                "whatsapp_output": {"texto": resumen_visual},
+                "requiere_identificacion": requiere_identificacion,
+            }
+            if requiere_identificacion["activo"]:
+                out["datos_entidad"] = {
+                    "termino": requiere_identificacion["termino"],
+                    "tipo_ope": requiere_identificacion["tipo_ope"],
+                    "mensaje": requiere_identificacion["mensaje"]
+                    or f"Buscando '{requiere_identificacion['termino']}' en {'clientes' if requiere_identificacion['tipo_ope'] == 'ventas' else 'proveedores'}...",
+                }
+            return out
+
+        except Exception as e:
+            return {"status": "error", "detalle": str(e)}
+
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+
+    def _detectar_contexto(self, mensaje: str, estado_actual: dict) -> str | None:
+        mensaje_lower = (mensaje or "").lower().strip()
+        if any(x in mensaje_lower for x in [" a venta", "a ventas", "cambiar a venta", "cambiarlo a venta", "cambiar a ventas", "pásalo a venta", "pásalo a ventas"]):
+            return "ventas"
+        if any(x in mensaje_lower for x in [" a compra", "a compras", "cambiar a compra", "cambiarlo a compra", "cambiar a compras", "pásalo a compra"]):
+            return "compras"
+        if any(x in mensaje_lower for x in ["venta", "ventas", "vender", "vendiendo", "es una venta", "registrar venta"]):
+            return "ventas"
+        if any(x in mensaje_lower for x in ["compra", "compras", "gasto", "es una compra", "registrar compra"]):
+            return "compras"
+        cod = (estado_actual.get("cod_ope") or "").strip().lower()
+        return cod if cod else None
+
+    def _construir_payload(self, propuesta: dict, estado_actual: dict, contexto_previo: str | None) -> dict:
+        productos_str = json.dumps(propuesta.get("productos_json", []), ensure_ascii=False)
+
+        def obtener_valor(campo, default=None):
+            nuevo = propuesta.get(campo)
+            viejo = estado_actual.get(campo)
+            if nuevo not in [None, "", 0, "null"]:
+                return nuevo
+            return viejo if viejo not in [None, "", 0, "null"] else default
+
+        return {
+            "cod_ope": contexto_previo if contexto_previo else obtener_valor("cod_ope", None),
+            "entidad_nombre": obtener_valor("entidad_nombre", ""),
+            "entidad_numero_documento": obtener_valor("entidad_numero_documento", ""),
+            "entidad_id_tipo_documento": propuesta.get("entidad_id_tipo_documento") or estado_actual.get("entidad_id_tipo_documento"),
+            "id_moneda": obtener_valor("id_moneda", None),
+            "id_comprobante_tipo": obtener_valor("id_comprobante_tipo", None),
+            "tipo_operacion": obtener_valor("tipo_operacion", None),
+            "monto_total": float(propuesta.get("monto_total") or estado_actual.get("monto_total") or 0),
+            "monto_base": float(propuesta.get("monto_base") or estado_actual.get("monto_base") or 0),
+            "monto_impuesto": float(propuesta.get("monto_impuesto") or estado_actual.get("monto_impuesto") or 0),
+            "productos_json": productos_str,
+            "paso_actual": 2,
+            "is_ready": 0,
+        }
+
+    def _construir_metadata(
+        self, propuesta: dict, estado_actual: dict, payload_base: dict, contexto_previo: str | None
+    ) -> dict:
+        try:
+            metadata_prev = json.loads(estado_actual.get("metadata_ia") or "{}")
+            dato_identificado_existente = metadata_prev.get("dato_identificado") or {}
+            dato_registrado_prev = metadata_prev.get("dato_registrado") or {}
+        except Exception:
+            dato_identificado_existente = {}
+            dato_registrado_prev = {}
+
+        productos_propuesta = propuesta.get("productos_json") or []
+        tiene_productos_nuevos = isinstance(productos_propuesta, list) and len(productos_propuesta) > 0
+
+        nuevo_parcial = _sin_nulos({
+            "cod_ope": payload_base.get("cod_ope"),
+            "entidad_nombre": payload_base.get("entidad_nombre"),
+            "entidad_numero_documento": payload_base.get("entidad_numero_documento"),
+            "entidad_id_tipo_documento": payload_base.get("entidad_id_tipo_documento"),
+            "id_moneda": payload_base.get("id_moneda"),
+            "id_comprobante_tipo": payload_base.get("id_comprobante_tipo"),
+            "tipo_operacion": payload_base.get("tipo_operacion"),
+            "monto_total": payload_base.get("monto_total"),
+            "monto_base": payload_base.get("monto_base"),
+            "monto_impuesto": payload_base.get("monto_impuesto"),
+            **({"productos_json": productos_propuesta} if tiene_productos_nuevos else {}),
+        })
+
+        dato_registrado = _sin_nulos({**dato_registrado_prev, **nuevo_parcial})
+
+        cod_ope_efectivo = contexto_previo or payload_base.get("cod_ope") or dato_registrado.get("cod_ope")
+        if cod_ope_efectivo and str(cod_ope_efectivo).strip().lower() in ("ventas", "compras"):
+            dato_registrado["cod_ope"] = str(cod_ope_efectivo).strip().lower()
+
+        return {"dato_registrado": dato_registrado, "dato_identificado": dato_identificado_existente}

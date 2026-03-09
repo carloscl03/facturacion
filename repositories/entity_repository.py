@@ -1,0 +1,100 @@
+import requests
+
+
+class EntityRepository:
+    """Acceso a la API de clientes y proveedores."""
+
+    def __init__(self, url_cliente: str, url_proveedor: str) -> None:
+        self._url_cliente = url_cliente
+        self._url_proveedor = url_proveedor
+
+    # ------------------------------------------------------------------ #
+    # BÚSQUEDA
+    # ------------------------------------------------------------------ #
+
+    def buscar_cliente(self, id_empresa: int, termino: str) -> dict | None:
+        """Busca un cliente por RUC, DNI o nombre. Retorna data o None."""
+        res = requests.get(
+            self._url_cliente,
+            params={"codOpe": "BUSCAR_CLIENTE", "empresa_id": id_empresa, "termino": termino},
+        ).json()
+        return res.get("data") if res.get("found") else None
+
+    def buscar_proveedor(self, id_empresa: int, termino: str) -> dict | None:
+        """Busca un proveedor por nombre. Retorna data o None."""
+        res = requests.post(
+            self._url_proveedor,
+            json={"codOpe": "BUSCAR_PROVEEDOR", "id_empresa": id_empresa, "nombre_completo": termino},
+        ).json()
+        return res.get("data") if res.get("found") else None
+
+    # ------------------------------------------------------------------ #
+    # REGISTRO
+    # ------------------------------------------------------------------ #
+
+    def registrar_cliente(self, reg: dict, id_empresa: int) -> dict:
+        """
+        Registra un cliente nuevo.
+        - Persona Natural (tipo_persona=1): nombres, apellido_paterno, id_tipo_documento, numero_documento.
+        - Persona Jurídica (tipo_persona=2): razon_social, id_tipo_documento, ruc.
+        """
+        id_tipo = reg.get("entidad_id_tipo_documento") or (
+            6 if len(str(reg.get("entidad_numero_documento") or "").strip()) == 11 else 1
+        )
+        numero_doc = (reg.get("entidad_numero_documento") or "").strip()
+        nombre = (reg.get("entidad_nombre") or "").strip() or "Sin nombre"
+        es_ruc = id_tipo == 6
+
+        payload: dict = {"codOpe": "REGISTRAR_CLIENTE", "empresa_id": id_empresa}
+        if es_ruc:
+            payload["tipo_persona"] = 2
+            payload["razon_social"] = nombre
+            payload["id_tipo_documento"] = id_tipo
+            payload["ruc"] = numero_doc
+        else:
+            payload["tipo_persona"] = 1
+            payload["nombres"] = nombre
+            payload["apellido_paterno"] = "."
+            payload["id_tipo_documento"] = id_tipo
+            payload["numero_documento"] = numero_doc
+
+        for k in ("telefono", "correo", "direccion", "nombre_comercial", "representante_legal"):
+            if reg.get(k):
+                payload[k] = reg[k]
+
+        try:
+            r = requests.post(self._url_cliente, json=payload, timeout=15)
+            return r.json()
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    # ------------------------------------------------------------------ #
+    # ACTUALIZACIÓN
+    # ------------------------------------------------------------------ #
+
+    def actualizar_cliente(self, cliente_id: int, reg: dict, id_empresa: int) -> dict:
+        """Actualiza los datos de un cliente existente."""
+        payload: dict = {
+            "codOpe": "ACTUALIZAR_CLIENTE",
+            "cliente_id": cliente_id,
+            "empresa_id": id_empresa,
+        }
+        for k in (
+            "nombres", "apellido_paterno", "apellido_materno", "id_tipo_documento",
+            "numero_documento", "telefono", "correo", "direccion", "razon_social",
+            "nombre_comercial", "ruc", "representante_legal",
+        ):
+            if reg.get(k) is not None and reg.get(k) != "":
+                payload[k] = reg[k]
+
+        if reg.get("entidad_nombre") and "nombres" not in payload and "razon_social" not in payload:
+            payload["razon_social"] = reg["entidad_nombre"]
+        if reg.get("entidad_numero_documento"):
+            payload.setdefault("numero_documento", reg["entidad_numero_documento"])
+            payload.setdefault("ruc", reg["entidad_numero_documento"])
+
+        try:
+            r = requests.post(self._url_cliente, json=payload, timeout=15)
+            return r.json()
+        except Exception as e:
+            return {"success": False, "message": str(e)}

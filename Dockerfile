@@ -27,4 +27,4 @@ COPY . .
 EXPOSE 3000
 
 # Comando para ejecutar la aplicación
-CMD ["python", "main_cache.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
