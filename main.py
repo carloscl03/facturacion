@@ -6,7 +6,7 @@ from api.routes import (
     eliminar,
     extraccion,
     finalizar,
-    identificacion,
+    identificador,
     informador,
     iniciar,
     preguntador,
@@ -22,7 +22,7 @@ app.include_router(preguntador.router)
 app.include_router(clasificador.router)
 app.include_router(informador.router)
 app.include_router(resumen.router)
-app.include_router(identificacion.router)
+app.include_router(identificador.router)
 app.include_router(eliminar.router)
 app.include_router(finalizar.router)
 app.include_router(unificado.router)

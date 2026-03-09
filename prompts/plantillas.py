@@ -46,3 +46,56 @@ En la Síntesis, el Resumen y el Diagnóstico NUNCA uses números ni códigos in
 - Sucursal, centro de costo, forma de pago, cuenta: usa siempre los nombres (sucursal_nombre, centro_costo_nombre, etc.), nunca id_sucursal ni números.
 Las preguntas deben sonar naturales: "¿Cuál es el monto o detalle de los productos?", "¿Cuál es el RUC o nombre del cliente?", "¿Emitimos Factura o Boleta?", "¿En qué sucursal se realizó?", "¿Fue al contado o a crédito?"
 """
+
+
+def formatear_ficha_identificacion(
+    nombre_entidad: str,
+    doc_identidad: str,
+    tipo_doc_txt: str,
+    comercial: str,
+    correo_ent: str,
+    telf_ent: str,
+    dir_ent: str,
+    rol_txt: str,
+    tipo_ope: str,
+) -> str:
+    """Plantilla dinámica para confirmación pendiente del identificador. Solo se usa cuando hay identificación pendiente."""
+    return (
+        f"✅ *FICHA DE IDENTIDAD LOCALIZADA*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 *Nombre/Razón:* {nombre_entidad}\n"
+        f"🏪 *N. Comercial:* {comercial}\n"
+        f"🆔 *{tipo_doc_txt}:* {doc_identidad}\n"
+        f"💼 *Rol:* {rol_txt}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📧 *Correo:* {correo_ent}\n"
+        f"📞 *Teléfono:* {telf_ent}\n"
+        f"📍 *Dirección:* {dir_ent}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"¿Los datos son correctos para continuar con la operación de *{tipo_ope.upper()}*?"
+    )
+
+
+def formatear_resumen_registro(datos: dict) -> str:
+    """Formatea los datos registrados para mostrarlos como resumen aparte del informe de datos y datos faltantes."""
+    if not datos or not isinstance(datos, dict):
+        return ""
+    lineas = ["📋 *Resumen del registro confirmado*", "━━━━━━━━━━━━━━━━━━━━"]
+    cod_ope = (datos.get("cod_ope") or "").strip().lower()
+    if cod_ope == "ventas":
+        lineas.append("📤 *VENTA*")
+    elif cod_ope == "compras":
+        lineas.append("🛒 *COMPRA*")
+    if datos.get("entidad_nombre"):
+        lineas.append(f"👤 *Cliente/Proveedor:* {datos.get('entidad_nombre')}")
+    if datos.get("entidad_numero_documento"):
+        lineas.append(f"🆔 *Documento:* {datos.get('entidad_numero_documento')}")
+    if datos.get("monto_total") is not None and float(datos.get("monto_total") or 0) > 0:
+        lineas.append(f"💰 *Total:* {datos.get('monto_total')}")
+    prod = datos.get("productos_json")
+    if isinstance(prod, list) and prod:
+        lineas.append("📦 *Productos:* " + ", ".join(f"{p.get('cantidad', 1)} x {p.get('nombre', '')}" for p in prod[:5]))
+    if isinstance(prod, str) and prod.strip():
+        lineas.append("📦 *Productos:* (ver detalle)")
+    lineas.append("━━━━━━━━━━━━━━━━━━━━")
+    return "\n".join(lineas)

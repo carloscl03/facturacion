@@ -1,5 +1,4 @@
 import json
-import re
 
 from prompts.analizador import build_prompt_analisis
 from repositories.base import CacheRepository

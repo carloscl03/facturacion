@@ -1,5 +1,6 @@
 import json
 
+from prompts.plantillas import formatear_ficha_identificacion
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
 
@@ -15,7 +16,7 @@ def _sin_nulos(d: dict) -> dict:
     }
 
 
-class IdentificacionService:
+class IdentificadorService:
     def __init__(self, cache_repo: CacheRepository, entity_repo: EntityRepository) -> None:
         self._cache = cache_repo
         self._entities = entity_repo
@@ -27,14 +28,17 @@ class IdentificacionService:
 
             if not data_cli and not data_prov:
                 rol = "cliente" if (tipo_ope or "").lower() == "ventas" else "proveedor"
+                mensaje = (
+                    f"❌ No encontré ese RUC/DNI o nombre en la base de {rol}es.\n\n"
+                    f"Puedes *llenar el campo sin identificar*: indícame el **nombre o razón social** y el **número de documento** (RUC o DNI) "
+                    f"y lo anotaré para continuar. Al finalizar la operación podré registrarlo si es necesario.\n\n"
+                    f"Ejemplo: «Razón Social SAC, RUC 20123456789» o «Juan Pérez, DNI 12345678»."
+                )
                 return {
                     "identificado": False,
-                    "mensaje": (
-                        f"❌ No encontré ese RUC/DNI o nombre en la base de {rol}es.\n\n"
-                        f"Puedes *llenar el campo sin identificar*: indícame el **nombre o razón social** y el **número de documento** (RUC o DNI) "
-                        f"y lo anotaré para continuar. Al finalizar la operación podré registrarlo si es necesario.\n\n"
-                        f"Ejemplo: «Razón Social SAC, RUC 20123456789» o «Juan Pérez, DNI 12345678»."
-                    ),
+                    "mensaje": mensaje,
+                    "resumen_confirmacion": mensaje,
+                    "datos_identificados": None,
                     "sugiere_llenar_sin_identificar": True,
                 }
 
@@ -61,20 +65,21 @@ class IdentificacionService:
                 roles.append("Proveedor")
             rol_txt = " / ".join(roles)
 
-            mensaje_bot = (
-                f"✅ *FICHA DE IDENTIDAD LOCALIZADA*\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 *Nombre/Razón:* {nombre_entidad}\n"
-                f"🏪 *N. Comercial:* {comercial}\n"
-                f"🆔 *{tipo_doc_txt}:* {doc_identidad}\n"
-                f"💼 *Rol:* {rol_txt}\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"📧 *Correo:* {correo_ent}\n"
-                f"📞 *Teléfono:* {telf_ent}\n"
-                f"📍 *Dirección:* {dir_ent}\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"¿Los datos son correctos para continuar con la operación de *{tipo_ope.upper()}*?"
+            mensaje_bot = formatear_ficha_identificacion(
+                nombre_entidad, doc_identidad, tipo_doc_txt, comercial,
+                correo_ent, telf_ent, dir_ent, rol_txt, tipo_ope,
             )
+            datos_identificados = {
+                "nombre_entidad": nombre_entidad,
+                "doc_identidad": doc_identidad,
+                "tipo_doc_txt": tipo_doc_txt,
+                "comercial": comercial,
+                "correo": correo_ent,
+                "telefono": telf_ent,
+                "direccion": dir_ent,
+                "rol_txt": rol_txt,
+                "tipo_ope": tipo_ope,
+            }
 
             tipo_ope_norm = (tipo_ope or "").lower().strip()
             p_id = (data_cli or data_prov).get("persona_id")
@@ -150,9 +155,17 @@ class IdentificacionService:
             return {
                 "identificado": True,
                 "mensaje": mensaje_bot,
+                "resumen_confirmacion": mensaje_bot,
+                "datos_identificados": datos_identificados,
                 "ids": {"p_id": p_id, "c_id": c_id, "pr_id": pr_id},
                 "metadata_ia": metadata_ia,
             }
 
         except Exception as e:
-            return {"identificado": False, "mensaje": f"💥 Error técnico: {str(e)}"}
+            err = str(e)
+            return {
+                "identificado": False,
+                "mensaje": f"💥 Error técnico: {err}",
+                "resumen_confirmacion": f"💥 Error técnico: {err}",
+                "datos_identificados": None,
+            }

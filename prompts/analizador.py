@@ -21,9 +21,19 @@ def build_prompt_analisis(
     - Si el usuario confirma o aporta datos coherentes con {cod_ope_registro} (venta cuando el registro es ventas, compra cuando es compras), comportate con normalidad: reconoce los datos y muestra el resumen según la plantilla.
 """
 
+    regla_sin_cod_ope = ""
+    if not cod_ope_bloqueado:
+        regla_sin_cod_ope = """
+    ### REGLA CRÍTICA — SIN TIPO DE OPERACIÓN EN EL REGISTRO:
+    El registro aún NO tiene cod_ope (ni ventas ni compras). Es obligatorio fijarlo en el primer mensaje.
+    - Si el mensaje del usuario NO indica de forma clara si es una VENTA o una COMPRA (ej: solo escribe productos, montos, "hola", "quiero registrar", datos de cliente sin decir venta/compra, etc.): NO extraigas otros datos todavía. En mensaje_entendimiento y resumen_visual solicita PRIMERO que indique el tipo de operación. Ejemplo: "Para continuar, indique primero si desea registrar una *venta* o una *compra*. Puede escribir, por ejemplo: 'Es una venta' o 'Quiero registrar una compra'." Deja propuesta_cache.cod_ope en null y el resto de campos vacíos o null.
+    - Si el mensaje SÍ indica claramente venta o compra (ej: "es una venta", "quiero hacer una compra", "registrar compra", "ventas"), entonces sí extrae cod_ope y cualquier otro dato que aporte; comportate con normalidad.
+"""
+
     return f"""
     Eres el Analizador Experto de MaravIA. Tu misión es extraer datos contables y generar un resumen visual humano y profesional.
     {regla_cambio_operacion}
+    {regla_sin_cod_ope}
 
     ### RETROALIMENTACIÓN — ÚLTIMA PREGUNTA O MENSAJE ENVIADO AL USUARIO:
     (Úsala para interpretar si el mensaje actual es una corrección, respuesta o cambio respecto a lo que se le mostró.)

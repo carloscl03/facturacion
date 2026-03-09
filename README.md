@@ -48,7 +48,7 @@ maravia-bot/
 │   ├── clasificador_service.py    # Clasifica la intención del mensaje
 │   ├── informador_service.py      # Responde preguntas de ayuda de llenado
 │   ├── resumen_service.py         # Genera resumen del estado actual
-│   ├── identificacion_service.py  # Busca y confirma cliente/proveedor
+│   ├── identificador_service.py  # Busca y confirma cliente/proveedor
 │   ├── finalizar_service.py       # Emite el comprobante en SUNAT
 │   ├── unificado_service.py       # Extrae + responde en una sola llamada a IA
 │   ├── analizador_service.py      # Analiza y guarda cambios del mensaje
@@ -63,7 +63,7 @@ maravia-bot/
         ├── clasificador.py        # POST /clasificar-mensaje
         ├── informador.py          # POST /informador
         ├── resumen.py             # GET  /generar-resumen
-        ├── identificacion.py      # POST /identificar-entidad
+        ├── identificador.py       # POST /identificar-entidad
         ├── eliminar.py            # POST /eliminar-operacion
         ├── finalizar.py           # POST /finalizar-operacion
         ├── unificado.py           # POST /unificado
