@@ -1,4 +1,5 @@
 import json
+import re
 import os
 import requests
 from fastapi import FastAPI, HTTPException
@@ -1070,15 +1071,22 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
     # Si ya existe fila en la tabla (data_db tiene al menos un registro), siempre ACTUALIZAR para no duplicar
     es_registro_nuevo = len(data_db) == 0
 
-    # Definición de contexto: NO asumir venta/compra ni tipo comprobante/moneda/pago si el usuario no lo indicó
-    # Solo usar "compras"/"ventas" cuando el mensaje lo diga o ya exista en el registro
+    # Definición de contexto: si el mensaje indica compra o venta, ese valor tiene prioridad (permite cambiar ventas↔compras)
+    # Prioridad 1: frases explícitas "cambiar a venta/compra". Prioridad 2: palabras venta/compra. Evitar que "compr" matchee en "cambiar".
+    mensaje_lower = (mensaje or "").lower().strip()
     contexto_previo = None
-    if estado_actual and (estado_actual.get("cod_ope") or "").strip():
-        contexto_previo = (estado_actual.get("cod_ope") or "").strip().lower()
-    if not contexto_previo and any(x in mensaje.lower() for x in ["compr", "gasto"]):
-        contexto_previo = "compras"
-    if not contexto_previo and any(x in mensaje.lower() for x in ["vent", "venta", "vender", "vendiendo"]):
+    # Frases explícitas de cambio (tienen prioridad para no confundir "cambiar" con "compra")
+    if any(x in mensaje_lower for x in [" a venta", "a ventas", "cambiar a venta", "cambiarlo a venta", "cambiar a ventas", "pásalo a venta", "pásalo a ventas"]):
         contexto_previo = "ventas"
+    elif any(x in mensaje_lower for x in [" a compra", "a compras", "cambiar a compra", "cambiarlo a compra", "cambiar a compras", "pásalo a compra"]):
+        contexto_previo = "compras"
+    # Palabras claras de intención (usar "compra"/"compras" para no matchear "compr" dentro de "cambiar")
+    if not contexto_previo and any(x in mensaje_lower for x in ["venta", "ventas", "vender", "vendiendo", "es una venta", "registrar venta"]):
+        contexto_previo = "ventas"
+    if not contexto_previo and any(x in mensaje_lower for x in ["compra", "compras", "gasto", "es una compra", "registrar compra"]):
+        contexto_previo = "compras"
+    if not contexto_previo and estado_actual and (estado_actual.get("cod_ope") or "").strip():
+        contexto_previo = (estado_actual.get("cod_ope") or "").strip().lower()
 
     ultima_pregunta_enviada = estado_actual.get("ultima_pregunta") or ""
     if len(ultima_pregunta_enviada) > 800:
@@ -1216,7 +1224,7 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
             "codOpe": "INSERTAR_CACHE" if es_registro_nuevo else "ACTUALIZAR_CACHE",
             "ws_whatsapp": str(wa_id),
             "id_empresa": int(id_empresa),
-            "cod_ope": obtener_valor("cod_ope", contexto_previo),
+            "cod_ope": contexto_previo if contexto_previo else obtener_valor("cod_ope", None),
             "entidad_nombre": obtener_valor("entidad_nombre", ""),
             "entidad_numero_documento": obtener_valor("entidad_numero_documento", ""),
             "entidad_id_tipo_documento": propuesta.get("entidad_id_tipo_documento") or estado_actual.get("entidad_id_tipo_documento"),
@@ -1258,6 +1266,11 @@ async def servicio_analizador(wa_id: str, mensaje: str, id_empresa: int):
         })
         # Fusión: lo previo + lo nuevo (lo nuevo sobrescribe). Así "es una venta" actualiza cod_ope sin borrar productos/resto
         dato_registrado = _sin_nulos({**dato_registrado_prev, **nuevo_parcial})
+        # Crítico: asegurar que cod_ope en metadata_ia coincida con el que usamos en esta petición (contexto_previo o payload_base),
+        # para que el registrador pueda actualizar correctamente cuando el usuario dice "cambiar a venta/compra".
+        cod_ope_efectivo = (contexto_previo or payload_base.get("cod_ope") or dato_registrado.get("cod_ope"))
+        if cod_ope_efectivo and str(cod_ope_efectivo).strip().lower() in ("ventas", "compras"):
+            dato_registrado["cod_ope"] = str(cod_ope_efectivo).strip().lower()
         metadata_ia = {"dato_registrado": dato_registrado, "dato_identificado": dato_identificado_existente}
         payload_db["metadata_ia"] = json.dumps(metadata_ia, ensure_ascii=False)
 
@@ -1319,16 +1332,43 @@ async def servicio_registrador(wa_id: str, id_empresa: int):
         registro_pendiente = data_db[0]
 
         # 2. Extraer metadata_ia: { dato_registrado: {...}, dato_identificado: {...} }
+        raw_metadata = (registro_pendiente.get("metadata_ia") or "{}").strip()
+        metadata_ia = {}
         try:
-            raw_metadata = registro_pendiente.get("metadata_ia", "{}")
-            metadata_ia = json.loads(raw_metadata) if (raw_metadata or "").strip() else {}
+            if raw_metadata:
+                metadata_ia = json.loads(raw_metadata)
         except Exception:
-            return {"status": "error", "mensaje": "El formato de metadata_ia es inválido."}
+            pass
+        # Normalizar claves por si el backend devuelve otro casing (Dato_Registrado, etc.)
+        def _norm(d):
+            if not isinstance(d, dict):
+                return {}
+            return {str(k).lower(): v for k, v in d.items()}
+        meta_norm = _norm(metadata_ia)
+        dato_registrado = meta_norm.get("dato_registrado") or metadata_ia.get("dato_registrado") or {}
+        dato_identificado = meta_norm.get("dato_identificado") or metadata_ia.get("dato_identificado") or {}
+        if not isinstance(dato_registrado, dict):
+            dato_registrado = {}
+        if not isinstance(dato_identificado, dict):
+            dato_identificado = {}
 
-        dato_registrado = metadata_ia.get("dato_registrado") or {}
-        dato_identificado = metadata_ia.get("dato_identificado") or {}
         # Fusionar: dato_identificado sobrescribe donde aplique (ej. cliente_id, entidad_id_maestro)
         payload_analizado = {**dato_registrado, **dato_identificado}
+        # cod_ope: extraer de metadata (claves flexibles) o del raw por si el JSON viene anidado/raro
+        def _cod_ope_from_dict(d):
+            if not isinstance(d, dict):
+                return None
+            v = next((d[k] for k in d if str(k).lower() == "cod_ope"), None)
+            if v is not None and str(v).strip().lower() in ("ventas", "compras"):
+                return str(v).strip().lower()
+            return None
+        cod_ope_metadata = _cod_ope_from_dict(dato_registrado) or _cod_ope_from_dict(dato_identificado)
+        if not cod_ope_metadata and raw_metadata and ("ventas" in raw_metadata.lower() or "compras" in raw_metadata.lower()):
+            m = re.search(r'"cod_ope"\s*:\s*"(ventas|compras)"', raw_metadata, re.I)
+            if m:
+                cod_ope_metadata = m.group(1).lower()
+        if cod_ope_metadata in ("ventas", "compras"):
+            payload_analizado["cod_ope"] = cod_ope_metadata
         # Compatibilidad: si no hay metadata_ia (cache antiguo), usar campos planos del registro
         if not payload_analizado and registro_pendiente:
             prod = registro_pendiente.get("productos_json")
@@ -1356,14 +1396,22 @@ async def servicio_registrador(wa_id: str, id_empresa: int):
             }
             payload_analizado = {k: v for k, v in payload_analizado.items() if v is not None and v != ""}
 
-        # 3. Construir payload para ACTUALIZAR_CACHE (valores del registro como fallback)
+        # 3. cod_ope final: prioridad metadata_ia (cambio del usuario); si no hay, usar tabla (p. ej. si el backend no persistió metadata_ia pero sí actualizó la fila)
+        cod_ope_tabla = (registro_pendiente.get("cod_ope") or "").strip().lower()
+        cod_ope_meta = (payload_analizado.get("cod_ope") or "").strip().lower()
+        if cod_ope_meta in ("ventas", "compras"):
+            cod_ope_final = cod_ope_meta
+        elif cod_ope_tabla in ("ventas", "compras"):
+            cod_ope_final = cod_ope_tabla
+        else:
+            cod_ope_final = "ventas"
         productos = payload_analizado.get("productos_json", [])
         productos_str = json.dumps(productos, ensure_ascii=False) if isinstance(productos, list) else (productos or "[]")
         base_db = {
             "codOpe": "ACTUALIZAR_CACHE",
             "ws_whatsapp": str(wa_id),
             "id_empresa": int(id_empresa),
-            "cod_ope": payload_analizado.get("cod_ope", registro_pendiente.get("cod_ope")),
+            "cod_ope": cod_ope_final,
             "entidad_nombre": payload_analizado.get("entidad_nombre", ""),
             "entidad_numero_documento": payload_analizado.get("entidad_numero_documento", ""),
             "entidad_id_tipo_documento": payload_analizado.get("entidad_id_tipo_documento"),
