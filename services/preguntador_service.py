@@ -3,6 +3,23 @@ from prompts.preguntador import build_prompt_pregunta, build_prompt_preguntador_
 from repositories.base import CacheRepository
 from services.ai_service import AIService
 
+# Emojis numéricos para listar preguntas obligatorias (1️⃣ 2️⃣ …)
+EMOJI_NUM = ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣")
+
+
+def _formatear_obligatorias(texto: str) -> str:
+    """Añade encabezado 'Datos obligatorios' y prefijos 1️⃣ 2️⃣ … a cada línea."""
+    if not texto or not texto.strip():
+        return ""
+    lineas = [ln.strip() for ln in texto.strip().split("\n") if ln.strip()]
+    if not lineas:
+        return ""
+    encabezado = "📋 *Datos obligatorios (para emitir el comprobante):*"
+    partes = [f"{EMOJI_NUM[i]} {lineas[i]}" for i in range(min(len(lineas), len(EMOJI_NUM)))]
+    if len(lineas) > len(EMOJI_NUM):
+        partes.extend(lineas[len(EMOJI_NUM) :])
+    return encabezado + "\n" + "\n".join(partes)
+
 
 class PreguntadorService:
     """Servicio para /generar-pregunta (versión original con botones)."""
@@ -95,7 +112,8 @@ class PreguntadorV2Service:
         resultado = self._ai.completar_json(prompt)
 
         sintesis = (resultado.get("sintesis_visual") or "").strip() or "Aún no hay datos capturados."
-        obligatorias = (resultado.get("preguntas_obligatorias") or "").strip()
+        obligatorias_raw = (resultado.get("preguntas_obligatorias") or "").strip()
+        obligatorias = _formatear_obligatorias(obligatorias_raw)
         opcionales = (resultado.get("preguntas_opcionales") or "").strip()
         # Retrocompatibilidad: si la IA devuelve "diagnostico", usarlo; si no, armar desde obligatorias + opcionales
         if resultado.get("diagnostico") is not None and (resultado.get("diagnostico") or "").strip():

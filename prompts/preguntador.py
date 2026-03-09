@@ -21,15 +21,15 @@ def build_prompt_pregunta(registro: dict) -> str:
     - entidad_id_tipo_documento: 1=DNI, 6=RUC.
 
     ---
-    ### 2. 🚦 MONITOREO DE INTEGRIDAD (Checklist Interno)
-    Usa este diagnóstico para decidir qué preguntar:
+    ### 2. 🚦 MONITOREO DE INTEGRIDAD (Checklist = campos mínimos para API CREAR_VENTA)
+    Los bloqueantes son los que exige la API para emitir factura/boleta (referencia: test/run_factura_minima.py; finalizar_service los valida igual).
     - 🔴 BLOQUEANTES: 
         * Monto Total: { "OK" if monto_total and float(monto_total) > 0 else "FALTA" }
         * Entidad (ID Maestro): { "OK" if entidad_id_maestro else "FALTA (Requiere identificación)" }
         * Tipo Comprobante: { "OK" if id_comprobante_tipo else "FALTA" }
-    - 🟡 OPCIONALES:
-        * Sucursal: { "OK" if registro.get('id_sucursal') else "Pendiente (Default: 14)" }
-        * Pago: { "OK" if registro.get('tipo_operacion') else "Pendiente (Default: Contado)" }
+    - 🟡 OBLIGATORIOS (API): Tipo de pago es necesario para el payload. Sucursal se asume id_sucursal=14 y no se pregunta.
+        * Pago (Contado/Crédito): { "OK" if registro.get('tipo_operacion') else "Pendiente (Default: Contado)" }
+        * Si es Crédito: plazo_dias o fecha_vencimiento obligatorios.
 
     MATRIZ DE PRIORIDAD (Sigue este orden y DETENTE en el primer campo que sea NULL o 0):
     1. PRODUCTOS: Si 'monto_total' es 0 o 'productos_json' está vacío.
@@ -101,21 +101,28 @@ def build_prompt_preguntador_v2(registro: dict, cod_ope: str | None) -> str:
     return f"""
     Eres el Asistente Contable de MaravIA. Genera (1) SÍNTESIS VISUAL y (2) DIAGNÓSTICO en dos bloques: preguntas de datos OBLIGATORIOS y preguntas de datos OPCIONALES. Usa la PLANTILLA VISUAL compartida. **En la Síntesis despliega SOLO lo que YA está registrado en DATOS EN DB:** si cod_ope está definido muestra 🛒 COMPRA o 📤 VENTA; si hay comprobante, cliente/proveedor, productos, montos, etc., muéstralos. Si un campo está vacío, esa línea NO debe aparecer en la síntesis.
 
+    **Contexto API:** Los datos OBLIGATORIOS que pides son exactamente los que el sistema necesita para enviar CREAR_VENTA a la API (factura/boleta electrónica). Referencia: test/run_factura_minima.py (payload mínimo que acepta la API). Si falta alguno, finalizar_service no podrá emitir el comprobante ni generar el PDF.
+
     DATOS ACTUALES EN DB: {json.dumps(registro, ensure_ascii=False)}
 
     {PLANTILLA_VISUAL}
 
     {REGLAS_NORMALIZACION}
 
-    ### DATOS OBLIGATORIOS (solo estos 3; si falta uno, no se puede finalizar):
+    ### DATOS OBLIGATORIOS (necesarios para emitir el comprobante/PDF vía API; si falta uno, no se puede finalizar):
+    **Orden y redacción:** Incluye SIEMPRE en preguntas_obligatorias una línea por cada dato obligatorio que falte. NUNCA omitas preguntar por tipo de comprobante (Factura/Boleta) cuando falte. (Sucursal no se pregunta: se usa id_sucursal=14 por defecto.)
     1. **Monto/Detalle:** FALTA si monto_total no existe o es 0 Y productos_json está vacío o sin ítems.
     2. **Cliente (ventas) o Proveedor (compras):** FALTA si no hay (entidad_nombre + entidad_numero_documento) ni entidad_id_maestro.
-    3. **Tipo de comprobante:** FALTA si id_comprobante_tipo no existe o es 0.
+    3. **Tipo de comprobante (Factura o Boleta):** FALTA si id_comprobante_tipo no existe o es 0. Pregunta explícitamente: "¿Deseas emitir Factura o Boleta?" (o similar). No omitas esta pregunta cuando falte.
+    4. **Tipo de pago (Contado/Crédito):** FALTA si tipo_operacion no está definido como "contado" o "credito".
+    5. **Solo si tipo_operacion = "credito":** FALTA si no hay plazo_dias ni fecha_vencimiento.
+        - En VENTA: pregunta por plazo en días o fecha de vencimiento del cobro (ej: "¿En cuántos días vence el cobro?" o "¿Fecha de vencimiento?").
+        - En COMPRA: pregunta por plazo en días o fecha de vencimiento del pago al proveedor (ej: "¿En cuántos días vence el pago?" o "¿Fecha de vencimiento del crédito?").
+
+    **Contexto Contado/Crédito:** El preguntador debe tener siempre presente si la operación es a contado o a crédito (tipo_operacion). Si es a crédito, las preguntas obligatorias incluyen además el plazo o fecha de vencimiento, y el texto debe adaptarse a si es compra (pago al proveedor) o venta (cobro al cliente).
 
     ### DATOS OPCIONALES (el resto; el usuario puede completarlos si desea):
-    - tipo_operacion (contado/crédito)
     - forma de pago (id_forma_pago; el backend rellena forma_pago_nombre)
-    - sucursal (id_sucursal o sucursal_nombre)
     - centro de costo (id_centro_costo o centro_costo_nombre)
     - cuenta/caja (id_caja_banco o caja_banco_nombre)
     - fechas (fecha_emision, fecha_pago)
@@ -129,17 +136,17 @@ def build_prompt_preguntador_v2(registro: dict, cod_ope: str | None) -> str:
 
     ### SECCIÓN 2 — DIAGNÓSTICO (separar obligatorios y opcionales):
     **Regla crítica:** Incluye ÚNICAMENTE campos que en DATOS EN DB están vacíos (null, "", 0 o ausentes). Si un campo YA tiene valor, NO lo menciones.
-    - **preguntas_obligatorias:** Solo los 3 datos obligatorios que falten. Una pregunta o frase en lenguaje natural por cada uno (ej: "Falta el detalle o monto de la operación.", "Falta indicar el cliente (nombre o RUC).", "Falta el tipo de comprobante (Factura o Boleta)."). Si los 3 obligatorios están completos, escribe aquí la **sugerencia de finalizar** (ej: "No falta ningún dato obligatorio. ¿Desea finalizar el registro y emitir el comprobante? Puede decir *finalizar* o *emitir*.") y deja preguntas_opcionales como quieras.
-    - **preguntas_opcionales:** Solo datos opcionales pendientes que quieras sugerir (ej: "¿En qué sucursal se realizó?", "¿Fue al contado o a crédito?", "¿Forma de pago?"). En lenguaje natural. Si no quieres sugerir ninguno, cadena vacía "".
+    - **preguntas_obligatorias:** Solo los datos obligatorios que falten (en este orden: 1 Monto/detalle, 2 Cliente o Proveedor, 3 Tipo comprobante Factura/Boleta, 4 Contado/Crédito, 5 si es crédito: plazo o fecha vencimiento). No preguntes por sucursal (se usa id_sucursal=14). Una pregunta o frase en lenguaje natural por línea. **Obligatorio:** cuando falte id_comprobante_tipo incluye una línea como "¿Deseas emitir Factura o Boleta?". Si es crédito y falta plazo o fecha de vencimiento, añade una línea para eso (adaptando el texto a compra vs venta). Si todos los obligatorios están completos, escribe aquí una sola línea con la **sugerencia de finalizar** (ej: "No falta ningún dato obligatorio. ¿Desea finalizar el registro y emitir el comprobante? Puede decir *finalizar* o *emitir*."). No incluyas números ni emojis en el texto; el sistema los añadirá (1️⃣ 2️⃣ …) y el encabezado "Datos obligatorios".
+    - **preguntas_opcionales:** Solo datos opcionales pendientes (forma de pago, centro de costo, fechas, moneda, etc.). En lenguaje natural. Si no quieres sugerir ninguno, cadena vacía "".
     **Prohibido:** No digas "puedes confirmar" sin incluir la invitación a finalizar/emitir cuando no falten obligatorios.
 
-    **listo_para_finalizar:** true si y solo si los 3 datos obligatorios están completos (monto/detalle, cliente o proveedor, tipo comprobante). false si falta alguno.
+    **listo_para_finalizar:** true si y solo si están completos: (1) monto/detalle, (2) cliente o proveedor, (3) tipo comprobante (id_comprobante_tipo), (4) tipo_operacion (contado o credito), y (5) si tipo_operacion es "credito", además plazo_dias o fecha_vencimiento. (id_sucursal se asume 14; no se comprueba.) false si falta alguno.
 
     RESPONDE ÚNICAMENTE EN JSON:
     {{
         "sintesis_visual": "Texto SÍNTESIS (solo líneas con dato definido) con \\n",
         "preguntas_obligatorias": "Preguntas o frases solo para datos OBLIGATORIOS pendientes; si no hay ninguno, texto de sugerencia de finalizar. Con \\n",
-        "preguntas_opcionales": "Preguntas solo para datos OPCIONALES pendientes (sucursal, forma de pago, fechas, etc.) o vacío. Con \\n",
+        "preguntas_opcionales": "Preguntas solo para datos OPCIONALES pendientes (forma de pago, fechas, moneda, etc.) o vacío. No preguntes por sucursal. Con \\n",
         "listo_para_finalizar": false
     }}
     """

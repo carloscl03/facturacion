@@ -1,6 +1,6 @@
 import json
 
-from prompts.plantillas import PLANTILLA_VISUAL, REGLAS_NORMALIZACION
+from prompts.plantillas import PLANTILLA_RESUMEN_FINAL, PLANTILLA_VISUAL, REGLAS_NORMALIZACION
 
 
 def build_prompt_analisis(
@@ -8,6 +8,7 @@ def build_prompt_analisis(
     mensaje: str,
     cod_ope_registro: str | None = None,
     metadata_registro: dict | None = None,
+    lista_sucursales: list[dict] | None = None,
 ) -> str:
     cod_ope_bloqueado = cod_ope_registro in ("ventas", "compras")
     regla_cambio_operacion = ""
@@ -49,6 +50,20 @@ def build_prompt_analisis(
     ```
     """
 
+    sucursales_ctx = ""
+    if lista_sucursales and len(lista_sucursales) > 0:
+        try:
+            sucursales_str = json.dumps(lista_sucursales, ensure_ascii=False, indent=2)
+        except (TypeError, ValueError):
+            sucursales_str = "[]"
+        sucursales_ctx = f"""
+    ### LISTA DE SUCURSALES VÁLIDAS DE LA EMPRESA (OBLIGATORIO para identificar sucursal):
+    Cuando el usuario mencione una sucursal, ubicación o sede (ej: "Lima Centro", "sucursal principal", "almacén"), debes elegir la opción que mejor coincida de esta lista. Devuelve en propuesta_cache **id_sucursal** (entero) y **sucursal_nombre** (string, el nombre exacto de la lista). Si no hay coincidencia clara, deja id_sucursal en null y sucursal_nombre con el texto que entendiste.
+    ```json
+    {sucursales_str}
+    ```
+    """
+
     return f"""
     Eres el Analizador Experto de MaravIA. Tu misión es extraer datos contables y generar un resumen visual humano y profesional.
     {regla_cambio_operacion}
@@ -58,6 +73,7 @@ def build_prompt_analisis(
     (Es lo que el usuario vio por última vez; úsala para interpretar si el mensaje actual es confirmación, corrección o continuación.)
     "{ultima_pregunta_enviada or '¿Los datos son correctos? Indique si desea confirmar o modificar algo.'}"
     {metadata_ctx}
+    {sucursales_ctx}
 
     ### REGLAS DE EXTRACCIÓN TÉCNICA:
     - cod_ope: solo "ventas" o "compras" si el usuario lo dice o ya está en el registro; si no está definido, deja null (no asumir). Si el registro ya tiene cod_ope y el usuario dice lo contrario, NO cambies cod_ope (ver regla de cambio bloqueado arriba).
@@ -68,21 +84,24 @@ def build_prompt_analisis(
 
     ### MAPEO DE ATRIBUTOS DINÁMICOS:
     Extrae estos campos si el usuario los menciona, de lo contrario déjalos en null o 0:
-    - sucursal: Nombre de la sede (Ej: "Lima Centro", "Almacén").
+    - **Sucursal:** Si el usuario menciona una sucursal o sede, usa la LISTA DE SUCURSALES VÁLIDAS de arriba. Elige la que mejor coincida (por nombre o sinónimo) y devuelve **id_sucursal** (int, el id de la lista) y **sucursal_nombre** (str, el nombre exacto de la lista). Si no hay lista de sucursales o ninguna coincide, puedes poner sucursal_nombre con el texto que entendiste e id_sucursal null.
     - centro_costo: Área o proyecto (Ej: "Operaciones", "Marketing").
     - forma_pago: "Transferencia", "Efectivo", "Yape", "Plin", "Tarjeta".
     - caja_banco: Entidad financiera (Ej: "BCP", "BBVA", "Caja Chica").
 
     ### MENSAJE DE ENTENDIMIENTO (obligatorio para lenguaje fluido):
     Antes del resumen, genera una frase corta que muestre que entendiste el mensaje del usuario. Ejemplos: "Entendido, anoté 2 laptops por S/ 3000.", "Perfecto, quedó como Factura.", "Anotado: cliente con RUC 20123456789.", "Listo, lo dejo en Soles y al contado." Así el usuario siente que lo escuchaste antes de ver el resumen.
-    **Si el usuario solo indica que quiere registrar una compra o una venta** (ej: "registrar una compra", "quiero hacer una venta", "es una compra") sin dar más datos: guarda cod_ope (compras/ventas), crea el registro con solo ese dato. En ese caso el resumen_visual debe ser ÚNICAMENTE: (1) la línea 🛒 *COMPRA* o 📤 *VENTA* según corresponda, (2) una sola pregunta de confirmación: "¿Es correcto que deseas registrar una compra?" (o venta). NO incluyas en ese mensaje listado de lo que falta (cliente, comprobante, productos, etc.); solo pide confirmar la intención. Ejemplo de mensaje_entendimiento: "Anotado: es una compra." y en resumen_visual solo el encabezado y "¿Es correcto? Indica los datos cuando quieras."
+    **Si el usuario solo indica que quiere registrar una compra o una venta** (ej: "registrar una compra", "quiero hacer una venta", "es una compra") sin dar más datos: guarda cod_ope (compras/ventas), crea el registro con solo ese dato. En ese caso el resumen_visual debe ser ÚNICAMENTE: (1) la línea 🛒 *COMPRA* o 📤 *VENTA* según corresponda, (2) una sola pregunta de confirmación: "¿Es correcto que deseas registrar una compra?" (o venta). NO incluyas en ese mensaje listado de lo que falta (cliente, comprobante, productos, etc.); solo pide confirmar la intención. Ejemplo de mensaje_entendimiento: "Anotado: es una compra." y en resumen_visual solo el encabezado y "¿Es correcto?"
 
-    ### REGLAS PARA EL RESUMEN VISUAL (resumen_visual) — NO es un resumen de todo lo llenado:
+    ### REGLAS PARA EL RESUMEN VISUAL (resumen_visual) — Solo datos identificados en ESTE mensaje:
     {REGLAS_NORMALIZACION}
 
-    **Regla crítica:** El resumen_visual NO debe ser un resumen de todo lo ya guardado en el registro. Debe contener ÚNICAMENTE: (1) un mensaje breve de lo **recién actualizado o modificado** en ESTE mensaje (lo que acabas de extraer), en lenguaje natural; (2) una línea típica de confirmación (ej: "¿Es correcto?" / "¿Algo más que agregar?" / "¿Confirmamos?"). No listes todos los campos ni repitas lo que ya estaba en el registro; solo lo nuevo de este turno + confirmación.
-    **Ejemplos:** Si el usuario acaba de dar 2 laptops a 1500: "Anoté 2 laptops × S/ 1500 (Total S/ 3000). ¿Es correcto?" Si acaba de dar solo el tipo: "Quedó como 🛒 *COMPRA*. ¿Es correcto que deseas registrar una compra? Indica los datos cuando quieras." Si acaba de dar RUC: "Anotado: RUC 20123456789. ¿Confirmamos este dato?"
+    **Regla crítica:** El resumen_visual debe reflejar ÚNICAMENTE los datos que extrajiste de ESTE mensaje (no todo lo ya guardado en el registro). Debe ser **completo y explícito**, no breve: lista cada dato identificado con su valor (tipo operación, comprobante, entidad, RUC/DNI, productos, cantidades, precios, totales, moneda, forma de pago, sucursal, crédito/cuotas si aplica), siguiendo la estructura indicada abajo. El objetivo es que el usuario vea claramente que **toda** la información que dio fue capturada. Al final incluye la línea: "¿Confirmo registro?"
+    **Estructura obligatoria:** Sigue exactamente la plantilla PLANTILLA_RESUMEN_FINAL. Incluye solo las líneas cuyos datos tengas en propuesta_cache (no inventes campos vacíos). Usa emojis y formato: 📄 comprobante, 🏢 entidad, 📦 ítems, 💰 totales, 📍 sucursal/centro, 💳 forma de pago, 💵 moneda, 🔄 crédito, 📊 cuotas. Cierra con "¿Confirmo registro?"
     **Caso solo compra/venta (primer mensaje):** Si la propuesta solo tiene cod_ope y el resto vacío, resumen_visual = línea 🛒 *COMPRA* o 📤 *VENTA* + "¿Es correcto que deseas registrar una compra/venta? Indica los datos cuando quieras." No incluyas listado de lo que falta.
+
+    ### PLANTILLA_RESUMEN_FINAL (estructura a seguir para resumen_visual):
+    {PLANTILLA_RESUMEN_FINAL}
 
     ### MENSAJE DEL USUARIO:
     "{mensaje}"
@@ -108,7 +127,8 @@ def build_prompt_analisis(
             "monto_base": float,
             "monto_impuesto": float,
             "productos_json": [{{ "nombre": str, "cantidad": float, "precio": float }}],
-            "sucursal": str,
+            "id_sucursal": int o null,
+            "sucursal_nombre": str,
             "centro_costo": str,
             "forma_pago": str,
             "caja_banco": str,
@@ -117,7 +137,7 @@ def build_prompt_analisis(
             "is_ready": 0
         }},
         "mensaje_entendimiento": "Una frase corta que muestre que entendiste al usuario (ej: 'Entendido, anoté 2 laptops por S/ 3000.' o 'Perfecto, quedó como Factura.')",
-        "resumen_visual": "Ejemplo (incluir primero 🛒 COMPRA o 📤 VENTA si cod_ope está definido):\\n🛒 *COMPRA*\\n━━━\\n¿Es correcto? O: 📄 Factura... 👤 Cliente... 💰 Total... ¿Todo correcto?",
+        "resumen_visual": "Resumen COMPLETO de lo extraído en este mensaje siguiendo PLANTILLA_RESUMEN_FINAL (solo líneas con datos en propuesta_cache). Ejemplo: 📄 Factura (Compras) F002-00045678\\n🏢 Tech Solutions Perú SAC (RUC: 20612345678)\\n📦 2x Servidores...\\n💰 S/ 42,372.88 + IGV S/ 7,627.12 = S/ 50,000.00\\n📍 Sucursal Principal | Tecnología\\n💳 Transferencia | 💵 Moneda: Soles\\n¿Confirmo registro?",
         "requiere_identificacion": {{
             "activo": false,
             "termino": "",

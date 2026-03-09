@@ -21,7 +21,7 @@ class AIService(ABC):
 class OpenAIService(AIService):
     """Implementación con el modelo GPT de OpenAI."""
 
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini") -> None:
+    def __init__(self, api_key: str, model: str = "gpt-4.1-mini") -> None:
         self._client = OpenAI(api_key=api_key)
         self._model = model
 

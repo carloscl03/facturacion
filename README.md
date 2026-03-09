@@ -1,6 +1,6 @@
 # MaravIA Bot — API de Registro Contable por WhatsApp
 
-API REST construida con **FastAPI** que procesa mensajes de WhatsApp para registrar operaciones contables (ventas y compras) mediante inteligencia artificial (GPT-4o-mini). Se integra con N8N como orquestador de flujos y con una API PHP como backend de persistencia.
+API REST construida con **FastAPI** que procesa mensajes de WhatsApp para registrar operaciones contables (ventas y compras) mediante inteligencia artificial (GPT-4.1-mini). Se integra con N8N como orquestador de flujos y con una API PHP como backend de persistencia.
 
 ---
 
@@ -99,7 +99,7 @@ N8N / WhatsApp Bot
         ▼
   services/            ← lógica de negocio
     ├── prompts/       ← construcción de prompts para la IA
-    ├── ai_service     ← llamada a OpenAI GPT-4o-mini
+    ├── ai_service     ← llamada a OpenAI GPT-4.1-mini
     └── repositories/  ← acceso a datos (API PHP)
             ├── cache_repository    → API PHP de caché (historial)
             └── entity_repository   → API PHP de clientes / proveedores

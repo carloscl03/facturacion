@@ -41,7 +41,7 @@ def ejecutar_ciclo_interceptacion(numero_wsp):
         
         # Ensamblaje del prompt con las 3 partes
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": prompt_sistema},
                 {"role": "user", "content": f"MENSAJE USUARIO: {instruccion_usuario}\n\nESTADO ACTUAL VARIABLES: {json.dumps(estado_actual)}"}

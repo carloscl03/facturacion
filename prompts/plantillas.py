@@ -48,6 +48,54 @@ En la Síntesis, el Resumen y el Diagnóstico NUNCA uses números ni códigos in
 Las preguntas deben sonar naturales: "¿Cuál es el monto o detalle de los productos?", "¿Cuál es el RUC o nombre del cliente?", "¿Emitimos Factura o Boleta?", "¿En qué sucursal se realizó?", "¿Fue al contado o a crédito?", "¿Forma de pago?"
 """
 
+PLANTILLA_RESUMEN_FINAL = """
+ESTRUCTURA PARA RESUMEN FINAL (confirmación al usuario). Mostrar cada línea SOLO si el campo tiene valor.
+
+0) TIPO DE OPERACIÓN (mostrar solo si cod_ope está definido)
+   ━━━━━━━━━━━━━━━━━━━
+   🛒 *COMPRA*   — si cod_ope = "compras"
+   📤 *VENTA*    — si cod_ope = "ventas"
+   ━━━━━━━━━━━━━━━━━━━
+
+1) COMPROBANTE Y ENTIDAD
+   ━━━━━━━━━━━━━━━━━━━
+   📄 *[comprobante_tipo_nombre]* ([Compras/Ventas]) [serie]-[numero]  — si id_comprobante_tipo; serie/numero opcionales si existen
+   🏢 *[entidad_nombre]* ([tipo_doc]: [entidad_numero_documento])  — si entidad_nombre; tipo_doc = RUC o DNI
+   ━━━━━━━━━━━━━━━━━━━
+
+2) DETALLE Y TOTALES
+   📦 [cantidad]x [nombre]  — por cada ítem en productos_json (solo si hay ítems)
+   💰 [moneda_simbolo] [monto_base] + IGV [moneda_simbolo] [monto_impuesto] = [moneda_simbolo] [monto_total]
+   ━━━━━━━━━━━━━━━━━━━
+
+3) LOGÍSTICA Y PAGO (solo si están definidos)
+   📍 [sucursal_nombre] | [centro_costo_nombre]
+   💳 [forma_pago_nombre o tipo_operacion]  — Contado / Crédito / Transferencia, etc.
+   💵 Moneda: [moneda_nombre]  — Soles o Dólares (lenguaje natural, nunca código PEN)
+   ━━━━━━━━━━━━━━━━━━━
+
+4) CRÉDITO (solo si tipo_operacion = credito y hay plazo o vencimiento)
+   🔄 Crédito [plazo_dias] días, [nro_cuotas] cuotas
+   📊 Cuota N: [moneda_simbolo] [monto] — [fecha]  — por cada cuota si existe cuotas_json o equivalente
+   ━━━━━━━━━━━━━━━━━━━
+
+5) CIERRE
+   ¿Confirmo registro?
+
+Ejemplo completo:
+📄 Factura (Compras) F002-00045678
+🏢 Tech Solutions Perú SAC (RUC: 20612345678)
+📦 2x Servidores Dell PowerEdge
+💰 S/ 42,372.88 + IGV S/ 7,627.12 = S/ 50,000.00
+📍 Sucursal Principal | Tecnología
+💳 Transferencia | 💵 Moneda: Soles
+🔄 Crédito 60 días, 3 cuotas
+📊 Cuota 1: S/ 16,666.67 — 23/04/2026
+📊 Cuota 2: S/ 16,666.67 — 23/05/2026
+📊 Cuota 3: S/ 16,666.66 — 22/06/2026
+¿Confirmo registro?
+"""
+
 
 def formatear_ficha_identificacion(
     nombre_entidad: str,

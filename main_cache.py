@@ -12,8 +12,8 @@ app = FastAPI()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 URL_API = "https://api.maravia.pe/servicio/n8n/ws_historial_cache.php"
 
-# Cambio de modelo a gpt-4o-mini
-MODELO_IA = "gpt-4o-mini"
+# Cambio de modelo a gpt-4.1-mini
+MODELO_IA = "gpt-4.1-mini"
 
 # --- URLs ADICIONALES ---
 URL_CLIENTE = "https://api.maravia.pe/servicio/n8n/ws_cliente.php"
@@ -898,22 +898,33 @@ async def finalizar_operacion(wa_id: str, id_empresa: int):
             res_sunat = requests.post(URL_VENTA_SUNAT, json=payload_venta, headers=headers)
             res_json = res_sunat.json()
 
-            url_pdf = res_json.get('data', {}).get('url_pdf')
-
-            if url_pdf:
+            # Extraer URL del PDF: sunat.sunat_data; luego sunat.data.payload.pdf; luego data.url_pdf
+            sunat_obj = res_json.get("sunat") or {}
+            sunat_data = sunat_obj.get("sunat_data") or {}
+            payload = (sunat_obj.get("data") or {}).get("payload") or {}
+            payload_pdf = payload.get("pdf") if isinstance(payload.get("pdf"), dict) else {}
+            url_pdf = (
+                sunat_data.get("sunat_pdf")
+                or sunat_data.get("enlace_documento")
+                or payload_pdf.get("ticket")
+                or payload_pdf.get("a4")
+                or res_json.get("data", {}).get("url_pdf")
+            )
+            if url_pdf and res_json.get("success"):
+                serie_num = f"{sunat_data.get('serie', reg.get('comprobante_serie', 'F001'))}-{sunat_data.get('numero', reg.get('comprobante_numero', '000'))}"
                 return {
                     "status": "finalizado",
                     "mensaje_completo": (
                         f"✨ *¡VENTA REGISTRADA EN SUNAT!*\n\n"
                         f"👤 *Cliente:* {reg.get('entidad_nombre')}\n"
                         f"💰 *Total:* {moneda_simbolo} {monto_total}\n"
-                        f"📄 *Documento:* {reg.get('comprobante_serie', 'F001')}-{reg.get('comprobante_numero', '000')}\n\n"
+                        f"📄 *Documento:* {serie_num}\n\n"
                         f"🔗 *Descargar Comprobante:* {url_pdf}"
                     )
                 }
             return {
                 "status": "error",
-                "mensaje": f"❌ Error SUNAT: {res_json.get('message', 'No se pudo generar el PDF.')}"
+                "mensaje": f"❌ Error SUNAT: {res_json.get('message') or res_json.get('error') or 'No se pudo generar el PDF.'}"
             }
 
         # --- COMPRAS (registro local / resumen) ---

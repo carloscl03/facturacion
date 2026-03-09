@@ -26,9 +26,9 @@ def analizar_datos_faltantes(numero_whatsapp):
     {instruccion_usuario}
     """
 
-    # 3. Mandamos a ChatGPT (gpt-4o-mini)
+    # 3. Mandamos a ChatGPT (gpt-4.1-mini)
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         messages=[
             {
                 "role": "system", 

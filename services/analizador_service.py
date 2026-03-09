@@ -33,9 +33,15 @@ def _sin_nulos(d: dict) -> dict:
 
 
 class AnalizadorService:
-    def __init__(self, repo: CacheRepository, ai: AIService) -> None:
+    def __init__(
+        self,
+        repo: CacheRepository,
+        ai: AIService,
+        informacion_repo=None,
+    ) -> None:
         self._repo = repo
         self._ai = ai
+        self._informacion_repo = informacion_repo
 
     def ejecutar(self, wa_id: str, mensaje: str, id_empresa: int) -> dict:
         lista = self._repo.consultar_lista(wa_id, id_empresa)
@@ -55,11 +61,19 @@ class AnalizadorService:
 
         metadata_ia = _parsear_metadata(estado_actual.get("metadata_ia"))
 
+        lista_sucursales = []
+        if self._informacion_repo:
+            try:
+                lista_sucursales = self._informacion_repo.obtener_sucursales_publicas(id_empresa)
+            except Exception:
+                pass
+
         prompt = build_prompt_analisis(
             ultima_pregunta_enviada,
             mensaje,
             cod_ope_para_escribir,
             metadata_registro=metadata_ia,
+            lista_sucursales=lista_sucursales if lista_sucursales else None,
         )
 
         try:
@@ -172,6 +186,8 @@ class AnalizadorService:
             "monto_base": float(propuesta.get("monto_base") or estado_actual.get("monto_base") or 0),
             "monto_impuesto": float(propuesta.get("monto_impuesto") or estado_actual.get("monto_impuesto") or 0),
             "productos_json": productos_str,
+            "id_sucursal": propuesta.get("id_sucursal") or estado_actual.get("id_sucursal"),
+            "sucursal_nombre": obtener_valor("sucursal_nombre", "") or obtener_valor("sucursal", ""),
             "paso_actual": 2,
             "is_ready": 0,
         }
@@ -208,6 +224,8 @@ class AnalizadorService:
             "id_moneda": estado_actual.get("id_moneda"),
             "id_comprobante_tipo": estado_actual.get("id_comprobante_tipo"),
             "tipo_operacion": estado_actual.get("tipo_operacion"),
+            "id_sucursal": estado_actual.get("id_sucursal"),
+            "sucursal_nombre": estado_actual.get("sucursal_nombre") or estado_actual.get("sucursal"),
             **({"monto_total": estado_actual.get("monto_total")} if estado_actual.get("monto_total") and float(estado_actual.get("monto_total") or 0) > 0 else {}),
             **({"monto_base": estado_actual.get("monto_base")} if estado_actual.get("monto_base") and float(estado_actual.get("monto_base") or 0) > 0 else {}),
             **({"monto_impuesto": estado_actual.get("monto_impuesto")} if estado_actual.get("monto_impuesto") and float(estado_actual.get("monto_impuesto") or 0) > 0 else {}),
@@ -225,6 +243,8 @@ class AnalizadorService:
             "id_moneda": payload_base.get("id_moneda"),
             "id_comprobante_tipo": payload_base.get("id_comprobante_tipo"),
             "tipo_operacion": payload_base.get("tipo_operacion"),
+            "id_sucursal": payload_base.get("id_sucursal"),
+            "sucursal_nombre": payload_base.get("sucursal_nombre"),
             **({"monto_total": monto_total_nuevo} if monto_total_nuevo and float(monto_total_nuevo) > 0 else {}),
             **({"monto_base": monto_base_nuevo} if monto_base_nuevo and float(monto_base_nuevo) > 0 else {}),
             **({"monto_impuesto": monto_impuesto_nuevo} if monto_impuesto_nuevo and float(monto_impuesto_nuevo) > 0 else {}),

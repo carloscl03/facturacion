@@ -28,7 +28,7 @@ async def analizar_historial(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al conectar con la API de historial: {str(e)}")
 
-    # 2. Preparar el envío a ChatGPT (gpt-4o-mini)
+    # 2. Preparar el envío a ChatGPT (gpt-4.1-mini)
     # Concatenamos tu prompt con el JSON que obtuvimos
     contexto_ia = f"""
     DATOS ACTUALES EN BASE DE DATOS (JSON):
@@ -40,7 +40,7 @@ async def analizar_historial(
 
     try:
         chat_completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             messages=[
                 {
                     "role": "system", 

@@ -28,7 +28,7 @@ async def analizar_historial(
         historial_data = data_json.get('data', [])[0] if data_json.get('data') else {}
         
         chat_completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": "Eres el asistente de MaravIA. Responde amablemente analizando el JSON proporcionado."},
                 {"role": "user", "content": f"DATA: {historial_data}\nINSTRUCCIÓN: {user_prompt}"}
@@ -101,7 +101,7 @@ si algún campo no aplica se llenará con no aplica o con datos vacios como 0 pa
         """
 
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": prompt_sistema},
                 {
