@@ -1,5 +1,6 @@
 import json
 
+from config.estados import PENDIENTE_IDENTIFICACION
 from prompts.plantillas import formatear_ficha_identificacion
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
@@ -156,6 +157,7 @@ class IdentificadorService:
 
             metadata_ia["dato_identificado"] = _sin_nulos(propuesta_identidad)
             metadata_ia["dato_registrado"] = dato_registrado
+            metadata_ia["estado_flujo"] = PENDIENTE_IDENTIFICACION
 
             campos_cache = {"metadata_ia": json.dumps(metadata_ia, ensure_ascii=False), "ultima_pregunta": "IDENTIFICACION PENDIENTE"}
             for key in ("cod_ope", "entidad_nombre", "entidad_numero_documento", "entidad_id_tipo_documento",

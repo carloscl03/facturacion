@@ -1,4 +1,9 @@
-def build_prompt_router(mensaje: str, ultima_pregunta: str) -> str:
+def build_prompt_router(
+    mensaje: str,
+    ultima_pregunta: str,
+    estado_flujo: str = "inicial",
+    cod_ope: str | None = None,
+) -> str:
     ultima_visible = (ultima_pregunta or "").strip() or "— Ninguna (inicio de conversación o sin registro previo)."
     ctx_ultima = f"""
     ### CONTEXTO — ÚLTIMA PREGUNTA O MENSAJE ENVIADO AL USUARIO:
@@ -6,11 +11,27 @@ def build_prompt_router(mensaje: str, ultima_pregunta: str) -> str:
     "{ultima_visible}"
     """
 
+    estado_visible = (estado_flujo or "inicial").strip()
+    cod_ope_visible = (cod_ope or "").strip() or "no definido"
+    ctx_estado = f"""
+    ### ESTADO DEL FLUJO (bandera — úsalo para enrutar):
+    estado_flujo = "{estado_visible}"
+    cod_ope = "{cod_ope_visible}"
+
+    **Enrutado según estado:**
+    - inicial / pendiente_tipo_operacion: Si el mensaje aporta datos y/o indica venta o compra → actualizar. Si no → casual.
+    - pendiente_confirmacion / pendiente_identificacion: El usuario vio un resumen o ficha pidiendo confirmación. Sí (afirmación pura) → confirmacion (registrador). No (breve, sin datos) → informacion. No + datos o correcciones → actualizar.
+    - pendiente_datos: El registro ya está guardado; el usuario puede enviar más datos (actualizar), confirmar de nuevo (confirmacion), pedir resumen (resumen) o decir finalizar/emitir (finalizar).
+    - listo_para_finalizar: Si el mensaje es finalizar/emitir/processar/documento → finalizar. Si pide resumen → resumen. Si aporta datos opcionales → actualizar.
+    - completado: Tratar como inicial (actualizar si hay datos de nueva operación, sino casual).
+    """
+
     return f"""
     Eres el Director de Orquesta de un sistema ERP contable. Clasifica la intención del usuario para enrutar al servicio correcto.
     
     MENSAJE DEL USUARIO: "{mensaje}"
     {ctx_ultima}
+    {ctx_estado}
     
     ### FLUJO DEL SISTEMA (destino de cada intención):
     - actualizar → Analizador (extrae y guarda datos en cache).

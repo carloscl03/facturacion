@@ -133,10 +133,13 @@ def build_prompt_preguntador_v2(registro: dict, cod_ope: str | None) -> str:
     - **preguntas_opcionales:** Solo datos opcionales pendientes que quieras sugerir (ej: "¿En qué sucursal se realizó?", "¿Fue al contado o a crédito?", "¿Forma de pago?"). En lenguaje natural. Si no quieres sugerir ninguno, cadena vacía "".
     **Prohibido:** No digas "puedes confirmar" sin incluir la invitación a finalizar/emitir cuando no falten obligatorios.
 
+    **listo_para_finalizar:** true si y solo si los 3 datos obligatorios están completos (monto/detalle, cliente o proveedor, tipo comprobante). false si falta alguno.
+
     RESPONDE ÚNICAMENTE EN JSON:
     {{
         "sintesis_visual": "Texto SÍNTESIS (solo líneas con dato definido) con \\n",
         "preguntas_obligatorias": "Preguntas o frases solo para datos OBLIGATORIOS pendientes; si no hay ninguno, texto de sugerencia de finalizar. Con \\n",
-        "preguntas_opcionales": "Preguntas solo para datos OPCIONALES pendientes (sucursal, forma de pago, fechas, etc.) o vacío. Con \\n"
+        "preguntas_opcionales": "Preguntas solo para datos OPCIONALES pendientes (sucursal, forma de pago, fechas, etc.) o vacío. Con \\n",
+        "listo_para_finalizar": false
     }}
     """

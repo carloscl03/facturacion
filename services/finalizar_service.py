@@ -3,8 +3,24 @@ import json
 import requests
 
 from config import settings
+from config.estados import COMPLETADO
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
+
+
+def _parsear_metadata(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw.copy()
+    if not raw:
+        return {}
+    s = str(raw).strip()
+    if not s:
+        return {}
+    try:
+        parsed = json.loads(s)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
 
 
 class FinalizarService:
@@ -45,8 +61,9 @@ class FinalizarService:
 
         try:
             if "VENTA" in tipo_ope:
-                return self._finalizar_venta(reg, id_cliente, id_empresa, tipo_comp, monto_total, monto_base, monto_igv, moneda_simbolo)
+                return self._finalizar_venta(wa_id, reg, id_cliente, id_empresa, tipo_comp, monto_total, monto_base, monto_igv, moneda_simbolo)
 
+            self._marcar_completado(wa_id, id_empresa)
             return {
                 "status": "finalizado",
                 "mensaje": (
@@ -60,8 +77,18 @@ class FinalizarService:
         except Exception as e:
             return {"status": "error", "mensaje": f"Hubo un fallo técnico: {str(e)}"}
 
+    def _marcar_completado(self, wa_id: str, id_empresa: int) -> None:
+        try:
+            registro = self._cache.consultar(wa_id, id_empresa) or {}
+            metadata_ia = _parsear_metadata(registro.get("metadata_ia"))
+            metadata_ia["estado_flujo"] = COMPLETADO
+            self._cache.actualizar(wa_id, id_empresa, {"metadata_ia": json.dumps(metadata_ia, ensure_ascii=False)})
+        except Exception:
+            pass
+
     def _finalizar_venta(
         self,
+        wa_id: str,
         reg: dict,
         id_cliente,
         id_empresa: int,
@@ -112,6 +139,7 @@ class FinalizarService:
 
         url_pdf = res_json.get("data", {}).get("url_pdf")
         if url_pdf:
+            self._marcar_completado(wa_id, id_empresa)
             return {
                 "status": "finalizado",
                 "mensaje": (

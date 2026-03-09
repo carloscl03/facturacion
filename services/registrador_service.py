@@ -1,6 +1,7 @@
 import json
 import re
 
+from config.estados import PENDIENTE_DATOS
 from repositories.base import CacheRepository
 from services.identificador_service import IdentificadorService
 
@@ -74,7 +75,10 @@ class RegistradorService:
                 "paso_actual": 3,
                 "is_ready": 1,
                 "ultima_pregunta": "CONFIRMADO",
-                "metadata_ia": json.dumps({"dato_registrado": {}, "dato_identificado": {}}, ensure_ascii=False),
+                "metadata_ia": json.dumps(
+                    {"dato_registrado": {}, "dato_identificado": {}, "estado_flujo": PENDIENTE_DATOS},
+                    ensure_ascii=False,
+                ),
             }
             for key in ("persona_id", "cliente_id", "proveedor_id", "entidad_id_maestro"):
                 if payload_analizado.get(key) is not None:

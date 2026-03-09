@@ -107,6 +107,8 @@ class PreguntadorV2Service:
         if bloques_previos:
             texto_final = "\n\n".join(bloques_previos) + "\n\n" + texto_final
 
+        listo_para_finalizar = bool(resultado.get("listo_para_finalizar") is True)
+
         return {
             "status": "ok",
             "whatsapp_output": {
@@ -114,4 +116,5 @@ class PreguntadorV2Service:
                 "sintesis_visual": sintesis,
                 "diagnostico": diagnostico,
             },
+            "listo_para_finalizar": listo_para_finalizar,
         }

@@ -77,14 +77,12 @@ def build_prompt_analisis(
     Antes del resumen, genera una frase corta que muestre que entendiste el mensaje del usuario. Ejemplos: "Entendido, anoté 2 laptops por S/ 3000.", "Perfecto, quedó como Factura.", "Anotado: cliente con RUC 20123456789.", "Listo, lo dejo en Soles y al contado." Así el usuario siente que lo escuchaste antes de ver el resumen.
     **Si el usuario solo indica que quiere registrar una compra o una venta** (ej: "registrar una compra", "quiero hacer una venta", "es una compra") sin dar más datos: guarda cod_ope (compras/ventas), crea el registro con solo ese dato. En ese caso el resumen_visual debe ser ÚNICAMENTE: (1) la línea 🛒 *COMPRA* o 📤 *VENTA* según corresponda, (2) una sola pregunta de confirmación: "¿Es correcto que deseas registrar una compra?" (o venta). NO incluyas en ese mensaje listado de lo que falta (cliente, comprobante, productos, etc.); solo pide confirmar la intención. Ejemplo de mensaje_entendimiento: "Anotado: es una compra." y en resumen_visual solo el encabezado y "¿Es correcto? Indica los datos cuando quieras."
 
-    ### REGLAS PARA EL RESUMEN VISUAL (resumen_visual) — solo lo extraído en ESTE mensaje:
-    {PLANTILLA_VISUAL}
-
+    ### REGLAS PARA EL RESUMEN VISUAL (resumen_visual) — NO es un resumen de todo lo llenado:
     {REGLAS_NORMALIZACION}
 
-    **Regla crítica del analizador:** El resumen_visual debe mostrar ÚNICAMENTE los apartados para los que hay dato en tu propuesta_cache (lo que extrajiste de este mensaje). Si el usuario solo registró productos, despliega solo el detalle de productos (y monto/total si aplica); NO muestres encabezado compra/venta (🛒/📤), ni comprobante, ni cliente/proveedor, ni moneda/pago si están vacíos en la propuesta. Los apartados sin dato en esta extracción no se despliegan aquí (el preguntador sí los mostrará después si ya están en el registro).
-    **Caso solo compra/venta:** Si la propuesta solo tiene cod_ope (compras o ventas) y el resto vacío, el resumen_visual debe ser SOLO: línea 🛒 *COMPRA* o 📤 *VENTA* + una pregunta de confirmación ("¿Es correcto que deseas registrar una compra/venta? Indica los datos cuando quieras."). NO escribas "Aún no hay datos capturados" ni listes lo que falta (cliente, comprobante, productos); solo confirmación de intención.
-    Para cada línea, comprueba en tu propuesta_cache si el campo indicado en "mostrar si" tiene valor (no null, no vacío, no 0). Si no lo extrajiste, no escribas esa línea. Aplica las reglas de normalización: nunca IDs; usa solo lenguaje natural. Tras el mensaje de entendimiento, el resumen debe terminar con una pregunta de confirmación natural.
+    **Regla crítica:** El resumen_visual NO debe ser un resumen de todo lo ya guardado en el registro. Debe contener ÚNICAMENTE: (1) un mensaje breve de lo **recién actualizado o modificado** en ESTE mensaje (lo que acabas de extraer), en lenguaje natural; (2) una línea típica de confirmación (ej: "¿Es correcto?" / "¿Algo más que agregar?" / "¿Confirmamos?"). No listes todos los campos ni repitas lo que ya estaba en el registro; solo lo nuevo de este turno + confirmación.
+    **Ejemplos:** Si el usuario acaba de dar 2 laptops a 1500: "Anoté 2 laptops × S/ 1500 (Total S/ 3000). ¿Es correcto?" Si acaba de dar solo el tipo: "Quedó como 🛒 *COMPRA*. ¿Es correcto que deseas registrar una compra? Indica los datos cuando quieras." Si acaba de dar RUC: "Anotado: RUC 20123456789. ¿Confirmamos este dato?"
+    **Caso solo compra/venta (primer mensaje):** Si la propuesta solo tiene cod_ope y el resto vacío, resumen_visual = línea 🛒 *COMPRA* o 📤 *VENTA* + "¿Es correcto que deseas registrar una compra/venta? Indica los datos cuando quieras." No incluyas listado de lo que falta.
 
     ### MENSAJE DEL USUARIO:
     "{mensaje}"
@@ -119,7 +117,7 @@ def build_prompt_analisis(
             "is_ready": 0
         }},
         "mensaje_entendimiento": "Una frase corta que muestre que entendiste al usuario (ej: 'Entendido, anoté 2 laptops por S/ 3000.' o 'Perfecto, quedó como Factura.')",
-        "resumen_visual": "Ejemplo (incluir primero 🛒 COMPRA o 📤 VENTA si cod_ope está definido):\\n🛒 *COMPRA*\\n━━━\\n¿Es correcto? Indica los datos cuando quieras. O: 📄 Factura... 👤 Cliente... 💰 Total... ¿Todo correcto?",
+        "resumen_visual": "Ejemplo (incluir primero 🛒 COMPRA o 📤 VENTA si cod_ope está definido):\\n🛒 *COMPRA*\\n━━━\\n¿Es correcto? O: 📄 Factura... 👤 Cliente... 💰 Total... ¿Todo correcto?",
         "requiere_identificacion": {{
             "activo": false,
             "termino": "",

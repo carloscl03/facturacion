@@ -1,5 +1,6 @@
 import json
 
+from config.estados import PENDIENTE_CONFIRMACION, PENDIENTE_TIPO_OPERACION
 from prompts.analizador import build_prompt_analisis
 from repositories.base import CacheRepository
 from services.ai_service import AIService
@@ -237,4 +238,14 @@ class AnalizadorService:
         if cod_ope_para_escribir:
             dato_registrado["cod_ope"] = cod_ope_para_escribir
 
-        return {"dato_registrado": dato_registrado, "dato_identificado": dato_identificado_existente}
+        cod_ope_final = (dato_registrado.get("cod_ope") or "").strip().lower()
+        if cod_ope_final not in ("ventas", "compras"):
+            estado_flujo = PENDIENTE_TIPO_OPERACION
+        else:
+            estado_flujo = PENDIENTE_CONFIRMACION
+
+        return {
+            "dato_registrado": dato_registrado,
+            "dato_identificado": dato_identificado_existente,
+            "estado_flujo": estado_flujo,
+        }
