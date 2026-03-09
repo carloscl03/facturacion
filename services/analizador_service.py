@@ -26,12 +26,20 @@ class AnalizadorService:
         estado_actual = lista[0] if lista else {}
         es_registro_nuevo = len(lista) == 0
 
+        # cod_ope para escritura: solo el que ya tiene el registro (inspirado en unificado).
+        # Si es nuevo, lo fijamos después desde la IA; si ya existe, usamos el de BD.
+        cod_ope_para_escribir = (estado_actual.get("cod_ope") or "").strip().lower()
+        if cod_ope_para_escribir not in ("ventas", "compras"):
+            cod_ope_para_escribir = None
+
         contexto_previo = self._detectar_contexto(mensaje, estado_actual)
         ultima_pregunta_enviada = estado_actual.get("ultima_pregunta") or ""
         if len(ultima_pregunta_enviada) > 800:
             ultima_pregunta_enviada = ultima_pregunta_enviada[:800] + "..."
 
-        prompt = build_prompt_analisis(ultima_pregunta_enviada, mensaje)
+        prompt = build_prompt_analisis(
+            ultima_pregunta_enviada, mensaje, cod_ope_para_escribir
+        )
 
         try:
             output_ia = self._ai.completar_json(prompt)
@@ -64,16 +72,24 @@ class AnalizadorService:
 
             payload_db = {k: v for k, v in payload_base.items() if es_valor_no_nulo(v)}
 
-            metadata_ia = self._construir_metadata(propuesta, estado_actual, payload_base, contexto_previo)
+            # Regla de cod_ope (como en unificado: un solo criterio para lo que se escribe).
+            # Solo escribir cod_ope si el registro ya lo tenía; si es nuevo, usar el que devolvió la IA.
+            if cod_ope_para_escribir:
+                payload_db["cod_ope"] = cod_ope_para_escribir
+            elif es_registro_nuevo and payload_base.get("cod_ope"):
+                payload_db["cod_ope"] = str(payload_base["cod_ope"]).strip().lower()
+            else:
+                payload_db.pop("cod_ope", None)
+
+            metadata_ia = self._construir_metadata(
+                propuesta, estado_actual, payload_base, cod_ope_para_escribir
+            )
             payload_db["metadata_ia"] = json.dumps(metadata_ia, ensure_ascii=False)
 
             retroalimentacion = (mensaje_entendimiento or "Propuesta actualizada. Revisa el resumen arriba.").strip()
             payload_db["ultima_pregunta"] = retroalimentacion
-
             payload_db["paso_actual"] = 2
             payload_db["is_ready"] = 0
-            if payload_base.get("cod_ope") and str(payload_base.get("cod_ope")).strip():
-                payload_db["cod_ope"] = str(payload_base["cod_ope"]).strip().lower()
 
             db_res = self._repo.upsert(wa_id, id_empresa, payload_db, es_registro_nuevo)
 
@@ -139,7 +155,11 @@ class AnalizadorService:
         }
 
     def _construir_metadata(
-        self, propuesta: dict, estado_actual: dict, payload_base: dict, contexto_previo: str | None
+        self,
+        propuesta: dict,
+        estado_actual: dict,
+        payload_base: dict,
+        cod_ope_para_escribir: str | None,
     ) -> dict:
         try:
             metadata_prev = json.loads(estado_actual.get("metadata_ia") or "{}")
@@ -152,24 +172,48 @@ class AnalizadorService:
         productos_propuesta = propuesta.get("productos_json") or []
         tiene_productos_nuevos = isinstance(productos_propuesta, list) and len(productos_propuesta) > 0
 
+        # Piso: columnas reales ya persistidas en BD (excluye cod_ope para no almacenarlo)
+        prod_estado = estado_actual.get("productos_json")
+        if isinstance(prod_estado, str):
+            try:
+                prod_estado = json.loads(prod_estado) if (prod_estado or "").strip() else []
+            except Exception:
+                prod_estado = []
+        base_estado = _sin_nulos({
+            "entidad_nombre": estado_actual.get("entidad_nombre"),
+            "entidad_numero_documento": estado_actual.get("entidad_numero_documento"),
+            "entidad_id_tipo_documento": estado_actual.get("entidad_id_tipo_documento"),
+            "id_moneda": estado_actual.get("id_moneda"),
+            "id_comprobante_tipo": estado_actual.get("id_comprobante_tipo"),
+            "tipo_operacion": estado_actual.get("tipo_operacion"),
+            **({"monto_total": estado_actual.get("monto_total")} if estado_actual.get("monto_total") and float(estado_actual.get("monto_total") or 0) > 0 else {}),
+            **({"monto_base": estado_actual.get("monto_base")} if estado_actual.get("monto_base") and float(estado_actual.get("monto_base") or 0) > 0 else {}),
+            **({"monto_impuesto": estado_actual.get("monto_impuesto")} if estado_actual.get("monto_impuesto") and float(estado_actual.get("monto_impuesto") or 0) > 0 else {}),
+            **({"productos_json": prod_estado} if prod_estado else {}),
+        })
+
+        # Nuevos valores del mensaje actual: excluir cod_ope y excluir ceros (no sobreescribir datos reales)
+        monto_total_nuevo = payload_base.get("monto_total")
+        monto_base_nuevo = payload_base.get("monto_base")
+        monto_impuesto_nuevo = payload_base.get("monto_impuesto")
         nuevo_parcial = _sin_nulos({
-            "cod_ope": payload_base.get("cod_ope"),
             "entidad_nombre": payload_base.get("entidad_nombre"),
             "entidad_numero_documento": payload_base.get("entidad_numero_documento"),
             "entidad_id_tipo_documento": payload_base.get("entidad_id_tipo_documento"),
             "id_moneda": payload_base.get("id_moneda"),
             "id_comprobante_tipo": payload_base.get("id_comprobante_tipo"),
             "tipo_operacion": payload_base.get("tipo_operacion"),
-            "monto_total": payload_base.get("monto_total"),
-            "monto_base": payload_base.get("monto_base"),
-            "monto_impuesto": payload_base.get("monto_impuesto"),
+            **({"monto_total": monto_total_nuevo} if monto_total_nuevo and float(monto_total_nuevo) > 0 else {}),
+            **({"monto_base": monto_base_nuevo} if monto_base_nuevo and float(monto_base_nuevo) > 0 else {}),
+            **({"monto_impuesto": monto_impuesto_nuevo} if monto_impuesto_nuevo and float(monto_impuesto_nuevo) > 0 else {}),
             **({"productos_json": productos_propuesta} if tiene_productos_nuevos else {}),
         })
 
-        dato_registrado = _sin_nulos({**dato_registrado_prev, **nuevo_parcial})
+        # Fusión: BD → metadata previa → nuevos valores del mensaje (cada capa sobreescribe la anterior)
+        dato_registrado = _sin_nulos({**base_estado, **dato_registrado_prev, **nuevo_parcial})
 
-        cod_ope_efectivo = contexto_previo or payload_base.get("cod_ope") or dato_registrado.get("cod_ope")
-        if cod_ope_efectivo and str(cod_ope_efectivo).strip().lower() in ("ventas", "compras"):
-            dato_registrado["cod_ope"] = str(cod_ope_efectivo).strip().lower()
+        # Escribir cod_ope en el JSON solo si el registro ya lo tenía (misma regla que el payload).
+        if cod_ope_para_escribir:
+            dato_registrado["cod_ope"] = cod_ope_para_escribir
 
         return {"dato_registrado": dato_registrado, "dato_identificado": dato_identificado_existente}

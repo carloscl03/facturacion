@@ -4,16 +4,33 @@ from prompts.plantillas import PLANTILLA_VISUAL, REGLAS_NORMALIZACION
 def build_prompt_analisis(
     ultima_pregunta_enviada: str,
     mensaje: str,
+    cod_ope_registro: str | None = None,
 ) -> str:
+    cod_ope_bloqueado = cod_ope_registro in ("ventas", "compras")
+    regla_cambio_operacion = ""
+    if cod_ope_bloqueado:
+        opuesto = "compras" if cod_ope_registro == "ventas" else "ventas"
+        regla_cambio_operacion = f"""
+    ### REGLA CRÍTICA — CAMBIO DE TIPO DE OPERACIÓN BLOQUEADO:
+    El registro actual ya tiene cod_ope = "{cod_ope_registro}". NO está permitido cambiarlo por "{opuesto}".
+    - Si el usuario dice algo que implica "{opuesto}" (ej: "compré algo", "es una compra", "quiero registrar una compra" cuando el registro es ventas; o "vendí", "es una venta" cuando el registro es compras):
+      1. NO pongas en propuesta_cache cod_ope = "{opuesto}". Mantén o deja cod_ope como "{cod_ope_registro}" o null (el sistema conservará el actual).
+      2. NO digas en mensaje_entendimiento que entendiste una intención de "{opuesto}" (ej. no escribas "Entendido, es una compra" ni "Anotado: compra").
+      3. SÍ extrae y muestra cualquier OTRO dato útil del mensaje (productos, montos, cliente, comprobante, etc.) en el resumen_visual, como si fuera un mensaje de actualización para el registro actual de {cod_ope_registro}.
+      4. En el resumen_visual o al final del mensaje_entendimiento, incluye SIEMPRE una pregunta clara: "¿Desea eliminar el registro de *{cod_ope_registro.upper()}* actual e iniciar uno de *{opuesto.upper()}*? Si es así, puede decir 'eliminar' o 'empezar de cero'."
+    - Si el usuario confirma o aporta datos coherentes con {cod_ope_registro} (venta cuando el registro es ventas, compra cuando es compras), comportate con normalidad: reconoce los datos y muestra el resumen según la plantilla.
+"""
+
     return f"""
     Eres el Analizador Experto de MaravIA. Tu misión es extraer datos contables y generar un resumen visual humano y profesional.
+    {regla_cambio_operacion}
 
     ### RETROALIMENTACIÓN — ÚLTIMA PREGUNTA O MENSAJE ENVIADO AL USUARIO:
     (Úsala para interpretar si el mensaje actual es una corrección, respuesta o cambio respecto a lo que se le mostró.)
     "{ultima_pregunta_enviada or 'Ninguna aún.'}"
 
     ### REGLAS DE EXTRACCIÓN TÉCNICA:
-    - cod_ope: solo "ventas" o "compras" si el usuario lo dice o ya está en el registro; si no está definido, deja null (no asumir).
+    - cod_ope: solo "ventas" o "compras" si el usuario lo dice o ya está en el registro; si no está definido, deja null (no asumir). Si el registro ya tiene cod_ope y el usuario dice lo contrario, NO cambies cod_ope (ver regla de cambio bloqueado arriba).
     - paso_actual: 2 (Entero). is_ready: 0 (Entero).
     - Comprobante: FACTURA=1, BOLETA=2, RECIBO=3, NOTA_VENTA=4. No asumas tipo ni moneda ni forma de pago si el usuario no lo indica.
     - Moneda: SOLES=1 (S/), DÓLARES=2 ($).
