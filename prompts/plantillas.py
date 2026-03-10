@@ -50,6 +50,7 @@ Las preguntas deben sonar naturales: "¿Cuál es el monto o detalle de los produ
 
 PLANTILLA_RESUMEN_FINAL = """
 ESTRUCTURA PARA RESUMEN FINAL (confirmación al usuario). Mostrar cada línea SOLO si el campo tiene valor.
+Mapeo desde propuesta_cache: centro_costo → centro_costo o centro_costo_nombre; forma_pago; caja_banco; fecha_pago; tipo_operacion; sucursal_nombre; id_moneda → moneda_nombre.
 
 0) TIPO DE OPERACIÓN (mostrar solo si cod_ope está definido)
    ━━━━━━━━━━━━━━━━━━━
@@ -68,14 +69,19 @@ ESTRUCTURA PARA RESUMEN FINAL (confirmación al usuario). Mostrar cada línea SO
    💰 [moneda_simbolo] [monto_base] + IGV [moneda_simbolo] [monto_impuesto] = [moneda_simbolo] [monto_total]
    ━━━━━━━━━━━━━━━━━━━
 
-3) LOGÍSTICA Y PAGO (solo si están definidos)
-   📍 [sucursal_nombre] | [centro_costo_nombre]
-   💳 [forma_pago_nombre o tipo_operacion]  — Contado / Crédito / Transferencia, etc.
-   💵 Moneda: [moneda_nombre]  — Soles o Dólares (lenguaje natural, nunca código PEN)
+3) LOGÍSTICA Y PAGO (solo si están definidos en propuesta_cache)
+   📍 [sucursal_nombre] | [centro_costo o centro_costo_nombre]
+   💳 *Pago:* [tipo_operacion]  — Contado o Crédito (campo tipo_operacion)
+   💳 *Forma de pago:* [forma_pago o forma_pago_nombre]  — Yape, Transferencia, Efectivo, etc. (solo si forma_pago definido)
+   🏦 *Caja/Cuenta:* [caja_banco]  — si caja_banco definido
+   📅 *Fecha de pago:* [fecha_pago]  — si fecha_pago definido (YYYY-MM-DD)
+   💵 Moneda: [moneda_nombre]  — Soles o Dólares (id_moneda → lenguaje natural)
    ━━━━━━━━━━━━━━━━━━━
 
-4) CRÉDITO (solo si tipo_operacion = credito y hay plazo o vencimiento)
-   🔄 Crédito [plazo_dias] días, [nro_cuotas] cuotas
+4) CRÉDITO (solo si tipo_operacion = credito y hay plazo, vencimiento o cuotas)
+   🔄 Crédito [plazo_dias] días  — si plazo_dias definido
+   📅 *Vencimiento:* [fecha_vencimiento]  — si fecha_vencimiento definido (alternativa o complemento a plazo_dias)
+   🔄 [nro_cuotas] cuotas  — si aplica
    📊 Cuota N: [moneda_simbolo] [monto] — [fecha]  — por cada cuota si existe cuotas_json o equivalente
    ━━━━━━━━━━━━━━━━━━━
 
@@ -88,8 +94,12 @@ Ejemplo completo:
 📦 2x Servidores Dell PowerEdge
 💰 S/ 42,372.88 + IGV S/ 7,627.12 = S/ 50,000.00
 📍 Sucursal Principal | Tecnología
-💳 Transferencia | 💵 Moneda: Soles
-🔄 Crédito 60 días, 3 cuotas
+💳 Pago: Crédito | Forma de pago: Transferencia
+🏦 Caja/Cuenta: BCP Cta. Corriente
+📅 Fecha de pago: 2026-03-15
+💵 Moneda: Soles
+🔄 Crédito 60 días | Vencimiento: 2026-05-14
+🔄 3 cuotas
 📊 Cuota 1: S/ 16,666.67 — 23/04/2026
 📊 Cuota 2: S/ 16,666.67 — 23/05/2026
 📊 Cuota 3: S/ 16,666.66 — 22/06/2026

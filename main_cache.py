@@ -223,17 +223,18 @@ async def generar_pregunta(wa_id: str, id_empresa: int):
         * Monto Total: { "OK" if registro.get('monto_total') and float(registro.get('monto_total')) > 0 else "FALTA" }
         * Entidad (ID Maestro): { "OK" if registro.get('entidad_id_maestro') else "FALTA (Requiere identificación)" }
         * Tipo Comprobante: { "OK" if registro.get('id_comprobante_tipo') else "FALTA" }
-    - 🟡 OPCIONALES:
-        * Sucursal: { "OK" if registro.get('id_sucursal') else "Pendiente (Default: 14)" }
-        * Pago: { "OK" if registro.get('tipo_operacion') else "Pendiente (Default: Contado)" }
+    - 🟡 OBLIGATORIOS (sin asumir): Moneda y Pago deben tener valor explícito; no asumir Soles ni Contado. Sucursal se asume 14.
+        * Moneda: { "OK" if registro.get('id_moneda') else "FALTA" }
+        * Pago: { "OK" if registro.get('tipo_operacion') else "FALTA" }
 
     MATRIZ DE PRIORIDAD (Sigue este orden y DETENTE en el primer campo que sea NULL o 0):
     1. PRODUCTOS: Si 'monto_total' es 0 o 'productos_json' está vacío.
     2. ENTIDAD: Regla de Salto: Si entidad_numero_documento tiene valor Y entidad_id_tipo_documento es (1 o 6), SÁLTALO. No vuelvas a preguntar aunque entidad_id_maestro sea null (el sistema lo está procesando).
-    3. COMPROBANTE: Si 'id_comprobante_tipo' es NULL, 0 o NO EXISTE. 
+    3. COMPROBANTE: Si 'id_comprobante_tipo' es NULL, 0 o NO EXISTE. No asumir Boleta ni Factura.
     -> REGLA: Si ya existe un valor (1, 2 o 3), SALTA este paso inmediatamente.
-    4. PAGO: Si 'tipo_operacion' no está definido como "contado" o "credito".
-    5. FINALIZACIÓN: Si todo está lleno, genera el resumen final y pregunta por la emisión.
+    4. MONEDA: Si 'id_moneda' es NULL o 0. No asumir Soles.
+    5. PAGO: Si 'tipo_operacion' no está definido como "contado" o "credito". No asumir Contado.
+    6. FINALIZACIÓN: Si todo está lleno, genera el resumen final y pregunta por la emisión.
 
     ### 4. REGLAS DE VISIBILIDAD (PROHIBIDO MOSTRAR IDs):
     - Nunca muestres IDs numéricos (14, 1, 6, etc.). Usa siempre nombres: `comprobante_tipo_nombre`, `sucursal_nombre`, `moneda_nombre`.
@@ -885,9 +886,9 @@ async def finalizar_operacion(wa_id: str, id_empresa: int):
                 "id_usuario": reg.get("id_usuario", 3),
                 "id_cliente": id_cliente,
                 "id_sucursal": reg.get("id_sucursal", 14),
-                "id_moneda": reg.get("id_moneda", 1),
+                "id_moneda": reg.get("id_moneda"),
                 "id_forma_pago": reg.get("id_forma_pago", 9),
-                "tipo_venta": (reg.get("tipo_operacion") or "Contado").capitalize(),
+                "tipo_venta": (reg.get("tipo_operacion") or "").strip().lower().capitalize(),
                 "fecha_emision": reg.get("fecha_emision") or "2026-03-03",
                 "tipo_facturacion": "facturacion_electronica",
                 "id_tipo_comprobante": tipo_comp,
@@ -1426,9 +1427,9 @@ async def servicio_registrador(wa_id: str, id_empresa: int):
             "entidad_nombre": payload_analizado.get("entidad_nombre", ""),
             "entidad_numero_documento": payload_analizado.get("entidad_numero_documento", ""),
             "entidad_id_tipo_documento": payload_analizado.get("entidad_id_tipo_documento"),
-            "id_moneda": payload_analizado.get("id_moneda", 1),
-            "id_comprobante_tipo": payload_analizado.get("id_comprobante_tipo", 2),
-            "tipo_operacion": payload_analizado.get("tipo_operacion", "contado"),
+            "id_moneda": payload_analizado.get("id_moneda"),
+            "id_comprobante_tipo": payload_analizado.get("id_comprobante_tipo"),
+            "tipo_operacion": payload_analizado.get("tipo_operacion"),
             "monto_total": float(payload_analizado.get("monto_total", 0)),
             "monto_base": float(payload_analizado.get("monto_base", 0)),
             "monto_impuesto": float(payload_analizado.get("monto_impuesto", 0)),

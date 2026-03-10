@@ -44,6 +44,11 @@ def build_prompt_router(
     ### 1. REGLAS DE CLASIFICACIÓN (JERARQUÍA ESTRICTA):
     Evalúa en este orden. La primera que coincida gana.
 
+    0. MENSAJE CON JSON (prioridad máxima):
+       Si el mensaje del usuario **contiene un JSON válido** (objeto `{{...}}` o array `[...]`, ya sea todo el mensaje o un bloque dentro del texto), clasifica como **actualizar** y destino **analizador**. Un JSON es un conjunto de datos que debe ser extraído y guardado en cache; el analizador lo parseará y mapeará a propuesta_cache.
+       - Ejemplos: mensaje = `{{"cliente": "Juan", "ruc": "20123456789"}}`, o texto con un bloque `Aquí van los datos: {{"total": 1000}}` → intención = actualizar, destino = analizador.
+       - No confundir con la palabra "json" escrita en texto sin sintaxis; debe haber llaves/corchetes y estructura parseable.
+
     1. ACTUALIZAR (prioridad sobre confirmación e información):
        El mensaje viene a MODIFICAR algún campo que el analizador puede procesar y guardar en cache.
        Campos modificables por el analizador: entidad (nombre, RUC, DNI), productos (cantidad, nombre, precio), tipo de comprobante (Factura/Boleta/Recibo), moneda (soles/dólares), sucursal, centro de costo, forma de pago, tipo de operación (contado/crédito), fechas, montos, caja/banco.

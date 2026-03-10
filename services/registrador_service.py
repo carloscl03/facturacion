@@ -1,7 +1,7 @@
 import json
 import re
 
-from config.estados import PENDIENTE_DATOS
+from config.estados import PENDIENTE_DATOS, PENDIENTE_IDENTIFICACION
 from repositories.base import CacheRepository
 from services.identificador_service import IdentificadorService
 
@@ -48,6 +48,19 @@ class RegistradorService:
             if not payload_analizado and registro_pendiente:
                 payload_analizado = self._fallback_desde_registro(registro_pendiente)
 
+            # Si la última pregunta era "IDENTIFICACION PENDIENTE", no volver a ejecutar identificador tras registrar.
+            ultima_pregunta_antes = (registro_pendiente.get("ultima_pregunta") or "").strip()
+            estado_flujo_antes = (metadata_ia.get("estado_flujo") or "").strip()
+            venia_de_identificacion = (
+                estado_flujo_antes == PENDIENTE_IDENTIFICACION
+                or "IDENTIFICACION PENDIENTE" in (ultima_pregunta_antes or "").upper()
+            )
+            # Si el último mensaje era "pendiente datos": llamar al identificador solo si metadata_ia tiene entidad.
+            venia_de_pendiente_datos = (
+                estado_flujo_antes == PENDIENTE_DATOS
+                or "pendiente datos" in (ultima_pregunta_antes or "").lower()
+            )
+
             cod_ope_tabla = _safe_str(registro_pendiente.get("cod_ope")).lower()
             cod_ope_meta = _safe_str(payload_analizado.get("cod_ope")).lower()
             cod_ope_final = (
@@ -65,9 +78,9 @@ class RegistradorService:
                 "entidad_nombre": _safe_str(payload_analizado.get("entidad_nombre")),
                 "entidad_numero_documento": _safe_str(payload_analizado.get("entidad_numero_documento")),
                 "entidad_id_tipo_documento": payload_analizado.get("entidad_id_tipo_documento"),
-                "id_moneda": payload_analizado.get("id_moneda", 1),
-                "id_comprobante_tipo": payload_analizado.get("id_comprobante_tipo", 2),
-                "tipo_operacion": _safe_str(payload_analizado.get("tipo_operacion")) or "contado",
+                "id_moneda": payload_analizado.get("id_moneda"),
+                "id_comprobante_tipo": payload_analizado.get("id_comprobante_tipo"),
+                "tipo_operacion": _safe_str(payload_analizado.get("tipo_operacion")) or None,
                 "monto_total": float(payload_analizado.get("monto_total") or 0),
                 "monto_base": float(payload_analizado.get("monto_base") or 0),
                 "monto_impuesto": float(payload_analizado.get("monto_impuesto") or 0),
@@ -116,11 +129,16 @@ class RegistradorService:
                 or payload_analizado.get("cliente_id")
                 or payload_analizado.get("proveedor_id")
             )
+            # Llamar al identificador: no si venimos de "IDENTIFICACION PENDIENTE"; si venimos de "pendiente datos", solo si metadata_ia tiene entidad_nombre o entidad_numero_documento.
+            tiene_entidad_en_metadata = self._tiene_dato_identificable(payload_analizado)
+            cuando_pendiente_datos_solo_si_entidad = not venia_de_pendiente_datos or tiene_entidad_en_metadata
             if (
                 self._identificador
                 and not tiene_id
                 and cod_ope_final in ("ventas", "compras")
-                and self._tiene_dato_identificable(payload_analizado)
+                and tiene_entidad_en_metadata
+                and not venia_de_identificacion
+                and cuando_pendiente_datos_solo_si_entidad
             ):
                 termino = self._termino_identificable(payload_analizado)
                 salida_id = self._identificador.ejecutar(wa_id, cod_ope_final, termino, id_empresa)

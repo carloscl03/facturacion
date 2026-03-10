@@ -121,6 +121,8 @@ class FinalizarService:
             errores.append("Monto total")
         if not tipo_comp:
             errores.append("Tipo de Comprobante (Boleta/Factura)")
+        if not reg.get("id_moneda"):
+            errores.append("Moneda (Soles/Dólares)")
         if "VENTA" in tipo_ope and not id_cliente:
             tiene_datos_registro = (reg.get("entidad_nombre") or "").strip() and (reg.get("entidad_numero_documento") or "").strip()
             if not tiene_datos_registro:
@@ -213,9 +215,9 @@ class FinalizarService:
             "id_usuario": reg.get("id_usuario", 3),
             "id_cliente": id_cliente,
             "id_sucursal": reg.get("id_sucursal") or 14,  # por defecto 14; en el futuro se preguntará
-            "id_moneda": reg.get("id_moneda", 1),
+            "id_moneda": reg.get("id_moneda"),
             "id_forma_pago": reg.get("id_forma_pago", 9),
-            "tipo_venta": (reg.get("tipo_operacion") or "Contado").capitalize(),
+            "tipo_venta": (reg.get("tipo_operacion") or "").strip().lower().capitalize(),  # "contado"|"credito" -> "Contado"|"Credito"
             "fecha_emision": fecha_emision,
             "fecha_pago": fecha_pago,
             "id_tipo_afectacion": reg.get("id_tipo_afectacion", 1),
