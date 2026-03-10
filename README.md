@@ -49,7 +49,8 @@ maravia-bot/
 │   ├── resumen_service.py         # Genera resumen del estado actual
 │   ├── identificador_service.py   # Busca y confirma cliente/proveedor (método buscar() solo lectura)
 │   ├── finalizar_service.py       # Emite el comprobante en SUNAT
-│   └── iniciar_service.py         # Inicia un nuevo flujo de registro
+│   ├── iniciar_service.py         # Inicia un nuevo flujo de registro
+│   └── opciones_service.py        # Estado 2: listas de sucursal, forma de pago, método de pago
 │
 └── api/
     ├── deps.py                    # Factories de dependencias para FastAPI Depends()
@@ -62,7 +63,8 @@ maravia-bot/
         ├── identificador.py       # POST /identificar-entidad
         ├── eliminar.py            # POST /eliminar-operacion
         ├── finalizar.py           # POST /finalizar-operacion
-        └── iniciar.py             # POST /iniciar-flujo
+        ├── iniciar.py             # POST /iniciar-flujo
+        └── opciones.py            # POST /opciones (Estado 2: sucursal, forma de pago, método de pago)
 ```
 
 ### Principios SOLID aplicados
@@ -147,8 +149,8 @@ Este flujo cubre la primera parte del registro: desde que no hay registro en cac
 3. **Documento JSON**  
    - Si el usuario envía un documento en formato JSON, el clasificador lo envía a **actualizar**. La extracción prioriza las **etiquetas/claves del JSON** para llenar la mayor cantidad de campos; después devuelve solo las **preguntas que siguen faltando** (por lógica, menos que antes). Se repite hasta completar los obligatorios.
 
-4. **Estado 2**  
-   - La última parte del registro (validación final, cierre, etc.) se resolverá con otro agente en un flujo posterior (Estado 2).
+4. **Estado 2 (opciones)**  
+   - Cuando el registro tiene todos los datos obligatorios (paso_actual ≥ 3), el agente `POST /opciones` permite elegir **sucursal** (desde `ws_informacion_ia.php`, codOpe OBTENER_SUCURSALES), **forma de pago** (transferencia, TD, TC, billetera virtual) y **método de pago** (contado/crédito). Las listas se envían con el payload que devuelve la API, enviándolo a `ws_send_whatsapp_list.php`. Las selecciones se persisten en Redis (id_sucursal, id_forma_pago, tipo_operacion).
 
 ---
 
@@ -165,6 +167,7 @@ Este flujo cubre la primera parte del registro: desde que no hay registro en cac
 | `POST` | `/eliminar-operacion` | Cancela y limpia el borrador activo |
 | `POST` | `/finalizar-operacion` | Emite el comprobante electrónico vía SUNAT |
 | `POST` | `/iniciar-flujo` | Crea el registro inicial de caché para comenzar el flujo |
+| `POST` | `/opciones` | Estado 2: opciones múltiples (sucursal, forma de pago, método de pago); devuelve payload para ws_send_whatsapp_list.php |
 | `POST` | `/preguntador` | Síntesis + diagnóstico (preguntas obligatorias y opcionales) — standalone |
 
 La documentación interactiva (Swagger) está disponible en:

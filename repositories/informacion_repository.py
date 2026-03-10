@@ -47,3 +47,24 @@ class InformacionRepository:
             if s:
                 out.append(s)
         return out
+
+    def obtener_sucursales(self, id_empresa: int) -> list[dict]:
+        """
+        Obtiene la lista de sucursales de la empresa (codOpe OBTENER_SUCURSALES).
+        Retorna lista de {"id": int, "nombre": str}.
+        """
+        payload = {"codOpe": "OBTENER_SUCURSALES", "id_empresa": id_empresa}
+        try:
+            res = requests.post(self._base_url, json=payload, timeout=10)
+            data = res.json()
+        except Exception:
+            return []
+        raw_list = data.get("sucursales") or data.get("data") or data.get("items") or []
+        if not isinstance(raw_list, list):
+            return []
+        out = []
+        for item in raw_list:
+            s = _normalizar_sucursal(item)
+            if s:
+                out.append(s)
+        return out

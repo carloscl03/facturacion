@@ -8,6 +8,7 @@ from api.routes import (
     identificador,
     informador,
     iniciar,
+    opciones,
     preguntador,
     resumen,
 )
@@ -23,6 +24,7 @@ app.include_router(identificador.router)
 app.include_router(eliminar.router)
 app.include_router(finalizar.router)
 app.include_router(iniciar.router)
+app.include_router(opciones.router)
 
 if __name__ == "__main__":
     import uvicorn
