@@ -82,7 +82,7 @@ def build_prompt_extractor(
     {sucursales_ctx}
 
     ### MENSAJE CON JSON (OBLIGATORIO RESCATAR):
-    El mensaje del usuario **puede contener un JSON** (objeto o array). Si detectas sintaxis JSON válida en el mensaje:
+    El mensaje del usuario **puede contener un JSON** (objeto o array), por ejemplo un documento con muchos datos. Si detectas sintaxis JSON válida, trátalo como prioridad y **presta especial atención a las etiquetas/claves del JSON**: suelen traer gran cantidad de datos; mapea todas las que sean útiles para **llenar la mayor cantidad de campos** y reducir al mínimo las preguntas siguientes.
     1. **Parsea el JSON** e intenta extraer todo lo que sea útil para propuesta_cache.
     2. **Mapea** las claves del JSON a los campos de propuesta_cache según corresponda (nombres pueden variar). Ejemplos de mapeo:
        - Entidad: "cliente", "cliente_nombre", "razon_social", "proveedor", "entidad_nombre" → entidad_nombre; "ruc", "dni", "numero_documento", "documento" → entidad_numero_documento; "tipo_documento" (6 o "RUC") → entidad_id_tipo_documento (6=RUC, 1=DNI).
@@ -94,6 +94,7 @@ def build_prompt_extractor(
        - Fechas y logística: "fecha_emision", "fecha_pago", "fecha_vencimiento" → mismo nombre; "sucursal", "id_sucursal" → sucursal_nombre/id_sucursal; "centro_costo", "caja_banco" → mismo nombre.
     3. **Combina** lo extraído del JSON con cualquier dato que el usuario haya escrito en texto libre; el JSON tiene prioridad.
     4. Si el JSON es inválido o está truncado, extrae todo lo que puedas del fragmento válido e ignora el resto.
+    5. Tras procesar un documento JSON, el **diagnóstico** debe listar únicamente los datos que **siguen faltando** en lenguaje natural; por lógica serán menos que antes.
 
     ### REGLAS DE EXTRACCIÓN TÉCNICA:
     - cod_ope: solo "ventas" o "compras" si el usuario lo dice o ya está en el registro; si no está definido, deja null. Si el registro ya tiene cod_ope y el usuario dice lo contrario, NO cambies cod_ope (ver regla de cambio bloqueado).

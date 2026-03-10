@@ -133,6 +133,23 @@ El flujo se orquesta desde un **clasificador** que lee el mensaje del usuario y 
 | `3` | Obligatorios completos | monto + entidad + comprobante + moneda + tipo_operacion |
 | `4` | Finalizado | Post-SUNAT (lo escribe FinalizarService) |
 
+### Flujo Estado 1 (registro hasta datos completos)
+
+Este flujo cubre la primera parte del registro: desde que no hay registro en caché hasta tener todos los datos obligatorios. La última parte del registro (cierre/validación final) se cubrirá en **Estado 2** con otro agente.
+
+1. **Primera interacción (mensaje casual o documento)**  
+   - Si **no hay registro en Redis** y el mensaje no indica compra/venta ni contiene JSON: el clasificador devuelve **casual** y se sugiere el mensaje *"Para comenzar, indique si desea registrar una compra o una venta."* (campo `mensaje_casual_sugerido`).  
+   - Si el mensaje **sí indica compra o venta**, o trae un **documento en JSON**: se pasa al clasificador y se envía a **actualizar** (extracción), que puede crear el registro.
+
+2. **Con compra o venta (o documento)**  
+   - **Extracción** crea o actualiza el registro en Redis y devuelve un listado de **datos faltantes en lenguaje natural** (diagnóstico). El usuario responde o envía más datos.
+
+3. **Documento JSON**  
+   - Si el usuario envía un documento en formato JSON, el clasificador lo envía a **actualizar**. La extracción prioriza las **etiquetas/claves del JSON** para llenar la mayor cantidad de campos; después devuelve solo las **preguntas que siguen faltando** (por lógica, menos que antes). Se repite hasta completar los obligatorios.
+
+4. **Estado 2**  
+   - La última parte del registro (validación final, cierre, etc.) se resolverá con otro agente en un flujo posterior (Estado 2).
+
 ---
 
 ## Endpoints disponibles
