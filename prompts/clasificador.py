@@ -1,29 +1,28 @@
 def build_prompt_router(
     mensaje: str,
     ultima_pregunta: str,
-    estado_flujo: str = "inicial",
+    paso_actual: int = 0,
     cod_ope: str | None = None,
 ) -> str:
     ultima_visible = (ultima_pregunta or "").strip() or "— Ninguna (inicio de conversación o sin registro previo)."
     ctx_ultima = f"""
     ### CONTEXTO — ÚLTIMA PREGUNTA O MENSAJE ENVIADO AL USUARIO:
-    (Úsalo para interpretar si la respuesta es confirmación, corrección o continuación.)
+    (Úsalo para interpretar si la respuesta aporta datos, corrige algo o responde a una pregunta del sistema.)
     "{ultima_visible}"
     """
 
-    estado_visible = (estado_flujo or "inicial").strip()
     cod_ope_visible = (cod_ope or "").strip() or "no definido"
-    ctx_estado = f"""
-    ### ESTADO DEL FLUJO (bandera — úsalo para enrutar):
-    estado_flujo = "{estado_visible}"
+    ctx_paso = f"""
+    ### ESTADO DEL REGISTRO (paso_actual — úsalo para enrutar):
+    paso_actual = {paso_actual}
     cod_ope = "{cod_ope_visible}"
 
-    **Enrutado según estado:**
-    - inicial / pendiente_tipo_operacion: Si el mensaje aporta datos y/o indica venta o compra → actualizar. Si no → casual.
-    - pendiente_confirmacion / pendiente_identificacion: El usuario vio un resumen o ficha pidiendo confirmación. Sí (afirmación pura) → confirmacion (registrador). No (breve, sin datos) → informacion. No + datos o correcciones → actualizar.
-    - pendiente_datos: El registro ya está guardado; el usuario puede enviar más datos (actualizar), confirmar de nuevo (confirmacion), pedir resumen (resumen) o decir finalizar/emitir (finalizar).
-    - listo_para_finalizar: Si el mensaje es finalizar/emitir/processar/documento → finalizar. Si pide resumen → resumen. Si aporta datos opcionales → actualizar.
-    - completado: Tratar como inicial (actualizar si hay datos de nueva operación, sino casual).
+    **Enrutado según paso:**
+    - 0 (sin tipo): Si el mensaje aporta datos o indica venta/compra → actualizar. Si no → casual.
+    - 1 (tipo definido): Si aporta datos → actualizar. Si no → casual.
+    - 2 (datos parciales): Si aporta datos → actualizar. Si pregunta por el registro (qué llevo, qué falta, etc.) → resumen. Si pide ayuda → informacion.
+    - 3 (obligatorios completos): Si dice finalizar/emitir/procesar → finalizar. Si aporta datos opcionales → actualizar. Si pregunta por el registro → resumen.
+    - 4 (completado): Tratar como paso 0 (nueva operación). Si aporta datos → actualizar. Si no → casual.
     """
 
     return f"""
@@ -31,52 +30,45 @@ def build_prompt_router(
     
     MENSAJE DEL USUARIO: "{mensaje}"
     {ctx_ultima}
-    {ctx_estado}
+    {ctx_paso}
     
     ### FLUJO DEL SISTEMA (destino de cada intención):
-    - actualizar → Analizador (extrae y guarda datos en cache).
-    - confirmacion → Registrador (guarda la propuesta); después se llama al Preguntador.
-    - resumen → Generar-resumen (devuelve estado actual).
+    - actualizar → Extracción (extrae datos, guarda en BD, genera diagnóstico de faltantes).
+    - resumen → Generar-resumen (devuelve estado actual del registro y responde preguntas sobre qué hay, qué falta, montos, entidad, etc.).
     - finalizar → Finalizar-operacion (emite el comprobante).
-    - informacion → Informador (endpoint /informador): responde con guía de llenado.
-    - eliminar → Eliminar-operacion. casual → Respuesta casual.
+    - informacion → Informador (responde con guía de llenado y ayuda).
+    - eliminar → Eliminar-operacion.
+    - casual → Respuesta casual.
     
     ### 1. REGLAS DE CLASIFICACIÓN (JERARQUÍA ESTRICTA):
     Evalúa en este orden. La primera que coincida gana.
 
     0. MENSAJE CON JSON (prioridad máxima):
-       Si el mensaje del usuario **contiene un JSON válido** (objeto `{{...}}` o array `[...]`, ya sea todo el mensaje o un bloque dentro del texto), clasifica como **actualizar** y destino **analizador**. Un JSON es un conjunto de datos que debe ser extraído y guardado en cache; el analizador lo parseará y mapeará a propuesta_cache.
-       - Ejemplos: mensaje = `{{"cliente": "Juan", "ruc": "20123456789"}}`, o texto con un bloque `Aquí van los datos: {{"total": 1000}}` → intención = actualizar, destino = analizador.
-       - No confundir con la palabra "json" escrita en texto sin sintaxis; debe haber llaves/corchetes y estructura parseable.
+       Si el mensaje contiene un JSON válido (objeto o array), clasifica como **actualizar** y destino **extraccion**.
 
-    1. ACTUALIZAR (prioridad sobre confirmación e información):
-       El mensaje viene a MODIFICAR algún campo que el analizador puede procesar y guardar en cache.
-       Campos modificables por el analizador: entidad (nombre, RUC, DNI), productos (cantidad, nombre, precio), tipo de comprobante (Factura/Boleta/Recibo), moneda (soles/dólares), sucursal, centro de costo, forma de pago, tipo de operación (contado/crédito), fechas, montos, caja/banco.
+    1. ACTUALIZAR (prioridad sobre información):
+       El mensaje viene a MODIFICAR algún campo: entidad, productos, comprobante, moneda, sucursal, centro de costo, forma de pago, tipo de operación, fechas, montos, caja/banco.
        - Si el usuario aporta o cambia CUALQUIERA de esos datos → intención = actualizar.
-       - Ejemplos: "Es en dólares", "El RUC es 20123456789", "2 laptops a 1500", "Sucursal Lima Centro", "Pago al contado", "Es factura", "El cliente es Juan Pérez".
-       - REGLA: Si hay un dato técnico que debe guardarse en la tabla/cache, es ACTUALIZAR. No es confirmación ni información.
+       - Afirmativas cortas que validan ("Sí", "Ok", "Dale", "Correcto") sin datos nuevos → actualizar (extracción interpreta contexto).
+       - REGLA: Si hay un dato técnico que debe guardarse en la tabla, es ACTUALIZAR.
 
-    2. CONFIRMACION:
-       El usuario VALIDA o ACEPTA la propuesta mostrada (resumen visual), sin aportar datos nuevos.
-       - Afirmativas puras: "Sí", "Dale", "Correcto", "Está bien", "Adelante", "Ok", "Vale", "Acepto", "Confirmado".
-       - REGLA "SÍ PURO": Solo afirmación corta → confirmacion (destino: registrador, luego preguntador).
-       - REGLA "SÍ CON DATOS": Si además da un dato (ej: "Sí, el RUC es 20...") → ACTUALIZAR, no confirmacion.
+    2. RESUMEN (preguntas sobre el registro):
+       El usuario pregunta por el ESTADO ACTUAL del registro o por datos ya ingresados.
+       - "¿Qué llevo?", "¿Qué datos tengo?", "¿Qué falta?", "Dime el resumen", "¿Cuál es el monto?", "¿A quién le facturo?", "¿Qué comprobante es?", "¿Ya está todo?".
+       - Cualquier pregunta que pida CONSULTAR lo ya registrado (cliente, proveedor, monto, productos, tipo doc, etc.) → resumen.
+       Destino: generar-resumen (responde con el estado actual y lo que falta).
 
-    3. RESUMEN:
-       Pide ver el estado actual o qué falta. Ej: "¿Qué llevo?", "Dime el resumen", "¿Qué datos faltan?".
-       Destino: generar-resumen.
-
-    5. FINALIZAR:
-       Ordena emitir el documento oficial. Ej: "Procesa la factura", "Envíalo ya", "Emite el documento", "Todo conforme, emite".
+    3. FINALIZAR:
+       Ordena emitir el documento oficial. Ej: "Procesa la factura", "Envíalo ya", "Emite el documento".
        Destino: finalizar-operacion.
 
-    6. CASUAL: Saludos o mensajes sin intención contable.
+    4. CASUAL: Saludos o mensajes sin intención contable.
 
-    7. ELIMINAR: Borrar, cancelar, "empezar de cero". Destino: eliminar-operacion.
+    5. ELIMINAR: Borrar, cancelar, "empezar de cero". Destino: eliminar-operacion.
 
-    8. INFORMACION:
+    6. INFORMACION:
        Preguntas de ayuda: "¿Cómo...?", "¿Qué es...?", "Explícame", "No entiendo cómo poner...".
-       Destino: informador (responde con guía de llenado).
+       Destino: informador.
        Si el mensaje es una afirmación con dato (ej: "Será en dólares"), es ACTUALIZAR, no informacion.
 
     ### 2. campo_detectado (solo si intencion = actualizar):
@@ -84,12 +76,12 @@ def build_prompt_router(
 
     RESPONDE EXCLUSIVAMENTE EN JSON:
     {{
-        "intencion": "actualizar|confirmacion|resumen|finalizar|casual|eliminar|informacion",
-        "destino": "analizador|registrador|generar-resumen|finalizar-operacion|eliminar-operacion|informador|casual",
+        "intencion": "actualizar|resumen|finalizar|casual|eliminar|informacion",
+        "destino": "extraccion|generar-resumen|finalizar-operacion|eliminar-operacion|informador|casual",
         "confianza": float,
         "urgencia": "alta|media|baja",
         "necesita_extraccion": bool,
         "campo_detectado": "entidad|monto|comprobante|condicion_pago|productos|moneda|sucursal|centro_costo|forma_pago|ninguno",
-        "explicacion_soporte": "Solo si intencion=informacion: breve guía o mensaje para mostrar al usuario (ej: Próximamente tendremos ayuda contextual)"
+        "explicacion_soporte": "Solo si intencion=informacion: breve guía o mensaje para mostrar al usuario"
     }}
     """

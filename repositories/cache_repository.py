@@ -61,10 +61,15 @@ class HttpCacheRepository(CacheRepository):
         return res.json()
 
     def eliminar(self, wa_id: str, id_empresa: int) -> dict:
-        payload = {
-            "codOpe": "ELIMINAR_CACHE",
-            "ws_whatsapp": wa_id,
-            "id_empresa": id_empresa,
-        }
-        res = requests.post(self._base_url, json=payload)
-        return res.json()
+        try:
+            payload = {
+                "codOpe": "ELIMINAR_CACHE",
+                "ws_whatsapp": wa_id,
+                "id_empresa": id_empresa,
+            }
+            res = requests.post(self._base_url, json=payload, timeout=15)
+            data = res.json() if res.content else {}
+            ok = data.get("success", data.get("status") == "ok" or res.status_code == 200)
+            return {"success": bool(ok)}
+        except (requests.RequestException, ValueError) as e:
+            return {"success": False, "error": str(e)}

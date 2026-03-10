@@ -1,3 +1,5 @@
+"""DEPRECATED: Reemplazado por services/extraccion_service.py (flujo unificado sin metadata_ia)."""
+
 import json
 
 from config.estados import LISTO_PARA_FINALIZAR, PENDIENTE_IDENTIFICACION

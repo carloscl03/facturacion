@@ -1,15 +1,30 @@
+from __future__ import annotations
+
 from fastapi import Depends
+from redis import Redis
 
 from config import settings
 from repositories.base import CacheRepository
 from repositories.cache_repository import HttpCacheRepository
 from repositories.entity_repository import EntityRepository
 from repositories.informacion_repository import InformacionRepository
+from repositories.redis_cache_repository import RedisCacheRepository
 from services.ai_service import AIService, OpenAIService
 from services.identificador_service import IdentificadorService
 
+_redis_client: Redis | None = None
+
+
+def _get_redis() -> Redis:
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=False)
+    return _redis_client
+
 
 def get_cache_repo() -> CacheRepository:
+    if settings.CACHE_BACKEND == "redis":
+        return RedisCacheRepository(_get_redis(), ttl=settings.REDIS_TTL)
     return HttpCacheRepository(settings.URL_API)
 
 

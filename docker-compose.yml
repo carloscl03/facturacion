@@ -14,3 +14,14 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - TOKEN_SUNAT=${TOKEN_SUNAT}
+      - CACHE_BACKEND=${CACHE_BACKEND:-http}
+      - REDIS_URL=${REDIS_URL:-redis://default:123@sistemamultiagente_mem_facturacion:6379/0}
+      - REDIS_TTL=${REDIS_TTL:-86400}
+    networks:
+      - default
+      - redis_externa
+
+networks:
+  redis_externa:
+    external: true
+    name: ${REDIS_NETWORK:-external-network}

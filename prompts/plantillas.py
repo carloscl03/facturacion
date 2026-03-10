@@ -43,9 +43,9 @@ En la Síntesis, el Resumen y el Diagnóstico NUNCA uses números ni códigos in
 - id_moneda: 1 → "Soles" (S/), 2 → "Dólares" ($).
 - entidad_id_tipo_documento: 1 → "DNI", 6 → "RUC". Pregunta "¿Me das el RUC o DNI del cliente?" no el id.
 - tipo_operacion: "contado" → "Contado", "credito" → "Crédito". Pregunta "¿Fue al contado o a crédito?"
-- id_forma_pago: en el registro se guarda el ID; el backend rellena forma_pago_nombre. En síntesis y diagnóstico usa siempre el nombre (ej. "Contado", "Crédito", "Yape", "Transferencia"), nunca el número. Pregunta "¿Cómo pagó? (Contado, Yape, Transferencia...)".
-- Sucursal, centro de costo, cuenta/caja: usa siempre los nombres (sucursal_nombre, centro_costo_nombre, caja_banco_nombre), nunca id_sucursal ni números.
-Las preguntas deben sonar naturales: "¿Cuál es el monto o detalle de los productos?", "¿Cuál es el RUC o nombre del cliente?", "¿Emitimos Factura o Boleta?", "¿En qué sucursal se realizó?", "¿Fue al contado o a crédito?", "¿Forma de pago?"
+- Sucursal, centro de costo y forma de pago: no se generan preguntas ni se listan como faltantes (se gestionan por otro medio). Si ya tienen valor, se muestran en resumen con sus nombres (sucursal_nombre, centro_costo_nombre, forma_pago_nombre); nunca IDs.
+- Cuenta/caja y resto de campos: usa nombres (caja_banco_nombre, etc.), nunca IDs.
+Las preguntas deben sonar naturales solo para los campos que sí se preguntan: "¿Cuál es el monto o detalle de los productos?", "¿Cuál es el RUC o nombre del cliente?", "¿Emitimos Factura o Boleta?", "¿Fue al contado o a crédito?", "¿Moneda: Soles o Dólares?", "¿Fecha de emisión/pago?", "¿Cuenta o caja?"
 """
 
 PLANTILLA_RESUMEN_FINAL = """

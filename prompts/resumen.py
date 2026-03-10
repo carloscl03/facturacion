@@ -14,8 +14,8 @@ def build_prompt_resumen(registro: dict) -> str:
 
     ### DIAGNÓSTICO DINÁMICO (solo lo que REALMENTE falta):
     **Regla crítica:** Incluye en el diagnóstico ÚNICAMENTE los campos que en DATOS EN DB están vacíos (null, "", 0 o ausentes). Si un campo YA tiene valor, NO lo menciones.
-    **Obligatorios** (solo si faltan): 1) Monto/Detalle (monto_total > 0 o productos_json con ítems), 2) Cliente/Proveedor (entidad + documento o cliente_id/entidad_id_maestro/proveedor_id), 3) Tipo comprobante (id_comprobante_tipo definido).
-    **Adicionales** (opcionales, solo si faltan): tipo_operacion, forma_pago, sucursal, centro_costo, caja_banco, fecha_emision.
+    **Obligatorios** (solo si faltan): 1) Monto/Detalle, 2) Cliente/Proveedor, 3) Tipo comprobante, 4) Moneda, 5) Tipo de pago, 6) Si crédito: plazo/vencimiento, 7) Fecha emisión / Fecha pago / Cuenta-Caja cuando aplique.
+    **NO listar como faltantes:** sucursal, centro de costo, forma de pago (se gestionan por otro medio).
     Redacta cada ítem del diagnóstico en **lenguaje natural**, como preguntas o frases cortas (ej: "Falta el detalle o monto.", "Falta indicar el cliente (nombre o RUC).", "Falta el tipo de comprobante (Factura o Boleta)."). No uses listas técnicas ni nombres de campos.
     **Si no falta ningún obligatorio:** No listes faltantes; escribe algo como "✅ No falta ningún dato obligatorio. Puede confirmar o decir *finalizar* para emitir."
 

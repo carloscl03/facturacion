@@ -1,4 +1,5 @@
-"""Banderas de estado del flujo para el clasificador (metadata_ia.estado_flujo)."""
+"""DEPRECATED: Reemplazado por paso_actual (0-4) en la tabla historial_cache.
+Se conserva por compatibilidad con servicios legacy (analizador, confirmador, registrador)."""
 
 INICIAL = "inicial"
 PENDIENTE_TIPO_OPERACION = "pendiente_tipo_operacion"

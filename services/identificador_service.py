@@ -1,13 +1,13 @@
+from __future__ import annotations
+
 import json
 
-from config.estados import PENDIENTE_IDENTIFICACION
 from prompts.plantillas import formatear_ficha_identificacion
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
 
 
 def _sin_nulos(d: dict) -> dict:
-    """Retorna un dict sin claves con valor None, vacío o 'null'."""
     if not isinstance(d, dict):
         return d
     return {
@@ -17,28 +17,16 @@ def _sin_nulos(d: dict) -> dict:
     }
 
 
-def _parsear_metadata(raw) -> dict:
-    """Parsea metadata_ia si llega como str o dict (API puede devolverlo ya parseado)."""
-    if isinstance(raw, dict):
-        return raw
-    if not raw:
-        return {}
-    raw_str = str(raw).strip()
-    if not raw_str:
-        return {}
-    try:
-        parsed = json.loads(raw_str)
-        return parsed if isinstance(parsed, dict) else {}
-    except (json.JSONDecodeError, TypeError):
-        return {}
-
-
 class IdentificadorService:
     def __init__(self, cache_repo: CacheRepository, entity_repo: EntityRepository) -> None:
         self._cache = cache_repo
         self._entities = entity_repo
 
-    def ejecutar(self, wa_id: str, tipo_ope: str, termino: str, id_empresa: int) -> dict:
+    # -------------------------------------------------------------- #
+    # buscar(): solo lectura, NO toca cache ni metadata_ia.
+    # Retorna IDs, ficha visual y campos para que el caller persista.
+    # -------------------------------------------------------------- #
+    def buscar(self, tipo_ope: str, termino: str, id_empresa: int) -> dict:
         try:
             data_cli = self._entities.buscar_cliente(id_empresa, termino)
             data_prov = self._entities.buscar_proveedor(id_empresa, termino)
@@ -54,9 +42,8 @@ class IdentificadorService:
                 return {
                     "identificado": False,
                     "mensaje": mensaje,
-                    "resumen_confirmacion": mensaje,
                     "datos_identificados": None,
-                    "sugiere_llenar_sin_identificar": True,
+                    "campos_entidad": {},
                 }
 
             base = data_prov if (tipo_ope == "compras" and data_prov) else (data_cli if data_cli else data_prov)
@@ -86,17 +73,6 @@ class IdentificadorService:
                 nombre_entidad, doc_identidad, tipo_doc_txt, comercial,
                 correo_ent, telf_ent, dir_ent, rol_txt, tipo_ope,
             )
-            datos_identificados = {
-                "nombre_entidad": nombre_entidad,
-                "doc_identidad": doc_identidad,
-                "tipo_doc_txt": tipo_doc_txt,
-                "comercial": comercial,
-                "correo": correo_ent,
-                "telefono": telf_ent,
-                "direccion": dir_ent,
-                "rol_txt": rol_txt,
-                "tipo_ope": tipo_ope,
-            }
 
             tipo_ope_norm = (tipo_ope or "").lower().strip()
             p_id = (data_cli or data_prov).get("persona_id")
@@ -117,8 +93,7 @@ class IdentificadorService:
             if doc_limpio is None and doc_identidad != "_No registrado_":
                 doc_limpio = doc_identidad
 
-            propuesta_identidad = _sin_nulos({
-                "cod_ope": tipo_ope_norm or None,
+            campos_entidad = _sin_nulos({
                 "entidad_nombre": nombre_entidad_limpio,
                 "entidad_numero_documento": doc_limpio,
                 "entidad_id_tipo_documento": entidad_id_tipo_documento,
@@ -128,60 +103,66 @@ class IdentificadorService:
                 "proveedor_id": pr_id,
             })
 
-            registro_actual = self._cache.consultar(wa_id, id_empresa) or {}
-            metadata_ia = _parsear_metadata(registro_actual.get("metadata_ia"))
-
-            dato_registrado = metadata_ia.get("dato_registrado") or {}
-            if not dato_registrado and registro_actual:
-                prod = registro_actual.get("productos_json")
-                if isinstance(prod, str):
-                    try:
-                        prod = json.loads(prod) if (prod or "").strip() else []
-                    except Exception:
-                        prod = []
-                else:
-                    prod = prod if isinstance(prod, list) else []
-                dato_registrado = _sin_nulos({
-                    "cod_ope": registro_actual.get("cod_ope"),
-                    "entidad_nombre": registro_actual.get("entidad_nombre"),
-                    "entidad_numero_documento": registro_actual.get("entidad_numero_documento"),
-                    "entidad_id_tipo_documento": registro_actual.get("entidad_id_tipo_documento"),
-                    "id_moneda": registro_actual.get("id_moneda"),
-                    "id_comprobante_tipo": registro_actual.get("id_comprobante_tipo"),
-                    "tipo_operacion": registro_actual.get("tipo_operacion"),
-                    "monto_total": registro_actual.get("monto_total"),
-                    "monto_base": registro_actual.get("monto_base"),
-                    "monto_impuesto": registro_actual.get("monto_impuesto"),
-                    "productos_json": prod,
-                })
-
-            metadata_ia["dato_identificado"] = _sin_nulos(propuesta_identidad)
-            metadata_ia["dato_registrado"] = dato_registrado
-            metadata_ia["estado_flujo"] = PENDIENTE_IDENTIFICACION
-
-            campos_cache = {"metadata_ia": json.dumps(metadata_ia, ensure_ascii=False), "ultima_pregunta": "IDENTIFICACION PENDIENTE"}
-            for key in ("cod_ope", "entidad_nombre", "entidad_numero_documento", "entidad_id_tipo_documento",
-                        "entidad_id_maestro", "persona_id", "cliente_id", "proveedor_id"):
-                val = propuesta_identidad.get(key)
-                if val is not None and val != "" and (not isinstance(val, str) or val.strip()):
-                    campos_cache[key] = val
-
-            self._cache.actualizar(wa_id, id_empresa, campos_cache)
-
             return {
                 "identificado": True,
                 "mensaje": mensaje_bot,
-                "resumen_confirmacion": mensaje_bot,
-                "datos_identificados": datos_identificados,
-                "ids": {"p_id": p_id, "c_id": c_id, "pr_id": pr_id},
-                "metadata_ia": metadata_ia,
+                "datos_identificados": {
+                    "nombre_entidad": nombre_entidad,
+                    "doc_identidad": doc_identidad,
+                    "tipo_doc_txt": tipo_doc_txt,
+                    "comercial": comercial,
+                    "correo": correo_ent,
+                    "telefono": telf_ent,
+                    "direccion": dir_ent,
+                    "rol_txt": rol_txt,
+                    "tipo_ope": tipo_ope,
+                },
+                "campos_entidad": campos_entidad,
             }
 
         except Exception as e:
-            err = str(e)
             return {
                 "identificado": False,
-                "mensaje": f"💥 Error técnico: {err}",
-                "resumen_confirmacion": f"💥 Error técnico: {err}",
+                "mensaje": f"💥 Error técnico: {e}",
                 "datos_identificados": None,
+                "campos_entidad": {},
             }
+
+    # -------------------------------------------------------------- #
+    # ejecutar(): wrapper legacy que busca + persiste en cache.
+    # Se mantiene por compatibilidad con rutas/servicios existentes.
+    # -------------------------------------------------------------- #
+    def ejecutar(self, wa_id: str, tipo_ope: str, termino: str, id_empresa: int) -> dict:
+        resultado = self.buscar(tipo_ope, termino, id_empresa)
+
+        if not resultado.get("identificado"):
+            return {
+                "identificado": False,
+                "mensaje": resultado.get("mensaje", ""),
+                "resumen_confirmacion": resultado.get("mensaje", ""),
+                "datos_identificados": None,
+                "sugiere_llenar_sin_identificar": True,
+            }
+
+        campos = resultado.get("campos_entidad") or {}
+        campos_cache: dict = {}
+        for key in ("entidad_nombre", "entidad_numero_documento", "entidad_id_tipo_documento",
+                     "entidad_id_maestro", "persona_id", "cliente_id", "proveedor_id"):
+            val = campos.get(key)
+            if val is not None and val != "" and (not isinstance(val, str) or val.strip()):
+                campos_cache[key] = val
+
+        if campos_cache:
+            self._cache.actualizar(wa_id, id_empresa, campos_cache)
+
+        return {
+            "identificado": True,
+            "mensaje": resultado["mensaje"],
+            "resumen_confirmacion": resultado["mensaje"],
+            "datos_identificados": resultado.get("datos_identificados"),
+            "ids": {
+                "p_id": campos.get("persona_id"),
+                "c_id": campos.get("cliente_id"),
+                "pr_id": campos.get("proveedor_id"),
+            },
+        }

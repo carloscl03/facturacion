@@ -18,25 +18,22 @@ API REST construida con **FastAPI** que procesa mensajes de WhatsApp para regist
 
 ## Arquitectura del proyecto
 
-El proyecto sigue una arquitectura limpia en capas aplicando los principios **SOLID**. El archivo original `main_cache.py` fue refactorizado en los siguientes módulos:
+El proyecto sigue una arquitectura limpia en capas aplicando los principios **SOLID**.
 
 ```
 maravia-bot/
 ├── main.py                        # Punto de entrada: instancia FastAPI + registra routers
 │
 ├── config/
-│   ├── settings.py                # Centraliza URLs, tokens y variables de entorno (DIP)
-│   └── estados.py                # Banderas de estado del flujo (metadata_ia.estado_flujo)
+│   └── settings.py                # Centraliza URLs, tokens y variables de entorno (DIP)
 │
 ├── prompts/
 │   ├── plantillas.py              # PLANTILLA_VISUAL y REGLAS_NORMALIZACION compartidas
-│   ├── extraccion.py              # build_prompt_extractor(...)
+│   ├── extraccion.py              # build_prompt_extractor(...) — prompt unificado (extracción + diagnóstico)
 │   ├── preguntador.py             # build_prompt_pregunta(...) y build_prompt_preguntador_v2(...)
 │   ├── clasificador.py            # build_prompt_router(...)
 │   ├── informador.py              # build_prompt_info(...)
-│   ├── resumen.py                 # build_prompt_resumen(...)
-│   ├── analizador.py              # build_prompt_analisis(...)
-│   └── unificado.py               # build_prompt_unico(...)
+│   └── resumen.py                 # build_prompt_resumen(...)
 │
 ├── repositories/
 │   ├── base.py                    # Clase abstracta CacheRepository (ABC)
@@ -45,23 +42,19 @@ maravia-bot/
 │
 ├── services/
 │   ├── ai_service.py              # Clase abstracta AIService + OpenAIService
-│   ├── extraccion_service.py      # Extrae datos contables del mensaje
-│   ├── preguntador_service.py     # Genera la siguiente pregunta contextualizada
+│   ├── extraccion_service.py      # Servicio principal: extrae datos, identifica entidad, genera diagnóstico, persiste
+│   ├── preguntador_service.py     # Genera la siguiente pregunta contextualizada (standalone)
 │   ├── clasificador_service.py    # Clasifica la intención del mensaje
 │   ├── informador_service.py      # Responde preguntas de ayuda de llenado
 │   ├── resumen_service.py         # Genera resumen del estado actual
-│   ├── identificador_service.py  # Busca y confirma cliente/proveedor
+│   ├── identificador_service.py   # Busca y confirma cliente/proveedor (método buscar() solo lectura)
 │   ├── finalizar_service.py       # Emite el comprobante en SUNAT
-│   ├── unificado_service.py       # Extrae + responde en una sola llamada a IA
-│   ├── analizador_service.py      # Analiza y guarda cambios del mensaje (solo lo recién actualizado + confirmación)
-│   ├── registrador_service.py     # Confirma y persiste la operación; orquesta identificador si aplica
-│   ├── confirmador_service.py     # Orquesta registrador + preguntador; entrega un solo mensaje (síntesis+preguntas o identificación)
 │   └── iniciar_service.py         # Inicia un nuevo flujo de registro
 │
 └── api/
     ├── deps.py                    # Factories de dependencias para FastAPI Depends()
     └── routes/
-        ├── extraccion.py          # POST /procesar-extraccion
+        ├── extraccion.py          # POST /procesar-extraccion (endpoint principal)
         ├── preguntador.py         # POST /generar-pregunta  |  POST /preguntador
         ├── clasificador.py        # POST /clasificar-mensaje
         ├── informador.py          # POST /informador
@@ -69,10 +62,6 @@ maravia-bot/
         ├── identificador.py       # POST /identificar-entidad
         ├── eliminar.py            # POST /eliminar-operacion
         ├── finalizar.py           # POST /finalizar-operacion
-        ├── unificado.py           # POST /unificado
-        ├── analizador.py          # POST /analizador
-        ├── registrador.py         # POST /registrador
-        ├── confirmador.py         # POST /confirmador
         └── iniciar.py             # POST /iniciar-flujo
 ```
 
@@ -109,44 +98,40 @@ N8N / WhatsApp Bot
 
 ## Flujo actual de datos
 
-El flujo se orquesta desde un **clasificador** que lee el mensaje del usuario y el **estado del flujo** (bandera en `metadata_ia.estado_flujo`) para decidir el destino. La tabla de caché (`historial_cache`) guarda los datos de la operación y `metadata_ia` (JSON) contiene `dato_registrado`, `dato_identificado` y `estado_flujo`.
+El flujo se orquesta desde un **clasificador** que lee el mensaje del usuario y el **paso_actual** del registro para decidir el destino. La tabla `historial_cache` guarda los datos de la operación directamente en columnas (sin metadata_ia). El campo `ultima_pregunta` almacena el último mensaje enviado al usuario y sirve como contexto conversacional.
 
 ### 1. Entrada y clasificación
 
-- **Clasificador** (`POST /clasificar-mensaje`): Recibe el mensaje y, si hay `wa_id` e `id_empresa`, consulta el registro y obtiene `ultima_pregunta` y `estado_flujo` (desde `metadata_ia` o inferido por "IDENTIFICACION PENDIENTE"). Con la bandera y el mensaje enruta a: **actualizar** (analizador), **confirmacion** (confirmador), **resumen**, **finalizar**, **informacion**, **eliminar** o **casual**.
+- **Clasificador** (`POST /clasificar-mensaje`): Recibe el mensaje y, si hay `wa_id` e `id_empresa`, consulta el registro y obtiene `ultima_pregunta` y `paso_actual`. Con el paso y el mensaje enruta a: **extraccion** (actualizar/confirmacion), **resumen**, **finalizar**, **informacion**, **eliminar** o **casual**.
 
-### 2. Actualizar (analizador)
+### 2. Extracción (servicio unificado)
 
-- **Analizador** (`POST /analizador`): Extrae datos del mensaje y los fusiona con el registro actual. **No** devuelve un resumen de todo lo llenado; solo un mensaje de **lo recién actualizado o modificado** en este turno y una **línea de confirmación** (ej. "¿Es correcto?"). Persiste en caché y escribe en `metadata_ia` el `estado_flujo`: `pendiente_tipo_operacion` (si falta tipo venta/compra) o `pendiente_confirmacion` (si ya hay datos para confirmar).
+- **ExtraccionService** (`POST /procesar-extraccion`): Servicio principal que unifica extracción + identificación + diagnóstico en una sola llamada:
+  1. Lee el registro actual de BD (columnas directas).
+  2. Llama a la IA con un prompt unificado que extrae datos del mensaje Y genera diagnóstico de faltantes.
+  3. Fusiona la propuesta de la IA con las columnas existentes.
+  4. Si detecta una entidad identificable (RUC/DNI/nombre), llama al IdentificadorService inline.
+  5. Calcula `paso_actual` dinámicamente según los campos obligatorios completos.
+  6. Escribe directamente a columnas de BD (sin metadata_ia).
+  7. Retorna: resumen de lo extraído + diagnóstico de faltantes + listo_para_finalizar.
 
-### 3. Confirmación (confirmador)
+### 3. Preguntador (standalone)
 
-- **Confirmador** (`POST /confirmador`): Ejecuta **registrador** y luego **preguntador**. Hay dos clases de mensaje posibles, pero **solo se entrega uno** según la bandera:
-  - **Si el usuario venía de dato identificado** (`pendiente_identificacion` / "IDENTIFICACION PENDIENTE"): se acaba de confirmar la ficha del identificador; se registra y se devuelve únicamente **síntesis + preguntas** (obligatorias y opcionales) del preguntador.
-  - **Si venía de dato analizado** y el **identificador** encontró algo en esta pasada: se devuelve únicamente el **mensaje de identificación** (ficha que pide confirmar la entidad; aún no se registra en el resto de la tabla hasta que el usuario confirme).
-  - **Si venía de dato analizado** y no hay identificación: se devuelve únicamente **síntesis + preguntas**.
+- **Preguntador** (`POST /preguntador`): Genera síntesis del estado actual y diagnóstico separado en preguntas obligatorias y opcionales. Se mantiene como endpoint standalone pero ya no es parte del flujo principal (el diagnóstico se genera dentro de ExtraccionService).
 
-El registrador persiste `metadata_ia` en columnas de la tabla; si hay dato identificable sin ID, llama al **identificador**, que actualiza `metadata_ia` y pone `estado_flujo: pendiente_identificacion` y `ultima_pregunta: "IDENTIFICACION PENDIENTE"`. Tras registrar con éxito, el registrador escribe `estado_flujo: pendiente_datos`.
+### 4. Finalizar
 
-### 4. Preguntador y listo para finalizar
+- **Finalizar** (`POST /finalizar-operacion`): Comprueba que estén llenos monto, tipo comprobante y cliente/proveedor (ventas). Si falta `entidad_id_maestro` pero hay nombre y documento, intenta registrar la entidad y continuar. Compra: devuelve síntesis; venta: síntesis + PDF (vía API SUNAT). Tras éxito escribe `paso_actual: 4`.
 
-- **Preguntador** (interno en confirmador o `POST /preguntador`): Genera **síntesis** del estado actual y **diagnóstico** separado en **preguntas obligatorias** y **preguntas opcionales**. Si los tres obligatorios (monto/detalle, cliente o proveedor, tipo comprobante) están llenos, devuelve `listo_para_finalizar: true`. El confirmador, en ese caso, actualiza la caché con `estado_flujo: listo_para_finalizar`.
+### Indicador de progreso (`paso_actual`)
 
-### 5. Finalizar
-
-- **Finalizar** (`POST /finalizar-operacion`): Comprueba que estén llenos monto, tipo comprobante y cliente/proveedor (ventas). Si falta `entidad_id_maestro` pero hay nombre y documento, intenta registrar la entidad y continuar. Compra: devuelve síntesis; venta: síntesis + PDF (vía API SUNAT). Tras éxito escribe `estado_flujo: completado` en `metadata_ia`.
-
-### Banderas de estado (`config/estados.py`)
-
-| Bandera | Uso |
-|--------|-----|
-| `inicial` | Sin registro o sin estado; clasificador permite actualizar o casual. |
-| `pendiente_tipo_operacion` | Falta indicar venta o compra; analizador pidió tipo. |
-| `pendiente_confirmacion` | Analizador guardó datos; se espera sí/no del usuario. |
-| `pendiente_identificacion` | Identificador mostró ficha; se espera confirmación de la entidad. |
-| `pendiente_datos` | Registro ya persistido; preguntador mostró preguntas. |
-| `listo_para_finalizar` | Obligatorios completos; se puede finalizar o completar opcionales. |
-| `completado` | Operación finalizada; próximo mensaje como inicial o casual. |
+| Valor | Significado | Condición |
+|-------|-------------|-----------|
+| `0` | Registro creado, sin tipo | `cod_ope` vacío |
+| `1` | Tipo definido | `cod_ope` = ventas/compras, resto vacío |
+| `2` | Datos parciales | Al menos un campo obligatorio llenado |
+| `3` | Obligatorios completos | monto + entidad + comprobante + moneda + tipo_operacion |
+| `4` | Finalizado | Post-SUNAT (lo escribe FinalizarService) |
 
 ---
 
@@ -154,7 +139,7 @@ El registrador persiste `metadata_ia` en columnas de la tabla; si hay dato ident
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `POST` | `/procesar-extraccion` | Extrae campos contables del mensaje y los guarda en caché |
+| `POST` | `/procesar-extraccion` | Extrae datos, identifica entidad, genera diagnóstico, persiste en BD |
 | `POST` | `/generar-pregunta` | Genera la siguiente pregunta guiada con botones opcionales |
 | `POST` | `/clasificar-mensaje` | Clasifica la intención del mensaje (actualizar, confirmar, finalizar…) |
 | `POST` | `/informador` | Responde preguntas de ayuda sobre cómo llenar datos |
@@ -162,12 +147,8 @@ El registrador persiste `metadata_ia` en columnas de la tabla; si hay dato ident
 | `POST` | `/identificar-entidad` | Busca cliente o proveedor por RUC, DNI o nombre |
 | `POST` | `/eliminar-operacion` | Cancela y limpia el borrador activo |
 | `POST` | `/finalizar-operacion` | Emite el comprobante electrónico vía SUNAT |
-| `POST` | `/unificado` | Extrae datos y genera respuesta visual en una sola llamada a IA |
-| `POST` | `/analizador` | Analiza el mensaje, guarda cambios; retorna solo lo recién actualizado + confirmación |
-| `POST` | `/registrador` | Confirma y persiste la propuesta; orquesta identificador si hay dato identificable sin ID |
-| `POST` | `/confirmador` | Orquesta registrador + preguntador; devuelve un solo mensaje (síntesis+preguntas o identificación) |
 | `POST` | `/iniciar-flujo` | Crea el registro inicial de caché para comenzar el flujo |
-| `POST` | `/preguntador` | Síntesis + diagnóstico (preguntas obligatorias y opcionales); indica listo_para_finalizar si aplica |
+| `POST` | `/preguntador` | Síntesis + diagnóstico (preguntas obligatorias y opcionales) — standalone |
 
 La documentación interactiva (Swagger) está disponible en:
 - `http://localhost:3000/docs`
@@ -259,32 +240,20 @@ cp .env.example .env
 # Editar .env con los valores reales de producción
 ```
 
-### Paso 2 — Actualizar el `Dockerfile` para usar el nuevo punto de entrada
-
-El `Dockerfile` debe apuntar a `main.py` (no a `main_cache.py`). Edita la última línea:
-
-```dockerfile
-# Antes (archivo original)
-CMD ["python", "main_cache.py"]
-
-# Después (arquitectura refactorizada)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
-```
-
-### Paso 3 — Construir y levantar el contenedor
+### Paso 2 — Construir y levantar el contenedor
 
 ```bash
 docker-compose up --build -d
 ```
 
-### Paso 4 — Verificar que el contenedor está activo
+### Paso 3 — Verificar que el contenedor está activo
 
 ```bash
 docker-compose ps
 docker-compose logs -f
 ```
 
-### Paso 5 — Verificar que la API responde
+### Paso 4 — Verificar que la API responde
 
 ```
 http://<ip-del-servidor>:3000/docs
@@ -308,6 +277,13 @@ docker-compose restart api-maravia
 
 ---
 
-## Notas de migración
+## Archivos legacy (deprecados)
 
-El archivo `main_cache.py` original se conserva en el repositorio como referencia histórica. El nuevo punto de entrada es `main.py`. Si tienes scripts o configuraciones que apuntan a `main_cache.py`, actualízalos a `main:app`.
+Los siguientes archivos se conservan como referencia pero ya no forman parte del flujo principal:
+
+- `services/analizador_service.py` — reemplazado por `ExtraccionService`
+- `services/confirmador_service.py` — absorbido por `ExtraccionService`
+- `services/registrador_service.py` — ya no necesario (datos se escriben directo)
+- `config/estados.py` — reemplazado por `paso_actual` (0-4)
+- `prompts/analizador.py` — reemplazado por `prompts/extraccion.py`
+- `main_cache.py` — archivo original monolítico, referencia histórica

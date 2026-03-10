@@ -2,38 +2,15 @@ import json
 
 from fastapi import HTTPException
 
-from config.estados import PENDIENTE_IDENTIFICACION, VALIDOS
 from prompts.clasificador import build_prompt_router
 from repositories.base import CacheRepository
 from services.ai_service import AIService
 
 
-def _parsear_metadata(raw) -> dict:
-    if isinstance(raw, dict):
-        return raw
-    if not raw:
-        return {}
-    s = str(raw).strip()
-    if not s:
-        return {}
-    try:
-        parsed = json.loads(s)
-        return parsed if isinstance(parsed, dict) else {}
-    except (json.JSONDecodeError, TypeError):
-        return {}
-
-
-def _obtener_estado_flujo(registro: dict | None) -> str:
+def _obtener_paso_actual(registro: dict | None) -> int:
     if not registro:
-        return "inicial"
-    metadata_ia = _parsear_metadata(registro.get("metadata_ia"))
-    estado = (metadata_ia.get("estado_flujo") or "").strip()
-    if estado in VALIDOS:
-        return estado
-    ultima = (registro.get("ultima_pregunta") or "").strip()
-    if "IDENTIFICACION PENDIENTE" in ultima.upper():
-        return PENDIENTE_IDENTIFICACION
-    return "inicial"
+        return 0
+    return int(registro.get("paso_actual") or 0)
 
 
 class ClasificadorService:
@@ -43,19 +20,19 @@ class ClasificadorService:
 
     def ejecutar(self, mensaje: str, wa_id: str | None, id_empresa: int | None) -> dict:
         ultima_pregunta = ""
-        estado_flujo = "inicial"
+        paso_actual = 0
         cod_ope = None
         if wa_id is not None and id_empresa is not None:
             try:
                 registro = self._repo.consultar(wa_id, id_empresa)
                 if registro:
                     ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
-                    estado_flujo = _obtener_estado_flujo(registro)
+                    paso_actual = _obtener_paso_actual(registro)
                     cod_ope = (registro.get("cod_ope") or "").strip() or None
             except Exception:
                 pass
 
-        prompt = build_prompt_router(mensaje, ultima_pregunta, estado_flujo, cod_ope)
+        prompt = build_prompt_router(mensaje, ultima_pregunta, paso_actual, cod_ope)
 
         try:
             resultado = self._ai.completar_json(prompt)
@@ -65,15 +42,17 @@ class ClasificadorService:
 
             if not resultado.get("destino"):
                 mapeo = {
-                    "actualizar": "analizador",
-                    "confirmacion": "registrador",
+                    "actualizar": "extraccion",
                     "resumen": "generar-resumen",
                     "finalizar": "finalizar-operacion",
                     "eliminar": "eliminar-operacion",
                     "informacion": "informador",
                     "casual": "casual",
                 }
-                resultado["destino"] = mapeo.get(intencion, "analizador")
+                resultado["destino"] = mapeo.get(intencion, "extraccion")
+
+            if resultado.get("destino") in ("analizador", "registrador"):
+                resultado["destino"] = "extraccion"
 
             return resultado
 

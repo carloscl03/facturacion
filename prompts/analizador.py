@@ -1,3 +1,5 @@
+"""DEPRECATED: Reemplazado por prompts/extraccion.py (prompt unificado con diagnostico)."""
+
 import json
 
 from prompts.plantillas import PLANTILLA_RESUMEN_FINAL, PLANTILLA_VISUAL, REGLAS_NORMALIZACION

@@ -19,24 +19,8 @@ import json
 import requests
 
 from config import settings
-from config.estados import COMPLETADO
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
-
-
-def _parsear_metadata(raw) -> dict:
-    if isinstance(raw, dict):
-        return raw.copy()
-    if not raw:
-        return {}
-    s = str(raw).strip()
-    if not s:
-        return {}
-    try:
-        parsed = json.loads(s)
-        return parsed if isinstance(parsed, dict) else {}
-    except (json.JSONDecodeError, TypeError):
-        return {}
 
 
 def _construir_sintesis_actual(reg: dict) -> str:
@@ -163,10 +147,7 @@ class FinalizarService:
 
     def _marcar_completado(self, wa_id: str, id_empresa: int) -> None:
         try:
-            registro = self._cache.consultar(wa_id, id_empresa) or {}
-            metadata_ia = _parsear_metadata(registro.get("metadata_ia"))
-            metadata_ia["estado_flujo"] = COMPLETADO
-            self._cache.actualizar(wa_id, id_empresa, {"metadata_ia": json.dumps(metadata_ia, ensure_ascii=False)})
+            self._cache.actualizar(wa_id, id_empresa, {"paso_actual": 4, "is_ready": 1})
         except Exception:
             pass
 

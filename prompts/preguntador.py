@@ -24,8 +24,10 @@ def build_prompt_pregunta(registro: dict) -> str:
     ### 2. 🚦 REGLA ESTRICTA — PREGUNTAS DINÁMICAS (OBLIGATORIO CUMPLIR)
     **Solo preguntas por campos VACÍOS:** Revisa DATOS EN DB antes de cada pregunta. Si el campo **ya tiene valor** (no null, no "", no 0), **no incluyas esa pregunta**. Lo que ya está dicho no se vuelve a preguntar. Una pregunta por campo vacío; cero preguntas por campo lleno.
 
+    **NO generar preguntas para:** sucursal, centro de costo, forma de pago (se gestionan por otro medio). Nunca incluir estas tres en el diagnóstico ni en la pregunta.
+
     Checklist (solo para decidir qué preguntar; si está OK, no preguntes por ese ítem):
-    - 🔴 BLOQUEANTES: 
+    - 🔴 BLOQUEANTES:
         * Monto Total: { "OK" if monto_total and float(monto_total) > 0 else "FALTA" }
         * Entidad (ID Maestro): { "OK" if entidad_id_maestro else "FALTA (Requiere identificación)" }
         * Tipo Comprobante: { "OK" if id_comprobante_tipo else "FALTA" }
@@ -33,8 +35,9 @@ def build_prompt_pregunta(registro: dict) -> str:
         * Moneda (Soles/Dólares): { "OK" if registro.get('id_moneda') else "FALTA" }
         * Pago (Contado/Crédito): { "OK" if registro.get('tipo_operacion') else "FALTA" }
         * Si es Crédito: plazo_dias o fecha_vencimiento obligatorios.
+    (Sucursal, centro de costo y forma de pago no se preguntan.)
 
-    MATRIZ DE PRIORIDAD (Sigue este orden y DETENTE en el primer campo que sea NULL o 0; solo ese genera pregunta):
+    MATRIZ DE PRIORIDAD (Sigue este orden y DETENTE en el primer campo que sea NULL o 0; solo ese genera pregunta. Excluir sucursal, centro de costo, forma de pago):
     1. PRODUCTOS: Si 'monto_total' es 0 o 'productos_json' está vacío.
     2. ENTIDAD: Regla de Salto: Si entidad_numero_documento tiene valor Y entidad_id_tipo_documento es (1 o 6), SÁLTALO. No vuelvas a preguntar aunque entidad_id_maestro sea null (el sistema lo está procesando).
     3. COMPROBANTE: Si 'id_comprobante_tipo' es NULL, 0 o NO EXISTE. No asumir Boleta ni Factura.
@@ -117,11 +120,11 @@ def build_prompt_preguntador_v2(registro: dict, cod_ope: str | None) -> str:
 
     {REGLAS_NORMALIZACION}
 
-    ### DATOS OBLIGATORIOS (solo si faltan para emitir el comprobante/PDF):
+    ### DATOS OBLIGATORIOS (solo si faltan para registrar el comprobante/PDF):
     **Orden y redacción:** Incluye en preguntas_obligatorias **únicamente** una línea por cada dato obligatorio que **en DATOS EN DB esté vacío** (null, "", 0 o ausente). Si el campo ya tiene valor, **no escribas esa pregunta**. NUNCA asumas Factura, Boleta, Contado ni Soles. (Sucursal no se pregunta: id_sucursal=14.)
     1. **Monto/Detalle:** FALTA si monto_total no existe o es 0 Y productos_json está vacío o sin ítems.
     2. **Cliente (ventas) o Proveedor (compras):** FALTA si no hay (entidad_nombre + entidad_numero_documento) ni entidad_id_maestro.
-    3. **Tipo de comprobante (Factura o Boleta):** FALTA si id_comprobante_tipo no existe o es 0. Pregunta explícitamente: "¿Deseas emitir Factura o Boleta?" (o similar). No asumas Boleta.
+    3. **Tipo de comprobante (Factura o Boleta):** FALTA si id_comprobante_tipo no existe o es 0. Pregunta explícitamente: "¿Deseas registrar Factura o Boleta?" (o similar). No asumas Boleta.
     4. **Moneda (Soles/Dólares):** FALTA si id_moneda no existe o es 0. Pregunta: "¿En Soles o en Dólares?" (o similar). No asumas Soles.
     5. **Tipo de pago (Contado/Crédito):** FALTA si tipo_operacion no está definido como "contado" o "credito". No asumas Contado.
     6. **Solo si tipo_operacion = "credito":** FALTA si no hay plazo_dias ni fecha_vencimiento.
