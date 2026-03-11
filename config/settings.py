@@ -13,6 +13,7 @@ URL_CLIENTE: str = "https://api.maravia.pe/servicio/n8n/ws_cliente.php"
 URL_PROVEEDOR: str = "https://api.maravia.pe/servicio/n8n_asistente/ws_proveedor.php"
 URL_VENTA_SUNAT: str = "https://api.maravia.pe/servicio/ws_ventas.php"
 URL_INFORMACION_IA: str = "https://api.maravia.pe/servicio/ws_informacion_ia.php"
+URL_PARAMETROS: str = "https://api.maravia.pe/servicio/n8n/ws_parametros.php"
 URL_SEND_WHATSAPP_LIST: str = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_list.php"
 
 # --- Tokens ---

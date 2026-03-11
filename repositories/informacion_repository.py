@@ -48,12 +48,13 @@ class InformacionRepository:
                 out.append(s)
         return out
 
-    def obtener_sucursales(self, id_from: int) -> list[dict]:
+    def obtener_sucursales(self, id_empresa: int) -> list[dict]:
         """
-        Obtiene la lista de sucursales de la empresa (codOpe OBTENER_SUCURSALES).
+        Obtiene la lista de sucursales (codOpe OBTENER_SUCURSALES).
+        id_empresa: empresa para jalar la tabla (como en test_opciones).
         Retorna lista de {"id": int, "nombre": str}.
         """
-        payload = {"codOpe": "OBTENER_SUCURSALES", "id_from": id_from}
+        payload = {"codOpe": "OBTENER_SUCURSALES", "id_empresa": id_empresa}
         try:
             res = requests.post(self._base_url, json=payload, timeout=10)
             data = res.json()
@@ -69,13 +70,12 @@ class InformacionRepository:
                 out.append(s)
         return out
 
-    def obtener_metodos_pago(self, id_from: int) -> list[dict]:
+    def obtener_metodos_pago(self, id_empresa: int) -> list[dict]:
         """
-        Obtiene métodos de pago (bancos, yape, plin) para la empresa.
-        POST con codOpe=OBTENER_METODOS_PAGO e id_from (id_informacion).
+        Obtiene métodos de pago (bancos, yape, plin). POST OBTENER_METODOS_PAGO con id_empresa (como test_opciones).
         Retorna lista de {"id": str, "title": str, "description": str} para listas WhatsApp.
         """
-        payload = {"codOpe": "OBTENER_METODOS_PAGO", "id_from": id_from}
+        payload = {"codOpe": "OBTENER_METODOS_PAGO", "id_empresa": id_empresa}
         try:
             res = requests.post(
                 self._base_url,

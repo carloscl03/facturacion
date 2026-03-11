@@ -57,6 +57,7 @@ class ExtraccionService:
         resumen_visual = (output_ia.get("resumen_visual") or "").strip()
         diagnostico = (output_ia.get("diagnostico") or "").strip()
         listo_para_finalizar = bool(output_ia.get("listo_para_finalizar") is True)
+        cambiar_estado_a_4 = bool(output_ia.get("cambiar_estado_a_4") is True)
         ultima_pregunta_keyword = (output_ia.get("ultima_pregunta_keyword") or "").strip()
 
         if mensaje_entendimiento:
@@ -114,6 +115,7 @@ class ExtraccionService:
                 )
                 if maestro:
                     payload_db["entidad_id"] = maestro
+                    payload_db["id_identificado"] = maestro
                     payload_db["identificado"] = True
 
         # --- Calcular estado (una sola asignación; no sobrescribir estado 4) ---
@@ -134,10 +136,19 @@ class ExtraccionService:
         # --- Persistir ---
         db_res = self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
 
+        # --- Si no hay nada más por llenar (listo_para_finalizar / cambiar_estado_a_4), pasar estado 3 → 4 en Redis/caché ---
+        if (listo_para_finalizar or cambiar_estado_a_4) and estado == 3:
+            try:
+                self._repo.actualizar(wa_id, id_from, {"estado": 4})
+                estado = 4
+            except Exception:
+                pass
+
         out: dict = {
             "status": "sincronizado",
             "estado": estado,
             "listo_para_finalizar": listo_para_finalizar,
+            "cambiar_estado_a_4": cambiar_estado_a_4,
             "db_res": db_res,
             "whatsapp_output": {"texto": texto_completo},
             "requiere_identificacion": requiere_identificacion,

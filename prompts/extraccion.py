@@ -1,5 +1,7 @@
 import json
 
+from prompts.plantillas import ESTRUCTURA_GUIA, PLANTILLA_VISUAL
+
 
 def build_prompt_extractor(
     estado_actual: dict,
@@ -84,8 +86,10 @@ def build_prompt_extractor(
     Frase corta que muestre que entendiste. Ej: "¡Dale! Ya anoté lo principal.", "Anotado: es una compra."
     Si el usuario solo indica compra o venta sin más datos: guarda la operación, muestra 🛒 *COMPRA* o 📤 *VENTA* en la síntesis y sigue con "Me faltan algunos datos para completar:" + listado de preguntas por lo que falta. **No pidas confirmación de que es compra/venta.** La única confirmación que se pide es "¿Confirmar todo para continuar?" cuando todos los campos obligatorios estén llenos (antes de pasar a opciones).
 
-    ### RESUMEN VISUAL — DINÁMICO (solo campos con valor):
-    **resumen_visual** es DINÁMICO: incluye ÚNICAMENTE una línea por cada campo que tenga valor (fusionando Redis + propuesta_cache). Si un campo está vacío, null o 0, NO escribas esa línea. No muestres placeholders ni líneas para datos faltantes. Ejemplo: si solo hay operacion y monto_total, el resumen tiene solo la línea de VENTA/COMPRA y la del total; no incluyas líneas de tipo_documento, entidad, moneda, etc. hasta que tengan valor. Usa la estructura de ejemplo (📄 👤 📦 💰 💵 📅 🔄) solo para los campos que efectivamente tengan dato. (Sucursal, forma de pago y medio de pago se eligen en opciones, no en extracción.)
+    ### RESUMEN VISUAL — PLANTILLA OFICIAL (solo campos con valor):
+    Usa la siguiente PLANTILLA VISUAL para generar **resumen_visual**. Incluye ÚNICAMENTE las líneas cuyos campos tengan valor (fusionando Redis + propuesta_cache). Campo vacío, null o 0 = esa línea NO se escribe.
+    {PLANTILLA_VISUAL}
+    {ESTRUCTURA_GUIA}
 
     ### DIAGNÓSTICO DE FALTANTES:
     **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. No preguntas condicionales cuando la condición no se cumple; no preguntas opcionales como "agregar más productos".
@@ -105,11 +109,13 @@ def build_prompt_extractor(
 
     **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad (nombre + número si factura), (3) tipo_documento, (4) moneda. false si falta alguno.
     **Cuando listo_para_finalizar = true:** no listes preguntas; cierra el mensaje con "¿Confirmar todo para continuar?" (o similar). El usuario puede decir *confirmar* y el sistema pasará a estado 4 (opciones); si envía más datos, se actualizará igual.
+    **cambiar_estado_a_4:** true SOLO cuando listo_para_finalizar = true (todos los obligatorios llenos y no hay nada más por llenar). El backend usará este campo para actualizar el estado del registro de 3 a 4 en Redis/caché, indicando que se puede pasar a opciones (sucursal, forma de pago, medio de pago).
 
-    ### IDENTIFICACIÓN:
+    ### IDENTIFICACIÓN (id reconocida en Redis):
     - activo: true si el mensaje contiene RUC (11 dígitos), DNI (8 dígitos) o nombre/razón social buscable.
     - termino: texto a buscar. Vacío si activo = false.
     - tipo_ope: "venta" o "compra" según contexto.
+    Cuando el backend resuelve la identificación (cliente/proveedor), el **id identificado** (entidad_id, cliente_id o proveedor_id) se persiste en Redis/caché para este registro (clave wa_id + id_from), de modo que quede reconocido en el estado del registro.
 
     ### ultima_pregunta_keyword:
     Genera una keyword combo que indique el campo principal que se preguntó o el estado:
@@ -144,6 +150,7 @@ def build_prompt_extractor(
         "resumen_visual": "SÍNTESIS VISUAL DINÁMICA: solo líneas para campos con valor (vacío/null/0 = no escribir esa línea). Redis + propuesta fusionados.",
         "diagnostico": "Si faltan datos: invitación (Me faltan algunos datos para completar:) + listado de preguntas 1️⃣ 2️⃣ 3️⃣ SOLO por campos realmente vacíos (nunca preguntes por lo ya definido; tipo de cambio solo si moneda no es PEN; no preguntes agregar más productos si ya hay productos). Si listo_para_finalizar: solo entonces cierra con ¿Confirmar todo para continuar? (el usuario puede decir confirmar o seguir actualizando).",
         "listo_para_finalizar": false,
+        "cambiar_estado_a_4": false,
         "ultima_pregunta_keyword": "campo_estado",
         "requiere_identificacion": {{
             "activo": false,

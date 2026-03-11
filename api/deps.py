@@ -8,6 +8,7 @@ from repositories.base import CacheRepository
 from repositories.cache_repository import HttpCacheRepository
 from repositories.entity_repository import EntityRepository
 from repositories.informacion_repository import InformacionRepository
+from repositories.parametros_repository import ParametrosRepository
 from repositories.redis_cache_repository import RedisCacheRepository
 from services.ai_service import AIService, OpenAIService
 from services.identificador_service import IdentificadorService
@@ -34,6 +35,10 @@ def get_entity_repo() -> EntityRepository:
 
 def get_informacion_repo() -> InformacionRepository:
     return InformacionRepository(settings.URL_INFORMACION_IA)
+
+
+def get_parametros_repo() -> ParametrosRepository:
+    return ParametrosRepository(settings.URL_PARAMETROS)
 
 
 def get_ai_service() -> AIService:
