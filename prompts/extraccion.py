@@ -90,22 +90,24 @@ def build_prompt_extractor(
     **resumen_visual** debe reflejar TODO lo que tiene el registro DESPUÉS de fusionar Redis + propuesta_cache: es la SÍNTESIS VISUAL COMPLETA del estado actual (comprobante, cliente/proveedor, productos, totales, moneda, banco, crédito/cuotas, etc.). No solo lo extraído en ESTE mensaje; incluye todos los datos ya guardados más lo nuevo. Una línea por campo con valor, según la estructura de ejemplo (📄 👤 📦 💰 💵 🏦 📅 🔄). Usa nombres legibles, sin IDs.
 
     ### DIAGNÓSTICO DE FALTANTES:
-    **Estructura de la salida:** (1) Preámbulo (mensaje_entendimiento). (2) Síntesis visual = resumen_visual del ESTADO COMPLETO. (3) Invitación a completar en lenguaje natural (ej: "Me faltan algunos datos para completar:"). (4) **LISTADO de TODAS las preguntas** por cada campo que falte, enumeradas con 1️⃣ 2️⃣ 3️⃣ (una pregunta por línea). Incluye TODOS los campos faltantes, no solo uno.
-    Fusiona datos en Redis + propuesta_cache. Genera UNA pregunta por cada campo vacío.
-    **Cuando aún falten datos: NUNCA pidas confirmación de registro.** Solo lista las preguntas; el usuario responderá con datos y el sistema actualizará de nuevo. **Confirmación de registro** solo cuando listo_para_finalizar es true (no uses "finalizar"; el clasificador envía finalizar a otro agente).
+    **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. No preguntas condicionales cuando la condición no se cumple; no preguntas opcionales como "agregar más productos".
+    **Estructura de la salida:** (1) Preámbulo (mensaje_entendimiento). (2) Síntesis visual = resumen_visual del ESTADO COMPLETO. (3) Si faltan datos: invitación ("Me faltan algunos datos para completar:") + listado de preguntas. (4) Si NO falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario sepa que puede decir *confirmar* y continuar; pedir confirmación **no** impide que el usuario envíe más datos (si envía datos, se procesarán como actualizar).
+    Fusiona datos en Redis + propuesta_cache. UNA pregunta por cada campo **realmente** vacío.
     **NO preguntar por:** sucursal, forma de pago, medio de pago (se gestionan en Estado 2 / opciones).
 
-    Campos a incluir en el listado de preguntas (si faltan):
-    1. Monto/Detalle: si monto_total = 0 y productos vacío.
-    2. Cliente (venta) o Proveedor (compra): si no hay entidad_nombre ni entidad_id.
-    3. RUC/DNI de la entidad: si hay entidad_nombre pero no entidad_numero (obligatorio para factura).
-    4. Tipo de documento: si tipo_documento es null.
-    5. Moneda: si moneda es null.
-    6. Banco: si no hay banco definido.
-    7. Cuotas / días (si es crédito y se mencionó pero no hay valor).
+    Campos a incluir SOLO si están vacíos (si ya tienen valor, NO preguntes):
+    1. Monto/Detalle: solo si monto_total = 0 y productos vacío.
+    2. Cliente (venta) o Proveedor (compra): solo si no hay entidad_nombre ni entidad_id.
+    3. RUC/DNI de la entidad: solo si hay entidad_nombre pero no entidad_numero (obligatorio para factura).
+    4. Tipo de documento: solo si tipo_documento es null.
+    5. Moneda: solo si moneda es null (preguntar "¿En soles (PEN) o dólares (USD)?"). Si moneda = PEN, no preguntes tipo de cambio.
+    6. **Tipo de cambio:** SOLO si moneda es distinta de PEN (ej. USD). Si moneda = PEN, **nunca** incluyas pregunta de tipo de cambio.
+    7. Banco: solo si no hay banco definido.
+    8. Cuotas / días: solo si es crédito y se mencionó pero no hay valor.
+    **NO incluyas:** "¿Deseas agregar más productos?" ni preguntas similares cuando ya hay al menos un producto registrado. No preguntes por cosas ya definidas.
 
     **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad (nombre + número si factura), (3) tipo_documento, (4) moneda. false si falta alguno.
-    **Confirmación de registro:** se pide SOLO cuando no quede ninguna pregunta (listo_para_finalizar = true). Mientras falte algún dato, nunca pidas confirmación; solo lista las preguntas.
+    **Cuando listo_para_finalizar = true:** no listes preguntas; cierra el mensaje con "¿Confirmar todo para continuar?" (o similar). El usuario puede decir *confirmar* y el sistema pasará a estado 4 (opciones); si envía más datos, se actualizará igual.
 
     ### IDENTIFICACIÓN:
     - activo: true si el mensaje contiene RUC (11 dígitos), DNI (8 dígitos) o nombre/razón social buscable.
@@ -145,7 +147,7 @@ def build_prompt_extractor(
         }},
         "mensaje_entendimiento": "Preámbulo corto (ej: ¡Dale! Ya anoté lo principal.).",
         "resumen_visual": "SÍNTESIS VISUAL DEL ESTADO COMPLETO del registro (Redis + propuesta fusionados): todas las líneas con datos (📄 👤 📦 💰 etc.), no solo lo del mensaje actual.",
-        "diagnostico": "Invitación (ej: Me faltan algunos datos para completar:) + LISTADO de TODAS las preguntas por campo faltante, enumeradas 1️⃣ 2️⃣ 3️⃣ (una por línea). Si listo_para_finalizar: solo entonces invitación a confirmar registro (no finalizar). Si faltan datos, no pidas confirmación.",
+        "diagnostico": "Si faltan datos: invitación (Me faltan algunos datos para completar:) + listado de preguntas 1️⃣ 2️⃣ 3️⃣ SOLO por campos realmente vacíos (nunca preguntes por lo ya definido; tipo de cambio solo si moneda no es PEN; no preguntes agregar más productos si ya hay productos). Si listo_para_finalizar: solo entonces cierra con ¿Confirmar todo para continuar? (el usuario puede decir confirmar o seguir actualizando).",
         "listo_para_finalizar": false,
         "ultima_pregunta_keyword": "campo_estado",
         "requiere_identificacion": {{

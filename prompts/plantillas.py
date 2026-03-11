@@ -38,10 +38,10 @@ Regla crítica: NO escribas ninguna línea cuya condición no se cumpla. Campo v
 
 ESTRUCTURA_GUIA = """
 Orden obligatorio del texto de guía (resumen_y_guia / salida combinada):
-(1) PREÁMBULO: una frase en lenguaje natural (ej: "¡Dale! Ya anoté lo principal. Tengo esto:").
+(1) PREÁMBULO: una frase en lenguaje natural (ej: "Perfecto, aquí va el resumen completo:").
 (2) SÍNTESIS VISUAL: estado COMPLETO del registro (todas las líneas con datos presentes según PLANTILLA_VISUAL), no solo lo último registrado.
-(3) INVITACIÓN A COMPLETAR: una frase (ej: "Me faltan algunos datos para completar:").
-(4) PREGUNTAS: listado de TODAS las preguntas por campo faltante, enumeradas con 1️⃣ 2️⃣ 3️⃣ (una por línea). No solo una pregunta; incluir todas las que falten. Confirmación de registro SOLO cuando no quede ninguna pregunta; si faltan datos, no pida confirmación (no "finalizar").
+(3) Si faltan datos: INVITACIÓN A COMPLETAR (ej: "Me faltan algunos datos para completar:") + PREGUNTAS enumeradas 1️⃣ 2️⃣ 3️⃣ solo por campos realmente vacíos (nunca preguntar por lo ya definido; tipo de cambio solo si moneda ≠ PEN; no preguntar "agregar más productos" si ya hay al menos un producto).
+(4) Si no falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario diga *confirmar* y pase a opciones (sucursal, forma de pago, medio de pago). Pedir confirmación no impide que el usuario siga enviando datos para actualizar.
 """
 
 
