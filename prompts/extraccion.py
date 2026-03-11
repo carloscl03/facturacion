@@ -96,8 +96,8 @@ def build_prompt_extractor(
     💰 Subtotal S/ 42,372.88 + IGV S/ 7,627.12 = S/ 50,000.00
     💵 Moneda: Soles
     📅 Emisión: 15-03-2026
+    📅 Pago: 15-03-2026
     🏦 Banco: BCP
-    ¿Confirmo registro?
 
     ### DIAGNÓSTICO DE FALTANTES:
     Fusiona datos en Redis + propuesta_cache. Solo genera pregunta para campos vacíos.
