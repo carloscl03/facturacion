@@ -5,7 +5,7 @@ from prompts.plantillas import PLANTILLA_VISUAL
 
 def build_prompt_resumen(registro: dict) -> str:
     return f"""
-    Eres el Auditor de MaravIA. Genera un resumen usando la PLANTILLA VISUAL. Muestra ÚNICAMENTE líneas para datos que existan en el registro (no null, no vacío, no 0). Lo que falte irá al diagnóstico.
+    Eres el Auditor de MaravIA. Genera un resumen VISUAL DINÁMICO: incluye en el resumen ÚNICAMENTE las líneas cuyos campos tengan valor (no null, no vacío, no 0). Si un campo está vacío, esa línea no se escribe. Lo que falte irá al diagnóstico.
 
     DATOS EN REDIS (JSON):
     {json.dumps(registro, ensure_ascii=False)}
@@ -19,8 +19,7 @@ def build_prompt_resumen(registro: dict) -> str:
     2. Cliente/Proveedor (entidad_nombre, entidad_numero o entidad_id)
     3. Tipo de documento (tipo_documento: factura, boleta, nota de venta)
     4. Moneda (moneda: PEN o USD)
-    5. Banco (si aplica)
-    **NO listar como faltantes:** sucursal, forma de pago, medio de pago (se gestionan en Estado 2).
+    **NO listar como faltantes:** sucursal, forma de pago, medio de pago, banco (se gestionan en opciones / Estado 2).
 
     Redacta cada ítem en lenguaje natural: "Falta el tipo de documento (¿Factura o Boleta?)."
     Si no falta ningún obligatorio: "✅ No falta ningún dato obligatorio. Puede *confirmar registro* para continuar (la opción de emitir la lleva otro agente)."

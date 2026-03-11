@@ -1,4 +1,7 @@
 PLANTILLA_VISUAL = """
+RESUMEN VISUAL DINÁMICO: incluye ÚNICAMENTE las líneas cuyos campos tengan valor.
+Campo vacío, null o 0 = esa línea NO se escribe. No muestres placeholders ni líneas en blanco.
+
 ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
 
 0) TIPO DE OPERACIÓN
@@ -27,18 +30,17 @@ ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
    💵 *Moneda:* [moneda]  — PEN o USD
    📅 *Emisión:* [fecha_emision]
    📅 *Pago:* [fecha_pago]
-   📍 *Sucursal:* [sucursal]  — solo si tiene valor (se gestiona en Estado 2)
-   💳 *Forma de pago:* [forma_pago]  — solo si tiene valor (se gestiona en Estado 2)
-   💳 *Medio de pago:* [medio_pago]  — contado/crédito (se gestiona en Estado 2)
    ━━━━━━━━━━━━━━━━━━━
 
-Regla crítica: NO escribas ninguna línea cuya condición no se cumpla. Campo vacío/null/0 = línea no aparece.
+Nota: Sucursal, forma de pago y medio de pago NO se muestran aquí; se eligen en Estado 2 (opciones, tras confirmar registro).
+
+REGLA CRÍTICA — DINÁMICO: Escribe solo las líneas para las que el campo tenga valor real. Si operacion está vacía, no pongas la línea de COMPRA/VENTA. Si tipo_documento está vacío, no pongas la línea del comprobante. Si monto_total es 0 y no hay productos, no pongas resumen económico. Campo vacío/null/0 = esa línea no aparece en el resumen.
 """
 
 ESTRUCTURA_GUIA = """
 Orden obligatorio del texto de guía (resumen_y_guia / salida combinada):
 (1) PREÁMBULO: una frase en lenguaje natural (ej: "Perfecto, aquí va el resumen completo:").
-(2) SÍNTESIS VISUAL: estado COMPLETO del registro (todas las líneas con datos presentes según PLANTILLA_VISUAL), no solo lo último registrado.
+(2) SÍNTESIS VISUAL DINÁMICA: solo líneas para campos con valor (vacío = no escribir esa línea). Estado completo del registro según PLANTILLA_VISUAL.
 (3) Si faltan datos: INVITACIÓN A COMPLETAR (ej: "Me faltan algunos datos para completar:") + PREGUNTAS enumeradas 1️⃣ 2️⃣ 3️⃣ solo por campos realmente vacíos (nunca preguntar por lo ya definido; tipo de cambio solo si moneda ≠ PEN; no preguntar "agregar más productos" si ya hay al menos un producto).
 (4) Si no falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario diga *confirmar* y pase a opciones (sucursal, forma de pago, medio de pago). Pedir confirmación no impide que el usuario siga enviando datos para actualizar.
 """

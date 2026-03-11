@@ -78,7 +78,7 @@ def build_prompt_router(
     8. CASUAL: Solo si no hubiera registro (aquí ya hay registro porque tienes estado). Si hay registro, no devuelvas casual; elige la intención más coherente (actualizar, resumen, etc.).
 
     ### 2. campo_detectado (solo si intencion = actualizar):
-    Indica qué campo se está modificando: entidad|monto|tipo_documento|productos|moneda|banco|ninguno
+    Indica qué campo se está modificando: entidad|monto|tipo_documento|productos|moneda|ninguno
 
     RESPONDE EXCLUSIVAMENTE EN JSON:
     {{

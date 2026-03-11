@@ -21,6 +21,14 @@ El registro en caché (Redis/API PHP) tiene un campo numérico **`estado`** (0 a
 - `tipo_documento`
 - `moneda`
 
+**Campos que NO se extraen aquí (van en opciones, estado 4):**
+sucursal, forma_pago, medio_pago. Tampoco centro_costo ni banco.
+
+### Confirmación única
+
+Cuando todos los obligatorios están llenos, extracción calcula **estado 3** automáticamente y muestra "¿Confirmar todo para continuar?". Esa es la **única confirmación** del flujo.
+Al confirmar → estado 4 → opciones (sucursal, forma_pago, medio_pago).
+
 ---
 
 ## Dónde se escribe `estado`

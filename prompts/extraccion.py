@@ -84,8 +84,8 @@ def build_prompt_extractor(
     Frase corta que muestre que entendiste. Ej: "¡Dale! Ya anoté lo principal.", "Anotado: es una compra."
     Si el usuario solo indica compra o venta sin más datos: guarda la operación, muestra 🛒 *COMPRA* o 📤 *VENTA* en la síntesis y sigue con "Me faltan algunos datos para completar:" + listado de preguntas por lo que falta. **No pidas confirmación de que es compra/venta.** La única confirmación que se pide es "¿Confirmar todo para continuar?" cuando todos los campos obligatorios estén llenos (antes de pasar a opciones).
 
-    ### RESUMEN VISUAL — ESTADO COMPLETO DEL REGISTRO (no solo este mensaje):
-    **resumen_visual** debe reflejar TODO lo que tiene el registro DESPUÉS de fusionar Redis + propuesta_cache: es la SÍNTESIS VISUAL COMPLETA del estado actual (comprobante, cliente/proveedor, productos, totales, moneda, crédito/cuotas, etc.). No solo lo extraído en ESTE mensaje; incluye todos los datos ya guardados más lo nuevo. Una línea por campo con valor, según la estructura de ejemplo (📄 👤 📦 💰 💵 📅 🔄). Usa nombres legibles, sin IDs. (Banco/forma de pago se eligen en Estado 2 / opciones.)
+    ### RESUMEN VISUAL — DINÁMICO (solo campos con valor):
+    **resumen_visual** es DINÁMICO: incluye ÚNICAMENTE una línea por cada campo que tenga valor (fusionando Redis + propuesta_cache). Si un campo está vacío, null o 0, NO escribas esa línea. No muestres placeholders ni líneas para datos faltantes. Ejemplo: si solo hay operacion y monto_total, el resumen tiene solo la línea de VENTA/COMPRA y la del total; no incluyas líneas de tipo_documento, entidad, moneda, etc. hasta que tengan valor. Usa la estructura de ejemplo (📄 👤 📦 💰 💵 📅 🔄) solo para los campos que efectivamente tengan dato. (Sucursal, forma de pago y medio de pago se eligen en opciones, no en extracción.)
 
     ### DIAGNÓSTICO DE FALTANTES:
     **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. No preguntas condicionales cuando la condición no se cumple; no preguntas opcionales como "agregar más productos".
@@ -141,7 +141,7 @@ def build_prompt_extractor(
             "fecha_pago": "DD-MM-YYYY o null"
         }},
         "mensaje_entendimiento": "Preámbulo corto (ej: ¡Dale! Ya anoté lo principal.).",
-        "resumen_visual": "SÍNTESIS VISUAL DEL ESTADO COMPLETO del registro (Redis + propuesta fusionados): todas las líneas con datos (📄 👤 📦 💰 etc.), no solo lo del mensaje actual.",
+        "resumen_visual": "SÍNTESIS VISUAL DINÁMICA: solo líneas para campos con valor (vacío/null/0 = no escribir esa línea). Redis + propuesta fusionados.",
         "diagnostico": "Si faltan datos: invitación (Me faltan algunos datos para completar:) + listado de preguntas 1️⃣ 2️⃣ 3️⃣ SOLO por campos realmente vacíos (nunca preguntes por lo ya definido; tipo de cambio solo si moneda no es PEN; no preguntes agregar más productos si ya hay productos). Si listo_para_finalizar: solo entonces cierra con ¿Confirmar todo para continuar? (el usuario puede decir confirmar o seguir actualizando).",
         "listo_para_finalizar": false,
         "ultima_pregunta_keyword": "campo_estado",
