@@ -241,7 +241,6 @@ class ExtraccionService:
             "monto_total": float(propuesta.get("monto_total") or estado_actual.get("monto_total") or 0),
             "monto_sin_igv": float(propuesta.get("monto_sin_igv") or estado_actual.get("monto_sin_igv") or estado_actual.get("monto_base") or 0),
             "igv": float(propuesta.get("igv") or estado_actual.get("igv") or estado_actual.get("monto_impuesto") or 0),
-            "banco": obtener("banco", "caja_banco", None),
             "productos": productos_str,
             "fecha_emision": obtener("fecha_emision", default=None),
             "fecha_pago": obtener("fecha_pago", default=None),

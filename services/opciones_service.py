@@ -3,8 +3,9 @@ Agente Estado 2: opciones múltiples (sucursal, forma de pago, medio de pago).
 Solo actúa cuando Estado 1 está completo (estado >= 3).
 Persiste en Redis: id_sucursal, sucursal, forma_pago (str), medio_pago (str).
 
-Internamente usa id_from (cache, informacion). Solo al armar el payload para
-ws_send_whatsapp_list.php se envía id_empresa (esa API lo exige).
+Convención: id_from = id_informacion (API de información: sucursales, métodos de pago).
+id_empresa = id_whatsapp (solo para el payload a ws_send_whatsapp_list.php).
+La lista de forma de pago se obtiene de ws_informacion_ia (OBTENER_METODOS_PAGO) como en test_obtener_pagos.
 """
 from __future__ import annotations
 
@@ -35,7 +36,7 @@ class OpcionesService:
         phone: str,
         id_empresa: int,
     ) -> dict:
-        """id_from: contexto/cache. id_empresa: solo para el payload al PHP de lista WhatsApp."""
+        """id_from = id_informacion (cache y API información). id_empresa = id_whatsapp (payload lista WhatsApp)."""
         registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         if not registro:
             return {
@@ -92,10 +93,10 @@ class OpcionesService:
             except (TypeError, ValueError):
                 return {"success": False, "mensaje": "Valor de sucursal debe ser un ID numérico."}
         elif campo == "forma_pago":
-            v = (str(valor) or "").strip().lower()
-            opciones_validas = ("transferencia", "td", "tc", "billetera_virtual")
-            if v not in opciones_validas:
-                return {"success": False, "mensaje": "Valor de forma de pago no reconocido."}
+            v = (str(valor) or "").strip()
+            if not v:
+                return {"success": False, "mensaje": "Valor de forma de pago vacío."}
+            # Acepta id de banco (numérico), "yape", "plin" o los legacy transferencia/td/tc/billetera_virtual
             datos["forma_pago"] = v
         elif campo == "medio_pago":
             v = (str(valor) or "").strip().lower()
@@ -135,7 +136,7 @@ class OpcionesService:
         id_empresa: int,
         phone: str,
     ) -> dict:
-        """Payload para ws_send_whatsapp_list.php. Usa id_from para sucursales; id_empresa en el JSON (la API PHP lo exige)."""
+        """Payload para ws_send_whatsapp_list.php. id_from = id_informacion; id_empresa = id_whatsapp."""
         if campo == "sucursal":
             sucursales = self._informacion.obtener_sucursales(id_from)
             rows = [{"id": str(s["id"]), "title": s["nombre"], "description": ""} for s in sucursales]
@@ -151,20 +152,18 @@ class OpcionesService:
                 "sections": [{"title": "Sucursales", "rows": rows}],
             }
         if campo == "forma_pago":
-            rows = [
-                {"id": "transferencia", "title": "Transferencia", "description": "Pago por transferencia bancaria"},
-                {"id": "td", "title": "Tarjeta de débito", "description": "Pago con tarjeta de débito"},
-                {"id": "tc", "title": "Tarjeta de crédito", "description": "Pago con tarjeta de crédito"},
-                {"id": "billetera_virtual", "title": "Billetera virtual", "description": "Yape, Plin, etc."},
-            ]
+            # Igual que test_obtener_pagos: OBTENER_METODOS_PAGO con id_from, lista con id_empresa
+            rows = self._informacion.obtener_metodos_pago(id_from)
+            if not rows:
+                rows = [{"id": "0", "title": "Sin métodos de pago", "description": ""}]
             return {
                 "id_empresa": id_empresa,
                 "phone": phone,
-                "body_text": "Selecciona entre estas opciones: ",
-                "button_text": "Ver opciones",
-                "header_text": "Forma de pago",
-                "footer_text": "Selecciona forma de pago",
-                "sections": [{"title": "Forma de pago", "rows": rows}],
+                "body_text": "Métodos de pago disponibles: ",
+                "button_text": "Ver métodos de pago",
+                "header_text": "Métodos de pago",
+                "footer_text": "Selecciona un método de pago",
+                "sections": [{"title": "Métodos de pago", "rows": rows}],
             }
         if campo == "medio_pago":
             rows = [

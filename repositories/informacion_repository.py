@@ -68,3 +68,50 @@ class InformacionRepository:
             if s:
                 out.append(s)
         return out
+
+    def obtener_metodos_pago(self, id_from: int) -> list[dict]:
+        """
+        Obtiene métodos de pago (bancos, yape, plin) para la empresa.
+        POST con codOpe=OBTENER_METODOS_PAGO e id_from (id_informacion).
+        Retorna lista de {"id": str, "title": str, "description": str} para listas WhatsApp.
+        """
+        payload = {"codOpe": "OBTENER_METODOS_PAGO", "id_from": id_from}
+        try:
+            res = requests.post(
+                self._base_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
+            data = res.json() if res.status_code == 200 else {}
+        except Exception:
+            return []
+        return _extraer_filas_metodos_pago(data)
+
+
+def _extraer_filas_metodos_pago(respuesta: dict) -> list[dict]:
+    """
+    Extrae filas para lista WhatsApp desde la respuesta de OBTENER_METODOS_PAGO.
+    Formato API: metodos_pago: { bancos: [...], yape: {...}|null, plin: {...}|null }.
+    """
+    if not isinstance(respuesta, dict):
+        return []
+    filas = []
+    mp = respuesta.get("metodos_pago")
+    if isinstance(mp, dict):
+        bancos = mp.get("bancos") or []
+        for b in bancos if isinstance(bancos, list) else []:
+            if isinstance(b, dict):
+                bid = b.get("id")
+                nombre = (b.get("nombre") or "").strip() or str(bid)
+                num = (b.get("numero_cuenta") or "").strip()
+                cci = (b.get("cci") or "").strip()
+                desc = " | ".join(x for x in [num, cci] if x)
+                filas.append({"id": str(bid), "title": nombre, "description": desc})
+        if mp.get("yape") and isinstance(mp["yape"], dict):
+            cel = (mp["yape"].get("celular") or "").strip()
+            filas.append({"id": "yape", "title": "Yape", "description": cel or "Billetera Yape"})
+        if mp.get("plin") and isinstance(mp["plin"], dict):
+            cel = (mp["plin"].get("celular") or "").strip()
+            filas.append({"id": "plin", "title": "Plin", "description": cel or "Billetera Plin"})
+    return filas

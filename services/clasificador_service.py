@@ -102,6 +102,19 @@ class ClasificadorService:
                 resultado["intencion"] = "actualizar"
                 resultado["necesita_extraccion"] = True
 
+            # Transición 3 → 4: si clasificamos como confirmar-registro y estamos en estado 3, actualizar en Redis aquí
+            if (
+                resultado.get("destino") == "confirmar-registro"
+                and estado == 3
+                and wa_id is not None
+                and id_from is not None
+            ):
+                try:
+                    self._repo.actualizar(wa_id, id_from, {"estado": 4})
+                    resultado["estado_actualizado"] = 4
+                except Exception:
+                    pass  # no fallar la clasificación si falla la actualización
+
             return resultado
 
         except Exception as e:
