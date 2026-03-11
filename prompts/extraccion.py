@@ -68,7 +68,6 @@ def build_prompt_extractor(
     - Productos: "productos", "items", "detalle" → productos (JSON array).
     - Moneda: "moneda" ("PEN"/"soles" → "PEN"; "USD"/"dolares" → "USD").
     - Fechas: "fecha_emision", "fecha_pago" → formato DD-MM-YYYY.
-    - Banco: "banco", "caja_banco", "cuenta" → banco.
     Si el JSON tiene datos, combina con texto libre (JSON tiene prioridad).
     Tras procesar JSON, el diagnóstico lista solo lo que sigue faltando.
 
@@ -80,14 +79,13 @@ def build_prompt_extractor(
     - Fechas: formato DD-MM-YYYY siempre.
     - IGV 18% incluido en monto_total. Desglosar monto_sin_igv e igv.
     - entidad_numero: DNI tiene 8 dígitos, RUC tiene 11 dígitos. El tipo se infiere por la longitud.
-    - banco: nombre de la entidad financiera si se menciona ("BCP", "BBVA", "Caja Chica").
 
     ### MENSAJE DE ENTENDIMIENTO (preámbulo):
     Frase corta que muestre que entendiste. Ej: "¡Dale! Ya anoté lo principal.", "Anotado: es una compra."
     Si el usuario solo indica compra o venta sin más datos: guarda la operación, muestra 🛒 *COMPRA* o 📤 *VENTA* en la síntesis y sigue con "Me faltan algunos datos para completar:" + listado de preguntas por lo que falta. **No pidas confirmación de que es compra/venta.** La única confirmación que se pide es "¿Confirmar todo para continuar?" cuando todos los campos obligatorios estén llenos (antes de pasar a opciones).
 
     ### RESUMEN VISUAL — ESTADO COMPLETO DEL REGISTRO (no solo este mensaje):
-    **resumen_visual** debe reflejar TODO lo que tiene el registro DESPUÉS de fusionar Redis + propuesta_cache: es la SÍNTESIS VISUAL COMPLETA del estado actual (comprobante, cliente/proveedor, productos, totales, moneda, banco, crédito/cuotas, etc.). No solo lo extraído en ESTE mensaje; incluye todos los datos ya guardados más lo nuevo. Una línea por campo con valor, según la estructura de ejemplo (📄 👤 📦 💰 💵 🏦 📅 🔄). Usa nombres legibles, sin IDs.
+    **resumen_visual** debe reflejar TODO lo que tiene el registro DESPUÉS de fusionar Redis + propuesta_cache: es la SÍNTESIS VISUAL COMPLETA del estado actual (comprobante, cliente/proveedor, productos, totales, moneda, crédito/cuotas, etc.). No solo lo extraído en ESTE mensaje; incluye todos los datos ya guardados más lo nuevo. Una línea por campo con valor, según la estructura de ejemplo (📄 👤 📦 💰 💵 📅 🔄). Usa nombres legibles, sin IDs. (Banco/forma de pago se eligen en Estado 2 / opciones.)
 
     ### DIAGNÓSTICO DE FALTANTES:
     **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. No preguntas condicionales cuando la condición no se cumple; no preguntas opcionales como "agregar más productos".
@@ -102,8 +100,7 @@ def build_prompt_extractor(
     4. Tipo de documento: solo si tipo_documento es null.
     5. Moneda: solo si moneda es null (preguntar "¿En soles (PEN) o dólares (USD)?"). Si moneda = PEN, no preguntes tipo de cambio.
     6. **Tipo de cambio:** SOLO si moneda es distinta de PEN (ej. USD). Si moneda = PEN, **nunca** incluyas pregunta de tipo de cambio.
-    7. Banco: solo si no hay banco definido.
-    8. Cuotas / días: solo si es crédito y se mencionó pero no hay valor.
+    7. Cuotas / días: solo si es crédito y se mencionó pero no hay valor.
     **NO incluyas:** "¿Deseas agregar más productos?" ni preguntas similares cuando ya hay al menos un producto registrado. No preguntes por cosas ya definidas.
 
     **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad (nombre + número si factura), (3) tipo_documento, (4) moneda. false si falta alguno.
@@ -121,7 +118,6 @@ def build_prompt_extractor(
     - "documento_pendiente" si se preguntó tipo de documento
     - "moneda_pendiente" si se preguntó moneda
     - "monto_pendiente" si se preguntó monto/productos
-    - "banco_pendiente" si se preguntó banco
     - "datos_confirmados" si se mostraron datos, pendiente confirmación
     - "completo" si todos los campos Estado 1 están llenos
 
@@ -140,7 +136,6 @@ def build_prompt_extractor(
             "monto_total": float,
             "monto_sin_igv": float,
             "igv": float,
-            "banco": "nombre banco o null",
             "productos": [{{ "nombre": str, "cantidad": float, "precio": float }}],
             "fecha_emision": "DD-MM-YYYY o null",
             "fecha_pago": "DD-MM-YYYY o null"

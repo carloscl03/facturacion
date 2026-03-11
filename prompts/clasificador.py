@@ -21,7 +21,7 @@ def build_prompt_router(
 
     **Acceso por estado (interpreta el mensaje del usuario, no términos estáticos):**
     - **Casual:** Solo cuando NO hay registro activo (este caso no aplica si ya tienes estado; si hay registro, nunca clasifiques como casual).
-    - **Actualizar:** Estados 0, 1, 2 y 3. El usuario aporta o modifica datos del comprobante (entidad, productos, montos, tipo doc, moneda, banco, fechas). Interpreta afirmativas o datos implícitos como actualizar cuando el contexto indique que está completando el registro.
+    - **Actualizar:** Estados 0, 1, 2 y 3. El usuario aporta o modifica datos del comprobante (entidad, productos, montos, tipo doc, moneda, fechas). Interpreta afirmativas o datos implícitos como actualizar cuando el contexto indique que está completando el registro. (Banco/forma de pago se eligen en opciones, estado 4.)
     - **Confirmar registro:** Solo estado 3. El mensaje expresa confirmación (sí, confirmo, dale, correcto, listo, ok, confirmar). El sistema habrá pedido "¿Confirmar todo para continuar?"; si el usuario responde afirmando, es confirmar_registro. Tras ello se pasa a estado 4.
     - **Opciones:** Solo desde estado 4. El usuario elige o responde sobre sucursal, forma de pago o medio de pago, o pide la lista. Si estado < 4, no clasificar como opciones.
     - **Finalizar:** Solo cuando estado >= 4 Y opciones_completo = Sí. El usuario expresa intención de emitir, procesar o finalizar el comprobante (interpreta variantes: "emitir", "procesar", "finalizar", "enviar", "listo para emitir", etc.). Si opciones no están completas, no clasificar como finalizar.
@@ -58,7 +58,7 @@ def build_prompt_router(
        Destino: opciones.
 
     3. ACTUALIZAR (estados 0, 1, 2, 3):
-       El mensaje aporta o modifica datos del comprobante (entidad, productos, montos, tipo doc, moneda, banco, fechas). Incluye afirmativas en contexto de completar datos. Si estado >= 4 y el mensaje es selección de sucursal/forma/medio de pago → opciones, no actualizar.
+       El mensaje aporta o modifica datos del comprobante (entidad, productos, montos, tipo doc, moneda, fechas). Incluye afirmativas en contexto de completar datos. Si estado >= 4 y el mensaje es selección de sucursal/forma/medio de pago → opciones, no actualizar.
        Destino: extraccion.
 
     4. FINALIZAR (solo si estado >= 4 y opciones_completo = Sí):
@@ -87,7 +87,7 @@ def build_prompt_router(
         "confianza": float,
         "urgencia": "alta|media|baja",
         "necesita_extraccion": bool,
-        "campo_detectado": "entidad|monto|tipo_documento|productos|moneda|banco|ninguno",
+        "campo_detectado": "entidad|monto|tipo_documento|productos|moneda|ninguno",
         "explicacion_soporte": "Solo si intencion=informacion: breve guía o mensaje para mostrar al usuario"
     }}
     """

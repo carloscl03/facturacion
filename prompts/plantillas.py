@@ -25,7 +25,6 @@ ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
 
 3) PAGO Y LOGÍSTICA (solo si están definidos)
    💵 *Moneda:* [moneda]  — PEN o USD
-   🏦 *Banco:* [banco]
    📅 *Emisión:* [fecha_emision]
    📅 *Pago:* [fecha_pago]
    📍 *Sucursal:* [sucursal]  — solo si tiene valor (se gestiona en Estado 2)

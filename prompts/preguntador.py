@@ -25,15 +25,13 @@ def build_prompt_pregunta(registro: dict) -> str:
         * Tipo Documento: { "OK" if tipo_documento else "FALTA" }
     - 🟡 OBLIGATORIOS:
         * Moneda (PEN/USD): { "OK" if registro.get('moneda') else "FALTA" }
-        * Banco: { "OK" if registro.get('banco') else "FALTA" }
 
     MATRIZ DE PRIORIDAD (primer campo vacío = genera pregunta):
     1. PRODUCTOS: Si monto_total es 0 y productos vacío.
     2. ENTIDAD: Si no hay entidad_nombre ni entidad_id. Si entidad_numero tiene valor, SALTAR (sistema procesando).
     3. TIPO DOCUMENTO: Si tipo_documento es vacío. Preguntar "¿Factura, Boleta o Nota de venta?"
     4. MONEDA: Si moneda es vacío. Preguntar "¿En Soles (PEN) o Dólares (USD)?"
-    5. BANCO: Si banco es vacío.
-    6. CIERRE: Si todo completo, invitar a confirmar registro (no finalizar; el clasificador lleva finalizar a otro agente).
+    5. CIERRE: Si todo completo, invitar a confirmar registro (no finalizar; el clasificador lleva finalizar a otro agente). Sucursal, forma de pago y medio de pago se eligen en Estado 2 (opciones).
 
     ### ESTRUCTURA DEL TEXTO:
     {PLANTILLA_VISUAL}
@@ -74,7 +72,6 @@ def build_prompt_preguntador_v2(registro: dict, operacion: str | None) -> str:
     2. Cliente (venta) o Proveedor (compra): falta si no hay entidad_nombre ni entidad_id.
     3. Tipo de documento: falta si tipo_documento vacío. Preguntar "¿Factura, Boleta o Nota de venta?"
     4. Moneda: falta si moneda vacío. Preguntar "¿PEN o USD?"
-    5. Banco: falta si banco vacío.
 
     ### DATOS OPCIONALES:
     - fecha_emision, fecha_pago (si aplican)

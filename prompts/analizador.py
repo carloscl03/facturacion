@@ -87,7 +87,7 @@ def build_prompt_analisis(
        - Montos: "total", "monto_total", "monto", "total_venta" → monto_total; "subtotal", "monto_base", "base" → monto_base; "igv", "monto_igv", "impuesto" → monto_impuesto.
        - Productos: "productos", "items", "detalle", "productos_json", "lineas" → productos_json; cada ítem puede tener "nombre"/"descripcion", "cantidad"/"qty", "precio"/"precio_unitario"/"precioUnitario".
        - Moneda y pago: "moneda" (1/"PEN"/"Soles" → id_moneda=1; 2/"USD"/"Dolares" → id_moneda=2), "tipo_operacion"/"tipo_pago" ("contado"/"credito") → tipo_operacion, "forma_pago" → forma_pago.
-       - Fechas y logística: "fecha_emision", "fecha_pago", "fecha_vencimiento" → mismo nombre; "sucursal", "sucursal_nombre", "id_sucursal" → sucursal_nombre/id_sucursal; "centro_costo", "caja_banco" → mismo nombre.
+       - Fechas y logística: "fecha_emision", "fecha_pago", "fecha_vencimiento" → mismo nombre; "sucursal", "sucursal_nombre", "id_sucursal" → sucursal_nombre/id_sucursal; "centro_costo" → mismo nombre. (Banco/forma de pago se gestionan en opciones.)
     3. **Combina** lo extraído del JSON con cualquier dato que el usuario haya escrito en texto libre; el JSON tiene prioridad para los campos que traiga.
     4. Si el JSON viene mezclado con texto, usa el texto para mensaje_entendimiento y el JSON para llenar propuesta_cache. Si el mensaje es solo JSON, en mensaje_entendimiento puedes decir algo como "Entendido, recibí los datos en el formato indicado."
     5. Si el JSON es inválido o está truncado, extrae todo lo que puedas del fragmento válido e ignora el resto; no devuelvas propuesta_cache vacío solo por un JSON malformado.
@@ -103,8 +103,7 @@ def build_prompt_analisis(
     Extrae estos campos si el usuario los menciona, de lo contrario déjalos en null o 0:
     - **Sucursal:** Si el usuario menciona una sucursal o sede, usa la LISTA DE SUCURSALES VÁLIDAS de arriba. Elige la que mejor coincida (por nombre o sinónimo) y devuelve **id_sucursal** (int, el id de la lista) y **sucursal_nombre** (str, el nombre exacto de la lista). Si no hay lista de sucursales o ninguna coincide, puedes poner sucursal_nombre con el texto que entendiste e id_sucursal null.
     - centro_costo: Área o proyecto (Ej: "Operaciones", "Marketing").
-    - forma_pago: "Transferencia", "Efectivo", "Yape", "Plin", "Tarjeta".
-    - caja_banco: Entidad financiera (Ej: "BCP", "BBVA", "Caja Chica").
+    - forma_pago: "Transferencia", "Efectivo", "Yape", "Plin", "Tarjeta" (en flujo opciones se elige desde API).
 
     ### MENSAJE DE ENTENDIMIENTO (obligatorio para lenguaje fluido):
     Antes del resumen, genera una frase corta que muestre que entendiste el mensaje del usuario. Ejemplos: "Entendido, anoté 2 laptops por S/ 3000.", "Perfecto, quedó como Factura.", "Anotado: cliente con RUC 20123456789.", "Listo, lo dejo en Soles y al contado." Así el usuario siente que lo escuchaste antes de ver el resumen.
@@ -149,7 +148,6 @@ def build_prompt_analisis(
             "sucursal_nombre": str,
             "centro_costo": str,
             "forma_pago": str,
-            "caja_banco": str,
             "fecha_pago": "YYYY-MM-DD",
             "paso_actual": 2,
             "is_ready": 0
