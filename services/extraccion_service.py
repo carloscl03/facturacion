@@ -65,7 +65,7 @@ class ExtraccionService:
         payload_base = self._construir_payload(propuesta, estado_actual, contexto_previo)
         payload_db = {k: v for k, v in payload_base.items() if self._es_valor_valido(v)}
 
-        # Fijar operación (compra/venta): siempre persistir para que no se pierda ni se vuelva a preguntar
+        # Fijar operación (compra/venta): solo persistir "operacion" en Redis (sin cod_ope)
         op_val = operacion or (str(payload_base.get("operacion") or "").strip().lower())
         if op_val == "compras":
             op_val = "compra"
@@ -73,18 +73,15 @@ class ExtraccionService:
             op_val = "venta"
         if op_val in ("venta", "compra"):
             payload_db["operacion"] = op_val
-            payload_db["cod_ope"] = "ventas" if op_val == "venta" else "compras"  # backend puede usar cod_ope
         else:
             # Preservar la que ya tenía el registro (re-persistir para no perderla)
             if estado_actual.get("operacion") in ("venta", "compra"):
                 payload_db["operacion"] = estado_actual["operacion"]
-                payload_db["cod_ope"] = "ventas" if estado_actual["operacion"] == "venta" else "compras"
             elif estado_actual.get("cod_ope") in ("ventas", "compras"):
-                payload_db["cod_ope"] = estado_actual["cod_ope"]
                 payload_db["operacion"] = "venta" if estado_actual["cod_ope"] == "ventas" else "compra"
             else:
                 payload_db.pop("operacion", None)
-                payload_db.pop("cod_ope", None)
+        payload_db.pop("cod_ope", None)  # no guardar cod_ope; solo operacion
 
         # --- Identificación inline ---
         req_id = output_ia.get("requiere_identificacion") or {}

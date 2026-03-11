@@ -83,8 +83,8 @@ def build_prompt_extractor(
     - banco: nombre de la entidad financiera si se menciona ("BCP", "BBVA", "Caja Chica").
 
     ### MENSAJE DE ENTENDIMIENTO (preámbulo):
-    Frase corta que muestre que entendiste. Ej: "¡Dale! Ya anoté lo principal.", "Entendido, anoté 2 laptops por S/ 3000."
-    Si el usuario solo indica compra o venta sin más datos: resumen_visual = 🛒 *COMPRA* o 📤 *VENTA* + "¿Es correcto?" NO listes faltantes.
+    Frase corta que muestre que entendiste. Ej: "¡Dale! Ya anoté lo principal.", "Anotado: es una compra."
+    Si el usuario solo indica compra o venta sin más datos: guarda la operación, muestra 🛒 *COMPRA* o 📤 *VENTA* en la síntesis y sigue con "Me faltan algunos datos para completar:" + listado de preguntas por lo que falta. **No pidas confirmación de que es compra/venta.** La única confirmación que se pide es "¿Confirmar todo para continuar?" cuando todos los campos obligatorios estén llenos (antes de pasar a opciones).
 
     ### RESUMEN VISUAL — ESTADO COMPLETO DEL REGISTRO (no solo este mensaje):
     **resumen_visual** debe reflejar TODO lo que tiene el registro DESPUÉS de fusionar Redis + propuesta_cache: es la SÍNTESIS VISUAL COMPLETA del estado actual (comprobante, cliente/proveedor, productos, totales, moneda, banco, crédito/cuotas, etc.). No solo lo extraído en ESTE mensaje; incluye todos los datos ya guardados más lo nuevo. Una línea por campo con valor, según la estructura de ejemplo (📄 👤 📦 💰 💵 🏦 📅 🔄). Usa nombres legibles, sin IDs.
