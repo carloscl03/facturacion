@@ -36,6 +36,14 @@ ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
 Regla crítica: NO escribas ninguna línea cuya condición no se cumpla. Campo vacío/null/0 = línea no aparece.
 """
 
+ESTRUCTURA_GUIA = """
+Orden obligatorio del texto de guía (resumen_y_guia / salida combinada):
+(1) PREÁMBULO: una frase en lenguaje natural que contextualice (ej: "Para continuar con el registro:", "Resumen de lo capturado:").
+(2) SÍNTESIS VISUAL: solo líneas con datos presentes (según PLANTILLA_VISUAL).
+(3) INVITACIÓN A COMPLETAR: una frase en lenguaje natural (ej: "Para completar el comprobante falta:", "Indique los siguientes datos:").
+(4) PREGUNTAS: lista dinámica enumerada con emojis (1. 🔹 ..., 2. 🔹 ...) solo de los datos que faltan. Si todo está completo, pida confirmación de registro (no use "finalizar"; el clasificador envía finalizar a otro agente).
+"""
+
 
 def formatear_ficha_identificacion(
     nombre_entidad: str,

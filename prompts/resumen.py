@@ -23,7 +23,7 @@ def build_prompt_resumen(registro: dict) -> str:
     **NO listar como faltantes:** sucursal, forma de pago, medio de pago (se gestionan en Estado 2).
 
     Redacta cada ítem en lenguaje natural: "Falta el tipo de documento (¿Factura o Boleta?)."
-    Si no falta ningún obligatorio: "✅ No falta ningún dato obligatorio. Puede decir *finalizar* para emitir."
+    Si no falta ningún obligatorio: "✅ No falta ningún dato obligatorio. Puede *confirmar registro* para continuar (la opción de emitir la lleva otro agente)."
 
     ### INSTRUCCIONES:
     - Resumen: Solo líneas cuyo dato exista. No inventes valores.

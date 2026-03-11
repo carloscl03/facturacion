@@ -100,6 +100,7 @@ def build_prompt_extractor(
     🏦 Banco: BCP
 
     ### DIAGNÓSTICO DE FALTANTES:
+    Estructura de la salida: (1) Preámbulo en lenguaje natural (contexto). (2) Síntesis visual = resumen_visual. (3) Invitación a completar datos en lenguaje natural (una frase). (4) Preguntas desplegadas dinámicamente, enumeradas con emojis (1. 🔹 ..., 2. 🔹 ...), solo de los datos que faltan.
     Fusiona datos en Redis + propuesta_cache. Solo genera pregunta para campos vacíos.
     **NO preguntar por:** sucursal, forma de pago, medio de pago (se gestionan en otro paso).
 
@@ -111,6 +112,7 @@ def build_prompt_extractor(
     5. Banco: preguntar si no hay banco definido.
 
     **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad, (3) tipo_documento, (4) moneda. false si falta alguno.
+    Si listo_para_finalizar es true: pida **confirmación de registro** (no "finalizar"; el clasificador envía finalizar a otro agente).
 
     ### IDENTIFICACIÓN:
     - activo: true si el mensaje contiene RUC (11 dígitos), DNI (8 dígitos) o nombre/razón social buscable.
@@ -149,8 +151,8 @@ def build_prompt_extractor(
             "fecha_pago": "DD-MM-YYYY o null"
         }},
         "mensaje_entendimiento": "Frase corta",
-        "resumen_visual": "Resumen en lenguaje natural de ESTE mensaje. Cierra con ¿Confirmo registro?",
-        "diagnostico": "Preguntas para campos faltantes en lenguaje natural (separadas por \\n). Si todo está completo, invitación a finalizar.",
+        "resumen_visual": "Resumen en lenguaje natural de ESTE mensaje.",
+        "diagnostico": "Invitación a completar (una frase) + preguntas dinámicas enumeradas con emojis (1. 🔹 ...) solo de lo que falta. Si todo está completo: invitación a confirmar registro (no finalizar).",
         "listo_para_finalizar": false,
         "ultima_pregunta_keyword": "campo_estado",
         "requiere_identificacion": {{

@@ -1,6 +1,6 @@
 import json
 
-from prompts.plantillas import PLANTILLA_VISUAL
+from prompts.plantillas import PLANTILLA_VISUAL, ESTRUCTURA_GUIA
 
 
 def build_prompt_pregunta(registro: dict) -> str:
@@ -33,20 +33,18 @@ def build_prompt_pregunta(registro: dict) -> str:
     3. TIPO DOCUMENTO: Si tipo_documento es vacío. Preguntar "¿Factura, Boleta o Nota de venta?"
     4. MONEDA: Si moneda es vacío. Preguntar "¿En Soles (PEN) o Dólares (USD)?"
     5. BANCO: Si banco es vacío.
-    6. FINALIZACIÓN: Si todo completo, invitar a finalizar.
+    6. CIERRE: Si todo completo, invitar a confirmar registro (no finalizar; el clasificador lleva finalizar a otro agente).
 
     ### ESTRUCTURA DEL TEXTO:
     {PLANTILLA_VISUAL}
+    {ESTRUCTURA_GUIA}
 
-    LA GUÍA ('resumen_y_guia'):
-    (1) SÍNTESIS VISUAL: solo líneas con datos presentes.
-    (2) DIAGNÓSTICO: solo campos realmente vacíos.
-    (3) PREGUNTA: una sola pregunta concreta para el primer dato faltante.
+    LA GUÍA ('resumen_y_guia') sigue el orden: Preámbulo → Síntesis visual → Invitación a completar (lenguaje natural) → Preguntas dinámicas enumeradas con emojis (solo datos que faltan). Si todo completo: pida confirmación de registro.
 
     ### BOTONES:
     - requiere_botones = TRUE solo como apoyo:
         * Tipo Documento: "Factura" / "Boleta" si tipo_documento vacío.
-        * Cierre: "🚀 Finalizar" cuando todo esté completo.
+        * Cierre: "✅ Confirmar registro" cuando todo esté completo.
     - requiere_botones = FALSE para procesos de escritura.
 
     RESPONDE ÚNICAMENTE EN JSON:
@@ -88,7 +86,7 @@ def build_prompt_preguntador_v2(registro: dict, operacion: str | None) -> str:
     Solo líneas con datos presentes. Los campos ya usan nombres naturales.
 
     ### DIAGNÓSTICO:
-    - preguntas_obligatorias: solo obligatorios vacíos. Si todos están llenos, invitar a finalizar.
+    - preguntas_obligatorias: solo obligatorios vacíos. Si todos están llenos, invitar a confirmar registro (no finalizar).
     - preguntas_opcionales: solo opcionales vacíos. "" si no hay.
 
     **listo_para_finalizar:** true si están completos: (1) monto/detalle, (2) entidad, (3) tipo_documento, (4) moneda. false si falta alguno.

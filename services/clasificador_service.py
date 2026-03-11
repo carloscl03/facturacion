@@ -1,57 +1,14 @@
-import json
-
 from fastapi import HTTPException
 
 from prompts.clasificador import build_prompt_router
 from repositories.base import CacheRepository
 from services.ai_service import AIService
 
-MENSAJE_CASUAL_SIN_REGISTRO = (
-    "Para comenzar, indique si desea registrar una *compra* o una *venta*."
-)
-
 
 def _obtener_estado(registro: dict | None) -> int:
     if not registro:
         return 0
     return int(registro.get("estado") or 0)
-
-
-def _indica_compra_o_venta(mensaje: str) -> bool:
-    if not mensaje or not isinstance(mensaje, str):
-        return False
-    msg = mensaje.lower().strip()
-    if not msg:
-        return False
-    indicios = [
-        "compra", "compras", "comprar", "compré", "quiero comprar",
-        "venta", "ventas", "vender", "vendí", "quiero vender",
-        "registrar una compra", "registrar una venta",
-        "es una compra", "es una venta", "hacer una compra", "hacer una venta",
-    ]
-    return any(indicio in msg for indicio in indicios)
-
-
-def _tiene_json_valido(mensaje: str) -> bool:
-    if not mensaje or not isinstance(mensaje, str):
-        return False
-    msg = mensaje.strip()
-    try:
-        parsed = json.loads(msg)
-        return isinstance(parsed, (dict, list))
-    except (json.JSONDecodeError, TypeError):
-        pass
-    inicio_obj = msg.find("{")
-    inicio_arr = msg.find("[")
-    for start in (inicio_obj, inicio_arr):
-        if start == -1:
-            continue
-        try:
-            parsed = json.loads(msg[start:])
-            return isinstance(parsed, (dict, list))
-        except (json.JSONDecodeError, TypeError):
-            continue
-    return False
 
 
 class ClasificadorService:
@@ -67,17 +24,16 @@ class ClasificadorService:
             try:
                 registro = self._repo.consultar(wa_id, id_from)
                 if not registro:
-                    if not _indica_compra_o_venta(mensaje) and not _tiene_json_valido(mensaje):
-                        return {
-                            "intencion": "casual",
-                            "destino": "casual",
-                            "confianza": 1.0,
-                            "urgencia": "baja",
-                            "necesita_extraccion": False,
-                            "campo_detectado": "ninguno",
-                            "explicacion_soporte": "",
-                            "mensaje_casual_sugerido": MENSAJE_CASUAL_SIN_REGISTRO,
-                        }
+                    # Sin registro: siempre a casual (sistema de botones en otro centro; POST /casual genera el mensaje contextual).
+                    return {
+                        "intencion": "casual",
+                        "destino": "casual",
+                        "confianza": 1.0,
+                        "urgencia": "baja",
+                        "necesita_extraccion": False,
+                        "campo_detectado": "ninguno",
+                        "explicacion_soporte": "",
+                    }
                 else:
                     ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
                     estado = _obtener_estado(registro)
