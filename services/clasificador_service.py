@@ -11,20 +11,18 @@ MENSAJE_CASUAL_SIN_REGISTRO = (
 )
 
 
-def _obtener_paso_actual(registro: dict | None) -> int:
+def _obtener_estado(registro: dict | None) -> int:
     if not registro:
         return 0
-    return int(registro.get("paso_actual") or 0)
+    return int(registro.get("estado") or 0)
 
 
 def _indica_compra_o_venta(mensaje: str) -> bool:
-    """True si el mensaje menciona de forma clara compra o venta."""
     if not mensaje or not isinstance(mensaje, str):
         return False
     msg = mensaje.lower().strip()
     if not msg:
         return False
-    # Palabras/frases que indican tipo de operación
     indicios = [
         "compra", "compras", "comprar", "compré", "quiero comprar",
         "venta", "ventas", "vender", "vendí", "quiero vender",
@@ -35,17 +33,14 @@ def _indica_compra_o_venta(mensaje: str) -> bool:
 
 
 def _tiene_json_valido(mensaje: str) -> bool:
-    """True si el mensaje contiene un JSON válido (objeto o array)."""
     if not mensaje or not isinstance(mensaje, str):
         return False
     msg = mensaje.strip()
-    # Intentar parsear el mensaje completo
     try:
         parsed = json.loads(msg)
         return isinstance(parsed, (dict, list))
     except (json.JSONDecodeError, TypeError):
         pass
-    # Buscar un fragmento que parezca JSON (empieza con { o [)
     inicio_obj = msg.find("{")
     inicio_arr = msg.find("[")
     for start in (inicio_obj, inicio_arr):
@@ -66,13 +61,12 @@ class ClasificadorService:
 
     def ejecutar(self, mensaje: str, wa_id: str | None, id_empresa: int | None) -> dict:
         ultima_pregunta = ""
-        paso_actual = 0
-        cod_ope = None
+        estado = 0
+        operacion = None
         if wa_id is not None and id_empresa is not None:
             try:
                 registro = self._repo.consultar(wa_id, id_empresa)
                 if not registro:
-                    # Sin registro en Redis: solo casual si no indica compra/venta ni trae JSON
                     if not _indica_compra_o_venta(mensaje) and not _tiene_json_valido(mensaje):
                         return {
                             "intencion": "casual",
@@ -84,15 +78,14 @@ class ClasificadorService:
                             "explicacion_soporte": "",
                             "mensaje_casual_sugerido": MENSAJE_CASUAL_SIN_REGISTRO,
                         }
-                    # Indica compra/venta o tiene JSON: seguir con clasificador (paso_actual=0, cod_ope=None)
                 else:
                     ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
-                    paso_actual = _obtener_paso_actual(registro)
-                    cod_ope = (registro.get("cod_ope") or "").strip() or None
+                    estado = _obtener_estado(registro)
+                    operacion = (registro.get("operacion") or "").strip() or None
             except Exception:
                 pass
 
-        prompt = build_prompt_router(mensaje, ultima_pregunta, paso_actual, cod_ope)
+        prompt = build_prompt_router(mensaje, ultima_pregunta, estado, operacion)
 
         try:
             resultado = self._ai.completar_json(prompt)

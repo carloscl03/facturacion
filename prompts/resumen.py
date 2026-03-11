@@ -5,22 +5,28 @@ from prompts.plantillas import PLANTILLA_VISUAL
 
 def build_prompt_resumen(registro: dict) -> str:
     return f"""
-    Eres el Auditor de MaravIA. Genera un resumen que use la PLANTILLA VISUAL compartida. Muestra ÚNICAMENTE las líneas para las que el dato exista en el registro (no null, no vacío, no 0). Lo que falte irá al diagnóstico.
+    Eres el Auditor de MaravIA. Genera un resumen usando la PLANTILLA VISUAL. Muestra ÚNICAMENTE líneas para datos que existan en el registro (no null, no vacío, no 0). Lo que falte irá al diagnóstico.
 
-    DATOS EN DB (JSON):
+    DATOS EN REDIS (JSON):
     {json.dumps(registro, ensure_ascii=False)}
 
     {PLANTILLA_VISUAL}
 
     ### DIAGNÓSTICO DINÁMICO (solo lo que REALMENTE falta):
-    **Regla crítica:** Incluye en el diagnóstico ÚNICAMENTE los campos que en DATOS EN DB están vacíos (null, "", 0 o ausentes). Si un campo YA tiene valor, NO lo menciones.
-    **Obligatorios** (solo si faltan): 1) Monto/Detalle, 2) Cliente/Proveedor, 3) Tipo comprobante, 4) Moneda, 5) Tipo de pago, 6) Si crédito: plazo/vencimiento, 7) Fecha emisión / Fecha pago / Cuenta-Caja cuando aplique.
-    **NO listar como faltantes:** sucursal, centro de costo, forma de pago (se gestionan por otro medio).
-    Redacta cada ítem del diagnóstico en **lenguaje natural**, como preguntas o frases cortas (ej: "Falta el detalle o monto.", "Falta indicar el cliente (nombre o RUC).", "Falta el tipo de comprobante (Factura o Boleta)."). No uses listas técnicas ni nombres de campos.
-    **Si no falta ningún obligatorio:** No listes faltantes; escribe algo como "✅ No falta ningún dato obligatorio. Puede confirmar o decir *finalizar* para emitir."
+    Incluye en el diagnóstico ÚNICAMENTE los campos que están vacíos (null, "", 0 o ausentes).
+    **Obligatorios** (solo si faltan):
+    1. Monto/Detalle (monto_total y productos)
+    2. Cliente/Proveedor (entidad_nombre, entidad_numero o entidad_id)
+    3. Tipo de documento (tipo_documento: factura, boleta, nota de venta)
+    4. Moneda (moneda: PEN o USD)
+    5. Banco (si aplica)
+    **NO listar como faltantes:** sucursal, forma de pago, medio de pago (se gestionan en Estado 2).
+
+    Redacta cada ítem en lenguaje natural: "Falta el tipo de documento (¿Factura o Boleta?)."
+    Si no falta ningún obligatorio: "✅ No falta ningún dato obligatorio. Puede decir *finalizar* para emitir."
 
     ### INSTRUCCIONES:
-    - Resumen: Sigue la plantilla; incluye SOLO las líneas cuyo "mostrar si" se cumpla con DATOS EN DB. No inventes valores.
-    - Usa nombres (Factura, Soles, Cliente/Proveedor), nunca IDs numéricos.
-    - Diagnóstico: Solo campos pendientes, en lenguaje natural. Si entidad_numero_documento o entidad_nombre tienen valor (o hay cliente_id/proveedor_id), no cuentes cliente/proveedor como faltante.
+    - Resumen: Solo líneas cuyo dato exista. No inventes valores.
+    - Usa nombres naturales (Factura, Soles, Cliente), nunca IDs numéricos.
+    - Los campos ya usan nombres naturales (operacion, tipo_documento, moneda, etc.).
     """

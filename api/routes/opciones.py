@@ -31,12 +31,12 @@ async def opciones(
     informacion: InformacionRepository = Depends(get_informacion_repo),
 ):
     """
-    Estado 2: opciones múltiples. Solo aplica cuando el registro tiene Estado 1 completo (paso_actual >= 3).
+    Estado 2: opciones múltiples. Solo aplica cuando el registro tiene Estado 1 completo (estado >= 3).
 
     Query: wa_id, id_empresa, phone (opcional).
     Body (opcional): { "action": "get" } o { "action": "submit", "campo": "sucursal", "valor": 29 }.
     - action=get: devuelve la siguiente lista. payload_whatsapp_list listo para ws_send_whatsapp_list.php.
-    - action=submit: guarda la opción. campo: sucursal|forma_pago|tipo_pago; valor: id o clave.
+    - action=submit: guarda la opción. campo: sucursal|forma_pago|medio_pago; valor: id o clave.
     """
     b = body or OpcionesBody()
     action = (b.action or "get").strip().lower()

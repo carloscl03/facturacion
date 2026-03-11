@@ -107,8 +107,8 @@ class PreguntadorV2Service:
                 },
             }
 
-        cod_ope = (registro.get("cod_ope") or "").strip().lower() or None
-        prompt = build_prompt_preguntador_v2(registro, cod_ope)
+        operacion = (registro.get("operacion") or "").strip().lower() or None
+        prompt = build_prompt_preguntador_v2(registro, operacion)
         resultado = self._ai.completar_json(prompt)
 
         sintesis = (resultado.get("sintesis_visual") or "").strip() or "Aún no hay datos capturados."

@@ -1,30 +1,15 @@
 """
-Agente Estado 2: opciones múltiples. Solo actúa cuando paso_actual >= 3 (Estado 1 completo).
-
-Campos que define y persiste en Redis (cache):
-  - sucursal      → sucursal_nombre (texto)
-  - id_sucursal   → id numérico de sucursal (lista desde ws_informacion_ia OBTENER_SUCURSALES)
-  - forma de pago → id_forma_pago (transferencia, TD, TC, billetera virtual)
-  - medio de pago → tipo_operacion ("contado" | "credito")
+Agente Estado 2: opciones múltiples (sucursal, forma de pago, medio de pago).
+Solo actúa cuando Estado 1 está completo (estado >= 3).
+Persiste en Redis: id_sucursal, sucursal, forma_pago (str), medio_pago (str).
 """
 from __future__ import annotations
 
 from repositories.base import CacheRepository
 from repositories.informacion_repository import InformacionRepository
 
-# Orden de campos Estado 2
-CAMPOS_ESTADO2 = ("sucursal", "forma_pago", "tipo_pago")
+CAMPOS_ESTADO2 = ("sucursal", "forma_pago", "medio_pago")
 
-# Forma de pago: id para la fila (envío a WhatsApp) -> id_forma_pago para Redis y backend
-# Ajustar IDs si el backend usa otros valores
-FORMAPAGO_IDS = {
-    "transferencia": 1,
-    "td": 2,
-    "tc": 3,
-    "billetera_virtual": 4,
-}
-
-# Método de pago: contado / crédito (tipo_operacion en Redis)
 TIPO_PAGO_OPCIONES = (
     ("contado", "Contado", "Pago al contado"),
     ("credito", "Crédito", "Pago a crédito"),
@@ -41,11 +26,6 @@ class OpcionesService:
         self._informacion = informacion
 
     def get_next(self, wa_id: str, id_empresa: int, phone: str) -> dict:
-        """
-        Devuelve el payload para la siguiente lista de opciones (Estado 2).
-        Si Estado 1 no está completo, devuelve listo_estado1=False.
-        El payload_whatsapp_list está listo para POST a ws_send_whatsapp_list.php.
-        """
         registro = self._cache.consultar(wa_id, id_empresa) if wa_id and id_empresa else None
         if not registro:
             return {
@@ -53,8 +33,8 @@ class OpcionesService:
                 "mensaje": "No hay registro activo. Complete primero el registro (Estado 1).",
                 "payload_whatsapp_list": None,
             }
-        paso = int(registro.get("paso_actual") or 0)
-        if paso < 3:
+        estado = int(registro.get("estado") or 0)
+        if estado < 3:
             return {
                 "listo_estado1": False,
                 "mensaje": "Faltan datos obligatorios del registro. Complete Estado 1 antes de elegir sucursal y forma de pago.",
@@ -83,11 +63,6 @@ class OpcionesService:
         }
 
     def submit(self, wa_id: str, id_empresa: int, campo: str, valor) -> dict:
-        """
-        Guarda la opción elegida en Redis y devuelve el siguiente paso.
-        campo: "sucursal" | "forma_pago" | "tipo_pago"
-        valor: id (int) para sucursal, clave (str) para forma_pago, "contado"|"credito" para tipo_pago.
-        """
         if campo not in CAMPOS_ESTADO2:
             return {"success": False, "mensaje": f"Campo no válido: {campo}"}
 
@@ -102,28 +77,27 @@ class OpcionesService:
                 datos["id_sucursal"] = id_suc
                 lista_suc = self._informacion.obtener_sucursales(id_empresa)
                 nombre = next((s["nombre"] for s in lista_suc if s.get("id") == id_suc), str(valor))
-                datos["sucursal_nombre"] = nombre
+                datos["sucursal"] = nombre
             except (TypeError, ValueError):
                 return {"success": False, "mensaje": "Valor de sucursal debe ser un ID numérico."}
         elif campo == "forma_pago":
-            if isinstance(valor, str) and valor.lower() in FORMAPAGO_IDS:
-                datos["id_forma_pago"] = FORMAPAGO_IDS[valor.lower()]
-            elif isinstance(valor, int):
-                datos["id_forma_pago"] = valor
-            else:
+            v = (str(valor) or "").strip().lower()
+            opciones_validas = ("transferencia", "td", "tc", "billetera_virtual")
+            if v not in opciones_validas:
                 return {"success": False, "mensaje": "Valor de forma de pago no reconocido."}
-        elif campo == "tipo_pago":
+            datos["forma_pago"] = v
+        elif campo == "medio_pago":
             v = (str(valor) or "").strip().lower()
             if v not in ("contado", "credito"):
                 return {"success": False, "mensaje": "Valor debe ser contado o credito."}
-            datos["tipo_operacion"] = v
+            datos["medio_pago"] = v
 
         try:
             self._cache.actualizar(wa_id, id_empresa, datos)
         except Exception as e:
             return {"success": False, "mensaje": str(e)}
 
-        siguiente = self._siguiente_campo_despues_de(registro, campo, datos)
+        siguiente = self._siguiente_campo_despues_de(registro, datos)
         return {
             "success": True,
             "campo_guardado": campo,
@@ -133,18 +107,17 @@ class OpcionesService:
     def _siguiente_campo_pendiente(self, registro: dict) -> str | None:
         if not registro.get("id_sucursal"):
             return "sucursal"
-        if not registro.get("id_forma_pago"):
+        if not (registro.get("forma_pago") or "").strip():
             return "forma_pago"
-        if (registro.get("tipo_operacion") or "").strip().lower() not in ("contado", "credito"):
-            return "tipo_pago"
+        if (registro.get("medio_pago") or "").strip().lower() not in ("contado", "credito"):
+            return "medio_pago"
         return None
 
-    def _siguiente_campo_despues_de(self, registro: dict, campo_guardado: str, datos_guardados: dict) -> str | None:
+    def _siguiente_campo_despues_de(self, registro: dict, datos_guardados: dict) -> str | None:
         reg = {**registro, **datos_guardados}
         return self._siguiente_campo_pendiente(reg)
 
     def _construir_payload_lista(self, campo: str, id_empresa: int, phone: str) -> dict:
-        """Construye el JSON para ws_send_whatsapp_list.php."""
         if campo == "sucursal":
             sucursales = self._informacion.obtener_sucursales(id_empresa)
             rows = [{"id": str(s["id"]), "title": s["nombre"], "description": ""} for s in sucursales]
@@ -175,7 +148,7 @@ class OpcionesService:
                 "footer_text": "Selecciona forma de pago",
                 "sections": [{"title": "Forma de pago", "rows": rows}],
             }
-        if campo == "tipo_pago":
+        if campo == "medio_pago":
             rows = [
                 {"id": "contado", "title": "Contado", "description": "Pago al contado"},
                 {"id": "credito", "title": "Crédito", "description": "Pago a crédito"},
@@ -185,8 +158,8 @@ class OpcionesService:
                 "phone": phone,
                 "body_text": "Selecciona entre estas opciones: ",
                 "button_text": "Ver opciones",
-                "header_text": "Método de pago",
+                "header_text": "Medio de pago",
                 "footer_text": "Contado o crédito",
-                "sections": [{"title": "Método de pago", "rows": rows}],
+                "sections": [{"title": "Medio de pago", "rows": rows}],
             }
         return {}

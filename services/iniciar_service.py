@@ -1,6 +1,6 @@
-import requests
-
 from fastapi import HTTPException
+
+import requests
 
 from repositories.base import CacheRepository
 
@@ -12,17 +12,16 @@ class IniciarService:
     def ejecutar(self, wa_id: str, id_empresa: int, tipo: str) -> dict:
         tipo_lower = tipo.lower()
         if "compr" in tipo_lower:
-            intencion = "compras"
+            operacion = "compra"
         elif "vent" in tipo_lower:
-            intencion = "ventas"
+            operacion = "venta"
         else:
             raise HTTPException(status_code=400, detail="El tipo debe ser relacionado a compras o ventas")
 
         try:
             res = self._repo.insertar(wa_id, id_empresa, {
-                "cod_ope": intencion,
-                "is_ready": 0,
-                "paso_actual": 0,
+                "operacion": operacion,
+                "estado": 0,
             })
 
             if isinstance(res, dict) and res.get("status_code", 200) != 200:

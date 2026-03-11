@@ -38,10 +38,9 @@ class EntityRepository:
         - Persona Natural (tipo_persona=1): nombres, apellido_paterno, id_tipo_documento, numero_documento.
         - Persona Jurídica (tipo_persona=2): razon_social, id_tipo_documento, ruc.
         """
-        id_tipo = reg.get("entidad_id_tipo_documento") or (
-            6 if len(str(reg.get("entidad_numero_documento") or "").strip()) == 11 else 1
-        )
-        numero_doc = (reg.get("entidad_numero_documento") or "").strip()
+        num_raw = (reg.get("entidad_numero") or reg.get("entidad_numero_documento") or "").strip()
+        id_tipo = 6 if len(num_raw) == 11 else 1
+        numero_doc = num_raw
         nombre = (reg.get("entidad_nombre") or "").strip() or "Sin nombre"
         es_ruc = id_tipo == 6
 
@@ -89,9 +88,10 @@ class EntityRepository:
 
         if reg.get("entidad_nombre") and "nombres" not in payload and "razon_social" not in payload:
             payload["razon_social"] = reg["entidad_nombre"]
-        if reg.get("entidad_numero_documento"):
-            payload.setdefault("numero_documento", reg["entidad_numero_documento"])
-            payload.setdefault("ruc", reg["entidad_numero_documento"])
+        ent_num = reg.get("entidad_numero") or reg.get("entidad_numero_documento")
+        if ent_num:
+            payload.setdefault("numero_documento", ent_num)
+            payload.setdefault("ruc", ent_num)
 
         try:
             r = requests.post(self._url_cliente, json=payload, timeout=15)

@@ -1,18 +1,17 @@
 """
 Finalizar operación (venta/compra) y, en ventas, enviar CREAR_VENTA a la API para emitir comprobante SUNAT.
 
-Contrato mínimo API (referencia: test/run_factura_minima.py, doc CREAR_VENTA ws_ventas.php):
-- Raíz: id_cliente, id_sucursal, tipo_venta, id_forma_pago, id_moneda, tipo_facturacion, detalle_items.
-- Condicional facturado: id_tipo_afectacion, id_tipo_comprobante.
-- Fechas: fecha_emision, fecha_pago.
-- Caja (pago): id_caja_banco.
-- Por ítem: id_inventario, id_tipo_producto, cantidad, id_unidad, precio_unitario,
-  valor_subtotal_item, valor_igv, valor_total_item; backend suele exigir porcentaje_descuento/valor_descuento.
-
-Las validaciones de este servicio (monto_total, tipo_comprobante, cliente, tipo_operacion, plazo si crédito)
-aseguran que el registro tenga lo necesario para construir ese payload. id_sucursal se asume 14 por defecto
-y de momento no se pregunta (en el futuro se podrá solicitar). El preguntador debe pedir solo los datos
-obligatorios listados arriba (sin sucursal).
+Lee campos con nombres naturales desde Redis y los traduce a los IDs que espera la API backend:
+- operacion "venta"/"compra" → lógica de flujo
+- tipo_documento "factura"→1, "boleta"→2, "nota de venta"→4 → id_tipo_comprobante
+- moneda "PEN"→1, "USD"→2 → id_moneda
+- medio_pago "contado"/"credito" → tipo_venta "Contado"/"Credito"
+- forma_pago "transferencia"→1, "td"→2, "tc"→3, "billetera_virtual"→4 → id_forma_pago
+- entidad_numero → inferir tipo: len 8 = DNI (1), len 11 = RUC (6)
+- monto_sin_igv → monto_base, igv → monto_impuesto
+- fecha_emision / fecha_pago DD-MM-YYYY → YYYY-MM-DD
+- banco → id_caja_banco (texto libre por ahora)
+- entidad_id → id_cliente
 """
 import json
 
@@ -22,54 +21,102 @@ from config import settings
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
 
+# --------------- Mapeos de traducción --------------- #
+
+TIPO_DOCUMENTO_MAP = {
+    "factura": 1,
+    "boleta": 2,
+    "recibo": 3,
+    "nota de venta": 4,
+}
+
+MONEDA_MAP = {
+    "PEN": 1,
+    "pen": 1,
+    "USD": 2,
+    "usd": 2,
+}
+
+MONEDA_SIMBOLO = {
+    "PEN": "S/",
+    "pen": "S/",
+    "USD": "$",
+    "usd": "$",
+}
+
+FORMA_PAGO_MAP = {
+    "transferencia": 1,
+    "td": 2,
+    "tc": 3,
+    "billetera_virtual": 4,
+}
+
+
+def _fecha_a_api(fecha_ddmmyyyy: str | None) -> str | None:
+    """DD-MM-YYYY → YYYY-MM-DD. Si no puede convertir, devuelve tal cual."""
+    if not fecha_ddmmyyyy or not isinstance(fecha_ddmmyyyy, str):
+        return fecha_ddmmyyyy
+    f = fecha_ddmmyyyy.strip()
+    if len(f) == 10 and f[2] == "-" and f[5] == "-":
+        dd, mm, yyyy = f[:2], f[3:5], f[6:]
+        return f"{yyyy}-{mm}-{dd}"
+    return f
+
 
 def _construir_sintesis_actual(reg: dict) -> str:
-    """Construye una síntesis de lo que ya está registrado (solo campos con valor)."""
     if not reg or not isinstance(reg, dict):
         return ""
     lineas = ["📋 *Estado actual del registro*", "━━━━━━━━━━━━━━━━━━━━"]
-    cod_ope = (reg.get("cod_ope") or "").strip().lower()
-    if cod_ope == "ventas":
+    operacion = (reg.get("operacion") or "").strip().lower()
+    if operacion == "venta":
         lineas.append("📤 *VENTA*")
-    elif cod_ope == "compras":
+    elif operacion == "compra":
         lineas.append("🛒 *COMPRA*")
-    comp = reg.get("comprobante_tipo_nombre") or (
-        "Factura" if reg.get("id_comprobante_tipo") == 1 else
-        "Boleta" if reg.get("id_comprobante_tipo") == 2 else
-        "Recibo" if reg.get("id_comprobante_tipo") == 3 else None
-    )
-    if comp:
-        lineas.append(f"📄 *Comprobante:* {comp}")
+
+    tipo_doc = (reg.get("tipo_documento") or "").strip()
+    if tipo_doc:
+        lineas.append(f"📄 *Comprobante:* {tipo_doc.capitalize()}")
+
+    num_doc = (reg.get("numero_documento") or "").strip()
+    if num_doc:
+        lineas.append(f"📄 *Nro:* {num_doc}")
+
     if (reg.get("entidad_nombre") or "").strip():
         lineas.append(f"👤 *Cliente/Proveedor:* {reg.get('entidad_nombre')}")
-    if (reg.get("entidad_numero_documento") or "").strip():
-        lineas.append(f"🆔 *Documento:* {reg.get('entidad_numero_documento')}")
-    if reg.get("monto_total") is not None and float(reg.get("monto_total") or 0) > 0:
-        mon = reg.get("moneda_simbolo", "S/")
-        lineas.append(f"💰 *Total:* {mon} {reg.get('monto_total')}")
-    prod = reg.get("productos_json")
+    if (reg.get("entidad_numero") or "").strip():
+        lineas.append(f"🆔 *Documento:* {reg.get('entidad_numero')}")
+
+    monto = float(reg.get("monto_total") or 0)
+    if monto > 0:
+        moneda = (reg.get("moneda") or "PEN").upper()
+        simbolo = MONEDA_SIMBOLO.get(moneda, "S/")
+        lineas.append(f"💰 *Total:* {simbolo} {monto}")
+
+    prod = reg.get("productos")
     if isinstance(prod, list) and prod:
         lineas.append("📦 *Productos:* " + ", ".join(
             f"{p.get('cantidad', 1)} x {p.get('nombre', '')}" for p in prod[:5]
         ))
-    if isinstance(prod, str) and prod.strip():
+    elif isinstance(prod, str) and prod.strip() and prod.strip() != "[]":
         lineas.append("📦 *Productos:* (con detalle)")
-    if (reg.get("sucursal_nombre") or "").strip():
-        lineas.append(f"📍 *Sucursal:* {reg.get('sucursal_nombre')}")
+
+    if (reg.get("sucursal") or "").strip():
+        lineas.append(f"📍 *Sucursal:* {reg.get('sucursal')}")
     elif reg.get("id_sucursal"):
         lineas.append(f"📍 *Sucursal:* (id {reg.get('id_sucursal')})")
-    tipo_op = (reg.get("tipo_operacion") or "").strip().lower()
-    if tipo_op in ("contado", "credito"):
-        lineas.append(f"💳 *Pago:* {tipo_op.capitalize()}")
-    if tipo_op == "credito" and (reg.get("plazo_dias") or (reg.get("fecha_vencimiento") or "").strip()):
-        if reg.get("plazo_dias"):
-            lineas.append(f"🔄 *Plazo:* {reg.get('plazo_dias')} días")
-        if (reg.get("fecha_vencimiento") or "").strip():
-            lineas.append(f"📅 *Vencimiento:* {reg.get('fecha_vencimiento')}")
-    if (reg.get("moneda_nombre") or "").strip():
-        lineas.append(f"💵 *Moneda:* {reg.get('moneda_nombre')}")
+
+    medio = (reg.get("medio_pago") or "").strip().lower()
+    if medio in ("contado", "credito"):
+        lineas.append(f"💳 *Pago:* {medio.capitalize()}")
+
+    moneda_str = (reg.get("moneda") or "").strip()
+    if moneda_str:
+        lineas.append(f"💵 *Moneda:* {moneda_str}")
     if (reg.get("fecha_emision") or "").strip():
         lineas.append(f"📅 *Emisión:* {reg.get('fecha_emision')}")
+    if (reg.get("banco") or "").strip():
+        lineas.append(f"🏦 *Banco:* {reg.get('banco')}")
+
     lineas.append("━━━━━━━━━━━━━━━━━━━━")
     return "\n".join(lineas)
 
@@ -86,38 +133,50 @@ class FinalizarService:
             return {"status": "error", "mensaje": "No hay una operación activa para finalizar."}
 
         reg = registro
-        tipo_ope = str(reg.get("cod_ope", "VENTAS")).upper()
-        monto_total = reg.get("monto_total")
-        monto_base = reg.get("monto_base")
-        monto_igv = reg.get("monto_impuesto")
-        tipo_comp = reg.get("id_comprobante_tipo")
-        moneda_simbolo = reg.get("moneda_simbolo", "S/")
-        id_cliente = reg.get("cliente_id") or reg.get("entidad_id_maestro")
 
-        tipo_operacion = (reg.get("tipo_operacion") or "").strip().lower()
-        es_credito = tipo_operacion == "credito"
-        tiene_plazo_o_vencimiento = bool(
-            reg.get("plazo_dias") or (reg.get("fecha_vencimiento") or "").strip()
-        )
+        # --- Traducir campos naturales a IDs --- #
+        operacion = (reg.get("operacion") or "").strip().lower()
+        tipo_ope_upper = "VENTAS" if operacion == "venta" else "COMPRAS"
 
+        tipo_doc_str = (reg.get("tipo_documento") or "").strip().lower()
+        id_tipo_comprobante = TIPO_DOCUMENTO_MAP.get(tipo_doc_str)
+
+        moneda_str = (reg.get("moneda") or "").strip()
+        id_moneda = MONEDA_MAP.get(moneda_str)
+        moneda_simbolo = MONEDA_SIMBOLO.get(moneda_str, "S/")
+
+        medio_pago = (reg.get("medio_pago") or "").strip().lower()
+        tipo_venta = medio_pago.capitalize() if medio_pago in ("contado", "credito") else None
+
+        forma_pago_str = (reg.get("forma_pago") or "").strip().lower()
+        id_forma_pago = FORMA_PAGO_MAP.get(forma_pago_str, 9)
+
+        monto_total = float(reg.get("monto_total") or 0)
+        monto_base = float(reg.get("monto_sin_igv") or 0)
+        monto_igv = float(reg.get("igv") or 0)
+
+        entidad_numero = (reg.get("entidad_numero") or "").strip()
+        id_tipo_doc_entidad = 6 if len(entidad_numero) == 11 else 1
+
+        id_cliente = reg.get("entidad_id")
+
+        fecha_emision = _fecha_a_api(reg.get("fecha_emision")) or "2026-03-03"
+        fecha_pago = _fecha_a_api(reg.get("fecha_pago")) or fecha_emision
+
+        # --- Validaciones --- #
         errores = []
-        if not monto_total or float(monto_total) <= 0:
+        if monto_total <= 0:
             errores.append("Monto total")
-        if not tipo_comp:
-            errores.append("Tipo de Comprobante (Boleta/Factura)")
-        if not reg.get("id_moneda"):
-            errores.append("Moneda (Soles/Dólares)")
-        if "VENTA" in tipo_ope and not id_cliente:
-            tiene_datos_registro = (reg.get("entidad_nombre") or "").strip() and (reg.get("entidad_numero_documento") or "").strip()
-            if not tiene_datos_registro:
-                errores.append("Cliente (RUC/DNI y nombre) para facturar")
-        if not tipo_operacion or tipo_operacion not in ("contado", "credito"):
-            errores.append("Tipo de pago (Contado o Crédito)")
-        if es_credito and not tiene_plazo_o_vencimiento:
-            errores.append("Plazo en días o fecha de vencimiento (operación a crédito)")
-        # id_sucursal: por defecto 14; no se pregunta de momento (ver payload más abajo)
+        if not id_tipo_comprobante:
+            errores.append("Tipo de documento (Factura/Boleta)")
+        if not id_moneda:
+            errores.append("Moneda (PEN/USD)")
+        if operacion == "venta" and not id_cliente:
+            tiene_datos = (reg.get("entidad_nombre") or "").strip() and entidad_numero
+            if not tiene_datos:
+                errores.append("Cliente (nombre y documento) para facturar")
 
-        if errores and not ("VENTA" in tipo_ope and (reg.get("entidad_nombre") and reg.get("entidad_numero_documento"))):
+        if errores and not (operacion == "venta" and reg.get("entidad_nombre") and entidad_numero):
             sintesis = _construir_sintesis_actual(reg)
             faltan = f"⚠️ *No se puede finalizar.*\n\nFaltan: **{', '.join(errores)}**."
             mensaje = f"{sintesis}\n\n{faltan}" if sintesis else faltan
@@ -128,8 +187,13 @@ class FinalizarService:
             }
 
         try:
-            if "VENTA" in tipo_ope:
-                return self._finalizar_venta(wa_id, reg, id_cliente, id_empresa, tipo_comp, monto_total, monto_base, monto_igv, moneda_simbolo)
+            if operacion == "venta":
+                return self._finalizar_venta(
+                    wa_id, reg, id_cliente, id_empresa,
+                    id_tipo_comprobante, monto_total, monto_base, monto_igv,
+                    moneda_simbolo, id_moneda, id_forma_pago, tipo_venta,
+                    fecha_emision, fecha_pago, id_tipo_doc_entidad,
+                )
 
             self._marcar_completado(wa_id, id_empresa)
             return {
@@ -138,7 +202,7 @@ class FinalizarService:
                     f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
                     f"🏢 *Proveedor:* {reg.get('entidad_nombre')}\n"
                     f"💰 *Monto:* {moneda_simbolo} {monto_total}\n"
-                    f"📝 *Estado:* Guardado en el historial de {tipo_ope.lower()}."
+                    f"📝 *Estado:* Guardado en el historial de compras."
                 ),
             }
 
@@ -147,7 +211,7 @@ class FinalizarService:
 
     def _marcar_completado(self, wa_id: str, id_empresa: int) -> None:
         try:
-            self._cache.actualizar(wa_id, id_empresa, {"paso_actual": 4, "is_ready": 1})
+            self._cache.actualizar(wa_id, id_empresa, {"estado": 4})
         except Exception:
             pass
 
@@ -157,13 +221,19 @@ class FinalizarService:
         reg: dict,
         id_cliente,
         id_empresa: int,
-        tipo_comp,
+        id_tipo_comprobante,
         monto_total,
         monto_base,
         monto_igv,
         moneda_simbolo: str,
+        id_moneda,
+        id_forma_pago,
+        tipo_venta,
+        fecha_emision: str,
+        fecha_pago: str,
+        id_tipo_doc_entidad: int,
     ) -> dict:
-        if not id_cliente and (reg.get("entidad_nombre") or "").strip() and (reg.get("entidad_numero_documento") or "").strip():
+        if not id_cliente and (reg.get("entidad_nombre") or "").strip() and (reg.get("entidad_numero") or "").strip():
             resp_cli = self._entities.registrar_cliente(reg, id_empresa)
             if resp_cli.get("success") and resp_cli.get("cliente_id"):
                 id_cliente = resp_cli["cliente_id"]
@@ -173,12 +243,12 @@ class FinalizarService:
                     "mensaje": f"❌ No se pudo registrar el cliente: {resp_cli.get('message', 'Error desconocido')}.",
                 }
 
-        if id_cliente and (reg.get("entidad_nombre") or reg.get("entidad_numero_documento")):
+        if id_cliente and (reg.get("entidad_nombre") or reg.get("entidad_numero")):
             self._entities.actualizar_cliente(id_cliente, reg, id_empresa)
 
         if not id_cliente:
             sintesis = _construir_sintesis_actual(reg)
-            faltan = "⚠️ Falta el cliente (RUC/DNI y nombre). Indica los datos para registrarlo o búscalos en la base."
+            faltan = "⚠️ Falta el cliente (nombre y documento). Indica los datos para registrarlo."
             mensaje = f"{sintesis}\n\n{faltan}" if sintesis else faltan
             return {
                 "status": "incompleto",
@@ -188,23 +258,20 @@ class FinalizarService:
 
         detalle_items = self._construir_detalle(reg, monto_total, monto_base, monto_igv)
 
-        # Payload alineado al mínimo que acepta la API (test/run_factura_minima.py)
-        fecha_emision = reg.get("fecha_emision") or "2026-03-03"
-        fecha_pago = reg.get("fecha_pago") or fecha_emision
         payload_venta = {
             "codOpe": "CREAR_VENTA",
             "id_usuario": reg.get("id_usuario", 3),
             "id_cliente": id_cliente,
-            "id_sucursal": reg.get("id_sucursal") or 14,  # por defecto 14; en el futuro se preguntará
-            "id_moneda": reg.get("id_moneda"),
-            "id_forma_pago": reg.get("id_forma_pago", 9),
-            "tipo_venta": (reg.get("tipo_operacion") or "").strip().lower().capitalize(),  # "contado"|"credito" -> "Contado"|"Credito"
+            "id_sucursal": reg.get("id_sucursal") or 14,
+            "id_moneda": id_moneda,
+            "id_forma_pago": id_forma_pago,
+            "tipo_venta": tipo_venta or "Contado",
             "fecha_emision": fecha_emision,
             "fecha_pago": fecha_pago,
             "id_tipo_afectacion": reg.get("id_tipo_afectacion", 1),
             "id_caja_banco": reg.get("id_caja_banco", 4),
             "tipo_facturacion": "facturacion_electronica",
-            "id_tipo_comprobante": tipo_comp,
+            "id_tipo_comprobante": id_tipo_comprobante,
             "detalle_items": detalle_items,
         }
 
@@ -212,7 +279,6 @@ class FinalizarService:
         res_sunat = requests.post(settings.URL_VENTA_SUNAT, json=payload_venta, headers=headers)
         res_json = res_sunat.json()
 
-        # Extraer URL del PDF: sunat.sunat_data primero; luego sunat.data.payload.pdf; luego data.url_pdf
         sunat_obj = res_json.get("sunat") or {}
         sunat_data = sunat_obj.get("sunat_data") or {}
         payload = (sunat_obj.get("data") or {}).get("payload") or {}
@@ -226,7 +292,7 @@ class FinalizarService:
         )
         if url_pdf and res_json.get("success"):
             self._marcar_completado(wa_id, id_empresa)
-            serie_num = f"{sunat_data.get('serie', reg.get('comprobante_serie', 'F001'))}-{sunat_data.get('numero', reg.get('comprobante_numero', '000'))}"
+            serie_num = f"{sunat_data.get('serie', 'F001')}-{sunat_data.get('numero', '000')}"
             return {
                 "status": "finalizado",
                 "mensaje": (
@@ -250,7 +316,7 @@ class FinalizarService:
     def _construir_detalle(self, reg: dict, monto_total, monto_base, monto_igv) -> list:
         productos = []
         try:
-            pj = reg.get("productos_json")
+            pj = reg.get("productos")
             if isinstance(pj, str):
                 productos = json.loads(pj) if pj.strip() else []
             elif isinstance(pj, list):
@@ -258,7 +324,6 @@ class FinalizarService:
         except Exception:
             productos = []
 
-        # Campos por ítem según contrato mínimo API (id_unidad, descuentos; ver run_factura_minima)
         id_unidad = reg.get("id_unidad", 1)
         if not productos:
             mt = float(monto_total)

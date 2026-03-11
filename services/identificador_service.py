@@ -95,9 +95,9 @@ class IdentificadorService:
 
             campos_entidad = _sin_nulos({
                 "entidad_nombre": nombre_entidad_limpio,
-                "entidad_numero_documento": doc_limpio,
-                "entidad_id_tipo_documento": entidad_id_tipo_documento,
-                "entidad_id_maestro": entidad_id_maestro,
+                "entidad_numero": doc_limpio,
+                "entidad_id": entidad_id_maestro,
+                "identificado": True,
                 "persona_id": p_id,
                 "cliente_id": c_id,
                 "proveedor_id": pr_id,
@@ -146,8 +146,7 @@ class IdentificadorService:
 
         campos = resultado.get("campos_entidad") or {}
         campos_cache: dict = {}
-        for key in ("entidad_nombre", "entidad_numero_documento", "entidad_id_tipo_documento",
-                     "entidad_id_maestro", "persona_id", "cliente_id", "proveedor_id"):
+        for key in ("entidad_nombre", "entidad_numero", "entidad_id", "identificado"):
             val = campos.get(key)
             if val is not None and val != "" and (not isinstance(val, str) or val.strip()):
                 campos_cache[key] = val
