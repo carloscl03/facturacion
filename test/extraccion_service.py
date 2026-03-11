@@ -10,8 +10,8 @@ class ExtraccionService:
         self._repo = repo
         self._ai = ai
 
-    def ejecutar(self, wa_id: str, mensaje: str, id_empresa: int) -> dict:
-        registro = self._repo.consultar(wa_id, id_empresa)
+    def ejecutar(self, wa_id: str, mensaje: str, id_from: int) -> dict:
+        registro = self._repo.consultar(wa_id, id_from)
         estado_actual = registro or {}
         es_registro_nuevo = registro is None
 
@@ -34,7 +34,7 @@ class ExtraccionService:
         }
         datos["cod_ope"] = nuevo_contexto
 
-        self._repo.upsert(wa_id, id_empresa, datos, es_registro_nuevo)
+        self._repo.upsert(wa_id, id_from, datos, es_registro_nuevo)
 
         return {
             "status": "sincronizado",

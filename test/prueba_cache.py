@@ -6,7 +6,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 URL_API = "https://api.maravia.pe/servicio/n8n/ws_historial_cache.php"
 WS_WHATSAPP = "51994748961"
-ID_EMPRESA = 2
+ID_FROM = 2
 
 def probar_actualizacion():
     print(f"--- Probando ACTUALIZAR_CACHE ---")
@@ -16,7 +16,7 @@ def probar_actualizacion():
     payload_update = {
         "codOpe": "ACTUALIZAR_CACHE",
         "ws_whatsapp": WS_WHATSAPP,
-        "id_empresa": ID_EMPRESA,
+        "id_from": ID_FROM,
         "cod_ope": "ventas",
         "entidad_numero_documento": "20601234567",
         "entidad_razon_social": "MARAVIA SAC",
@@ -38,7 +38,7 @@ def probar_actualizacion():
         params = {
             "codOpe": "CONSULTAR_CACHE",
             "ws_whatsapp": WS_WHATSAPP,
-            "id_empresa": ID_EMPRESA
+            "id_from": ID_FROM
         }
         res_get = requests.get(URL_API, params=params, verify=False)
         

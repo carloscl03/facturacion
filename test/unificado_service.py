@@ -8,8 +8,8 @@ class UnificadoService:
         self._repo = repo
         self._ai = ai
 
-    def ejecutar(self, wa_id: str, mensaje: str, id_empresa: int) -> dict:
-        lista = self._repo.consultar_lista(wa_id, id_empresa)
+    def ejecutar(self, wa_id: str, mensaje: str, id_from: int) -> dict:
+        lista = self._repo.consultar_lista(wa_id, id_from)
         estado_actual = lista[0] if lista else {}
         es_registro_nuevo = len(lista) == 0
 
@@ -27,7 +27,7 @@ class UnificadoService:
         guiado = output["respuesta_usuario"]
 
         datos = {k: v for k, v in cambios_db.items() if v is not None}
-        self._repo.upsert(wa_id, id_empresa, datos, es_registro_nuevo)
+        self._repo.upsert(wa_id, id_from, datos, es_registro_nuevo)
 
         return {
             "status": "sincronizado",

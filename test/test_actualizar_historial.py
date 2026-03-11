@@ -9,7 +9,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 URL_CACHE = "https://api.maravia.pe/servicio/n8n/ws_historial_cache.php"
 WA_ID = "51994748961"
-ID_EMPRESA = 2
+ID_FROM = 2
 
 def imprimir_bloque(titulo, registro):
     print(f"\n📦 {titulo}")
@@ -18,7 +18,7 @@ def imprimir_bloque(titulo, registro):
     print("=" * 70)
 
 def ejecutar_flujo_contextual():
-    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": WA_ID, "id_empresa": ID_EMPRESA}
+    params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": WA_ID, "id_from": ID_FROM}
     
     # 1. LECTURA INICIAL
     res_inicial = requests.get(URL_CACHE, params=params_leer)
@@ -67,7 +67,7 @@ def ejecutar_flujo_contextual():
         payload = {
             "codOpe": operacion,
             "ws_whatsapp": WA_ID,
-            "id_empresa": ID_EMPRESA,
+            "id_from": ID_FROM,
             **datos_ia
         }
         

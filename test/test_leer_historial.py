@@ -3,7 +3,7 @@ Reporte en terminal del JSON devuelto por el servicio de historial cache (tabla 
 
 Usa el mismo servicio que test_actualizar_historial.py:
   https://api.maravia.pe/servicio/n8n/ws_historial_cache.php
-  GET con codOpe=CONSULTAR_CACHE, ws_whatsapp, id_empresa.
+  GET con codOpe=CONSULTAR_CACHE, ws_whatsapp, id_from.
 
 Uso:
   python test/test_leer_historial.py
@@ -26,17 +26,17 @@ URL_CACHE = "https://api.maravia.pe/servicio/n8n/ws_historial_cache.php"
 
 # Mismos valores por defecto que test_actualizar_historial.py
 WA_ID_DEFECTO = "51994748961"
-ID_EMPRESA_DEFECTO = 2
+ID_FROM_DEFECTO = 2
 
 
 def main():
     import argparse
     p = argparse.ArgumentParser(description="Reporte JSON del historial cache vía ws_historial_cache.php")
     p.add_argument("--wa", default=os.getenv("WA_ID", WA_ID_DEFECTO), help="ws_whatsapp")
-    p.add_argument("--empresa", type=int, default=int(os.getenv("ID_EMPRESA", str(ID_EMPRESA_DEFECTO))), help="id_empresa")
+    p.add_argument("--empresa", type=int, default=int(os.getenv("ID_FROM", str(ID_FROM_DEFECTO))), help="id_from (contexto cache)")
     args = p.parse_args()
 
-    params = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": args.wa, "id_empresa": args.empresa}
+    params = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": args.wa, "id_from": args.empresa}
     res = requests.get(URL_CACHE, params=params)
 
     try:

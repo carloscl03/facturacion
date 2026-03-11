@@ -8,12 +8,12 @@ class CacheManager:
     def __init__(self, url_api: str):
         self.url = url_api
 
-    def consultar(self, whatsapp: str, id_empresa: int):
+    def consultar(self, whatsapp: str, id_from: int):
         """Busca si el usuario tiene una sesión activa."""
         params = {
             "codOpe": "CONSULTAR_CACHE",
             "ws_whatsapp": whatsapp,
-            "id_empresa": id_empresa
+            "id_from": id_from
         }
         try:
             response = requests.get(self.url, params=params, verify=False, timeout=10)
@@ -39,12 +39,12 @@ class CacheManager:
             print(f"Error en CacheManager.guardar: {e}")
             return {"success": False, "error": str(e)}
 
-    def eliminar(self, whatsapp: str, id_empresa: int):
+    def eliminar(self, whatsapp: str, id_from: int):
         """Limpia la caché al finalizar la venta/compra."""
         payload = {
             "codOpe": "ELIMINAR_CACHE",
             "ws_whatsapp": whatsapp,
-            "id_empresa": id_empresa
+            "id_from": id_from
         }
         try:
             response = requests.post(self.url, json=payload, verify=False)
