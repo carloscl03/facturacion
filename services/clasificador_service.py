@@ -1,4 +1,9 @@
-import re
+"""
+Clasificador: mensaje + estado Redis entran a la IA.
+Salidas: (1) intencion (prioridad actualizar|opciones|resumen|finalizar|casual|eliminar), (2) siguiente_estado (bool 3→4).
+Actualizar solo cuando estado < 3; estado >= 4 → opciones. Finalizar reutiliza la lógica con otros estados.
+"""
+from __future__ import annotations
 
 from fastapi import HTTPException
 
@@ -11,47 +16,6 @@ def _obtener_estado(registro: dict | None) -> int:
     if not registro:
         return 0
     return int(registro.get("estado") or 0)
-
-
-def _datos_obligatorios_completos(registro: dict | None) -> bool:
-    """True si monto/detalle, entidad, tipo_documento y moneda están definidos (equivalente a estado 3)."""
-    if not registro:
-        return False
-    tiene_monto = float(registro.get("monto_total") or 0) > 0
-    prod = registro.get("productos")
-    tiene_productos = isinstance(prod, list) and len(prod) > 0
-    if isinstance(prod, str) and prod.strip() and prod.strip() != "[]":
-        tiene_productos = True
-    tiene_entidad = bool(registro.get("entidad_nombre") or registro.get("entidad_numero") or registro.get("entidad_id"))
-    tiene_doc = bool(registro.get("tipo_documento"))
-    tiene_moneda = bool(registro.get("moneda"))
-    return (tiene_monto or tiene_productos) and tiene_entidad and tiene_doc and tiene_moneda
-
-
-# Frases que indican solo confirmación (sin aportar datos). Mensaje normalizado: minúsculas, sin puntuación fuerte.
-_CONFIRMACIONES = re.compile(
-    r"^(s[ií]|confirmo?|dale|correcto|listo|ok|vale|confirmar|de\s+acuerdo|va|perfecto|"
-    r"adelante|acepto|est[aá]\s+bien|procede?|confirmado|de\s+una|bueno|genial|"
-    r"claro|por\s+supuesto|seguro|as[ií]\s+est[aá]|todo\s+bien)[\s\.\!]*$",
-    re.IGNORECASE,
-)
-
-
-def _es_solo_confirmacion(mensaje: str) -> bool:
-    """True si el mensaje es solo una afirmación de confirmación, sin datos nuevos."""
-    if not mensaje or not isinstance(mensaje, str):
-        return False
-    txt = mensaje.strip()
-    if len(txt) > 80:
-        return False
-    # Quitar puntuación final y normalizar espacios
-    txt_norm = re.sub(r"[\.,;:\!]+$", "", txt).strip().lower()
-    if _CONFIRMACIONES.match(txt_norm):
-        return True
-    # Frases cortas muy típicas
-    if txt_norm in ("si", "sí", "sip", "yep", "yes", "confirmar", "confirmo", "dale", "ok", "listo"):
-        return True
-    return False
 
 
 def _opciones_completo(registro: dict | None) -> bool:
@@ -79,15 +43,15 @@ class ClasificadorService:
             try:
                 registro = self._repo.consultar(wa_id, id_from)
                 if not registro:
-                    # Sin registro: solo entonces casual (sistema de botones; POST /casual).
                     return {
                         "intencion": "casual",
                         "destino": "casual",
-                        "confianza": 1.0,
-                        "urgencia": "baja",
+                        "op_visible": "no definido",
+                        "opciones_ok": False,
+                        "siguiente_estado": False,
                         "necesita_extraccion": False,
+                        "confianza": 1.0,
                         "campo_detectado": "ninguno",
-                        "explicacion_soporte": "",
                     }
                 ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
                 estado = _obtener_estado(registro)
@@ -97,69 +61,66 @@ class ClasificadorService:
                 registro = None
 
         opciones_completo = _opciones_completo(registro) if registro else False
-        # Estado efectivo: si el cache no tiene "estado" pero los datos obligatorios están completos, tratar como 3
-        datos_completos = _datos_obligatorios_completos(registro) if registro else False
-        estado_efectivo = estado if estado > 0 else (3 if datos_completos else estado)
-        mensaje_es_confirmacion = _es_solo_confirmacion(mensaje)
 
         prompt = build_prompt_router(
-            mensaje, ultima_pregunta, estado_efectivo, operacion, opciones_completo=opciones_completo
+            mensaje, ultima_pregunta, estado, operacion, opciones_completo=opciones_completo
         )
 
         try:
             resultado = self._ai.completar_json(prompt)
 
-            intencion = resultado.get("intencion", "")
-            resultado["necesita_extraccion"] = intencion == "actualizar"
+            intencion = (resultado.get("intencion") or "").strip().lower()
+            op_visible = (resultado.get("op_visible") or "no definido").strip().lower()
+            if op_visible not in ("venta", "compra", "no definido"):
+                op_visible = "no definido"
+            opciones_ok = bool(resultado.get("opciones_ok") is True)
+            siguiente_estado = bool(resultado.get("siguiente_estado") is True)
 
-            if not resultado.get("destino"):
-                mapeo = {
-                    "actualizar": "extraccion",
-                    "confirmar_registro": "confirmar-registro",
-                    "opciones": "opciones",
-                    "resumen": "generar-resumen",
-                    "finalizar": "finalizar-operacion",
-                    "eliminar": "eliminar-operacion",
-                    "informacion": "informador",
-                    "casual": "casual",
-                }
-                resultado["destino"] = mapeo.get(intencion, "extraccion")
+            # Mapeo intención → destino
+            mapeo_destino = {
+                "actualizar": "extraccion",
+                "opciones": "opciones",
+                "resumen": "generar-resumen",
+                "finalizar": "finalizar-operacion",
+                "casual": "casual",
+                "eliminar": "eliminar-operacion",
+            }
+            destino = mapeo_destino.get(intencion, "extraccion")
 
-            if resultado.get("destino") in ("analizador", "registrador"):
-                resultado["destino"] = "extraccion"
+            # Actualizar solo cuando estado < 3; estado >= 4 → opciones
+            if estado >= 4 and intencion == "actualizar":
+                destino = "opciones"
+                intencion = "opciones"
+            if estado < 3 and intencion == "opciones":
+                destino = "extraccion"
+                intencion = "actualizar"
 
-            # Heurística: si el mensaje es solo confirmación y los datos están completos (estado 3 o equivalente),
-            # forzar confirmar_registro para cerrar actualizar y permitir el paso a opciones.
-            if mensaje_es_confirmacion and (estado_efectivo == 3 or datos_completos):
-                resultado["intencion"] = "confirmar_registro"
-                resultado["destino"] = "confirmar-registro"
-                resultado["necesita_extraccion"] = False
+            # Finalizar: misma lógica que opciones pero para emitir — solo estado >= 4 y opciones_ok
+            if destino == "finalizar-operacion" and (estado < 4 or not opciones_completo):
+                destino = "generar-resumen"
+                intencion = "resumen"
 
-            # Opciones solo desde estado 4 (tras confirmar registro)
-            if resultado.get("destino") == "opciones" and estado_efectivo < 4:
-                resultado["destino"] = "extraccion"
-                resultado["intencion"] = intencion if intencion != "opciones" else "actualizar"
+            # Con registro activo no ir a casual
+            if registro is not None and destino == "casual":
+                destino = "extraccion"
+                intencion = "actualizar"
 
-            # Confirmar registro: permitir solo cuando estado efectivo = 3 (o datos completos). No redirigir a extracción.
-            if resultado.get("destino") == "confirmar-registro" and estado_efectivo != 3 and not datos_completos:
-                resultado["destino"] = "extraccion"
-                resultado["intencion"] = intencion if intencion != "confirmar_registro" else "actualizar"
+            # Cuando siguiente_estado = true (estado 3 + confirmación), destino = confirmar-registro para cambiar 3→4
+            if siguiente_estado and estado == 3:
+                destino = "confirmar-registro"
 
-            # Finalizar solo con estado >= 4 y opciones (Estado 2) completas
-            if resultado.get("destino") == "finalizar-operacion" and (estado < 4 or not opciones_completo):
-                resultado["destino"] = "generar-resumen"
-                resultado["intencion"] = "resumen"
+            necesidad_extraccion = intencion == "actualizar"
 
-            # Con registro activo es imposible ir a casual (solo sin registro se usa POST /casual)
-            if registro is not None and resultado.get("destino") == "casual":
-                resultado["destino"] = "extraccion"
-                resultado["intencion"] = "actualizar"
-                resultado["necesita_extraccion"] = True
-
-            # La transición 3 → 4 la hace ConfirmarRegistroService (única fuente de verdad).
-            # El clasificador solo enruta; no muta el estado.
-
-            return resultado
+            return {
+                "intencion": intencion,
+                "destino": destino,
+                "op_visible": op_visible,
+                "opciones_ok": opciones_ok,
+                "siguiente_estado": siguiente_estado,
+                "necesita_extraccion": necesidad_extraccion,
+                "confianza": float(resultado.get("confianza") or 0.9),
+                "campo_detectado": (resultado.get("campo_detectado") or "ninguno").strip().lower(),
+            }
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))

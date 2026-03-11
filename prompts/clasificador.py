@@ -1,3 +1,11 @@
+"""
+Clasificador: mensaje + estado Redis entran a la IA.
+Se presta atención a la última pregunta y al estado actual.
+Salidas: (1) intencion (prioridad: actualizar|opciones|resumen|finalizar|casual|eliminar), (2) siguiente_estado (bool 3→4).
+"""
+from __future__ import annotations
+
+
 def build_prompt_router(
     mensaje: str,
     ultima_pregunta: str,
@@ -5,90 +13,56 @@ def build_prompt_router(
     operacion: str | None = None,
     opciones_completo: bool = False,
 ) -> str:
-    ultima_visible = (ultima_pregunta or "").strip() or "— Ninguna (inicio de conversación o sin registro previo)."
-    ctx_ultima = f"""
-    ### CONTEXTO — ÚLTIMA INTERACCIÓN (keyword):
-    "{ultima_visible}"
-    """
-
+    ultima_visible = (ultima_pregunta or "").strip() or "— Ninguna (inicio o sin registro previo)."
     op_visible = (operacion or "").strip() or "no definido"
-    opciones_ok = "Sí (sucursal, forma de pago y medio de pago ya elegidos)" if opciones_completo else "No (falta elegir sucursal, forma de pago o medio de pago)"
-    ctx_estado = f"""
-    ### ESTADO DEL REGISTRO:
-    estado = {estado}
-    operacion = "{op_visible}"
-    opciones_completo (Estado 2) = {opciones_ok}
-
-    **Acceso por estado (interpreta el mensaje del usuario, no términos estáticos):**
-    - **Confirmar registro (PRIORIDAD sobre actualizar):** Solo estado 3 (o datos obligatorios completos). Si el mensaje expresa SOLO confirmación en lenguaje natural (sí, confirmo, dale, correcto, listo, ok, confirmar, de acuerdo, va, perfecto, adelante, acepto, vale, está bien, procede, etc.) y NO aporta datos nuevos (no JSON, no montos, no entidad, no productos), clasifica como **confirmar_registro**. El sistema habrá pedido "¿Confirmar todo para continuar?"; la respuesta afirmativa cierra el flujo de actualizar y permite pasar a estado 4 y al menú de opciones. **Nunca clasificar como actualizar** cuando el mensaje es pura confirmación y el registro está listo (estado 3).
-    - **Opciones:** Solo desde estado 4. Tras confirmar, el usuario elige sucursal, forma de pago o medio de pago. Si estado < 4, no clasificar como opciones.
-    - **Actualizar:** Estados 0, 1, 2 y 3. Solo cuando el usuario **aporta o modifica datos** (entidad, productos, montos, tipo doc, moneda, fechas). Si el mensaje es únicamente una afirmación de confirmación (sí, dale, confirmar, etc.) y estado = 3, es confirmar_registro, no actualizar.
-    - **Casual:** Solo cuando NO hay registro activo. Si hay registro, nunca clasifiques como casual.
-    - **Finalizar:** Solo cuando estado >= 4 y opciones_completo = Sí. Intención de emitir/procesar el comprobante.
-    - **Resumen / Eliminar / Información:** Sin restricción de estado.
-    """
+    opciones_ok = opciones_completo
 
     return f"""
-    Eres el Director de Orquesta de un sistema ERP contable. Clasifica la intención del usuario para enrutar al servicio correcto.
-    
-    MENSAJE DEL USUARIO: "{mensaje}"
-    {ctx_ultima}
-    {ctx_estado}
-    
-    ### FLUJO DEL SISTEMA (destino de cada intención):
-    - casual → Respuesta casual. **Solo accesible si no hay registro** (primer mensaje; sistema de botones).
-    - actualizar → Extracción. **Estados 0 a 3:** el usuario aporta o modifica datos; interpreta la intención, no solo palabras clave.
-    - confirmar_registro → Confirmar-registro. **Solo estado 3** y mensaje de confirmación; el sistema pasa a estado 4.
-    - opciones → Opciones (sucursal, forma de pago, medio de pago). **Solo desde estado 4** (tras confirmar registro).
-    - finalizar → Finalizar-operacion. **Solo estado >= 4 y opciones_completo = Sí** (sucursal, forma y medio de pago ya elegidos); interpreta intención de emitir/procesar.
-    - resumen → Generar-resumen. informacion → Informador. eliminar → Eliminar-operacion.
-    
-    ### 1. REGLAS DE CLASIFICACIÓN (JERARQUÍA ESTRICTA):
-    Evalúa en este orden. **La confirmación cierra actualizar y abre opciones;** no enrutes confirmación a extracción.
+Eres el Director de Orquesta de un sistema ERP contable. Clasificas la intención del usuario usando el MENSAJE y el ESTADO ACTUAL del registro en Redis. Presta especial atención a la **última pregunta** del bot y al **estado actual**.
 
-    0. MENSAJE CON JSON (prioridad máxima):
-       Si el mensaje contiene un JSON válido (objeto o array), clasifica como **actualizar** y destino **extraccion**.
+### ENTRADAS (mensaje + estado Redis):
+- **MENSAJE DEL USUARIO:** "{mensaje}"
+- **ÚLTIMA PREGUNTA (keyword/retroalimentación):** "{ultima_visible}"
+- **ESTADO ACTUAL (Redis):** {estado}
+- **Operación visible:** "{op_visible}"
+- **Opciones Estado 2 completas (sucursal, forma de pago, medio de pago):** {"Sí" if opciones_ok else "No"}
 
-    1. CONFIRMAR REGISTRO (solo si estado = 3; prioridad sobre actualizar):
-       Si el mensaje expresa **solo** confirmación/aceptación en lenguaje natural (sí, confirmo, dale, correcto, listo, ok, confirmar, de acuerdo, va, perfecto, adelante, acepto, vale, está bien, procede, confirmado, de una, etc.) y **no** incluye datos nuevos (ni JSON, ni montos, ni RUC, ni productos, ni tipo de documento), clasifica como **confirmar_registro**.
-       La validación de datos completos (estado 3) + intención de confirmar permiten el cambio a estado 4 y al menú de opciones. **No clasificar como actualizar** cuando el mensaje es pura confirmación.
-       Destino: confirmar-registro (el sistema pasará a estado 4; el orquestador enviará luego a opciones).
+### REGLAS DE NEGOCIO:
+- **Actualizar:** Solo cuando estado **< 3**. El usuario aporta o modifica datos del comprobante (entidad, productos, montos, tipo doc, moneda). Si estado >= 4 no clasificar como actualizar.
+- **Opciones:** Cuando estado **>= 4**. El usuario elige o pide sucursal, forma de pago, medio de pago. Si estado < 4 no clasificar como opciones.
+- **Resumen:** Pregunta por el estado actual, qué lleva, qué falta.
+- **Finalizar:** Misma lógica que opciones pero para emitir/procesar: solo cuando estado >= 4 **y** opciones completas. Intención de emitir, procesar, enviar el comprobante.
+- **Casual:** Solo cuando no hay registro (estado 0 sin contexto de registro). Con registro activo no devolver casual.
+- **Eliminar:** Borrar, cancelar, empezar de cero.
 
-    2. OPCIONES (solo si estado >= 4):
-       El usuario elige o responde sobre sucursal, forma de pago o medio de pago, o pide ver/elegir opciones. Si estado < 4, no clasificar como opciones.
-       Destino: opciones.
+### CONFIRMACIÓN Y siguiente_estado (transición 3 → 4):
+Cuando el **estado actual es 3** y el mensaje es **solo confirmación** (sí, confirmo, dale, correcto, listo, ok, confirmar, de acuerdo, va, perfecto, adelante, acepto, vale, está bien, procede, etc.) sin aportar datos nuevos, entonces:
+- **siguiente_estado** = true (indica que se debe cambiar de estado 3 a 4; el orquestador llamará a confirmar-registro).
+- La intención en ese caso puede ser "actualizar" en sentido lato pero lo importante es **siguiente_estado = true** para proceder al menú de opciones (estado 4). Tras el 3→4 se usan otros estados a partir del 4 (opciones, finalizar).
 
-    3. ACTUALIZAR (estados 0, 1, 2, 3):
-       Solo cuando el usuario **aporta o modifica datos** del comprobante (entidad, productos, montos, tipo doc, moneda, fechas). Si el mensaje es únicamente una afirmación de confirmación (sí, dale, confirmar, etc.) y estado = 3, es confirmar_registro, no actualizar.
-       Destino: extraccion.
+Si estado != 3 o el mensaje no es solo confirmación, **siguiente_estado** = false.
 
-    4. FINALIZAR (solo si estado >= 4 y opciones_completo = Sí):
-       El usuario expresa intención de emitir, procesar o finalizar el comprobante. Interpreta: procesar, emitir, enviar, finalizar, listo para emitir, etc. Si opciones no están completas, no clasificar como finalizar.
-       Destino: finalizar-operacion.
+### PRIORIDAD DE INTENCIONES (evaluar en este orden):
+1. **actualizar** — estado < 3; usuario aporta/modifica datos. (Si estado >= 4 y el mensaje fuera de datos, no es actualizar.)
+2. **opciones** — estado >= 4; elegir sucursal, forma de pago, medio de pago.
+3. **resumen** — pregunta por estado, qué lleva, qué falta.
+4. **finalizar** — estado >= 4 y opciones_ok; intención de emitir/procesar.
+5. **casual** — solo sin registro.
+6. **eliminar** — cancelar, borrar.
 
-    5. RESUMEN (preguntas sobre el registro):
-       El usuario pregunta por el estado actual, qué lleva, qué falta, montos, etc. Destino: generar-resumen.
+### SALIDAS OBLIGATORIAS:
+- **intencion:** una de: actualizar | opciones | resumen | finalizar | casual | eliminar
+- **op_visible:** operación visible en el registro: "venta" | "compra" | "no definido"
+- **opciones_ok:** boolean — true si sucursal, forma de pago y medio de pago ya están elegidos (Estado 2 completo)
+- **siguiente_estado:** boolean — true solo cuando estado actual = 3 y mensaje es confirmación (permite cambio 3→4)
 
-    6. ELIMINAR: Intención de borrar, cancelar o empezar de cero. Destino: eliminar-operacion.
-
-    7. INFORMACION:
-       Preguntas de ayuda: "¿Cómo...?", "¿Qué es...?", "Explícame", "No entiendo cómo poner...".
-       Destino: informador.
-       Si el mensaje es una afirmación con dato concreto (ej: "Será en dólares"), es ACTUALIZAR, no informacion.
-
-    8. CASUAL: Solo si no hubiera registro (aquí ya hay registro porque tienes estado). Si hay registro, no devuelvas casual; elige la intención más coherente (actualizar, resumen, etc.).
-
-    ### 2. campo_detectado (solo si intencion = actualizar):
-    Indica qué campo se está modificando: entidad|monto|tipo_documento|productos|moneda|ninguno
-
-    RESPONDE EXCLUSIVAMENTE EN JSON:
-    {{
-        "intencion": "actualizar|confirmar_registro|opciones|resumen|finalizar|casual|eliminar|informacion",
-        "destino": "extraccion|confirmar-registro|opciones|generar-resumen|finalizar-operacion|eliminar-operacion|informador|casual",
-        "confianza": float,
-        "urgencia": "alta|media|baja",
-        "necesita_extraccion": bool,
-        "campo_detectado": "entidad|monto|tipo_documento|productos|moneda|ninguno",
-        "explicacion_soporte": "Solo si intencion=informacion: breve guía o mensaje para mostrar al usuario"
-    }}
-    """
+RESPONDE EXCLUSIVAMENTE EN JSON:
+{{
+    "intencion": "actualizar|opciones|resumen|finalizar|casual|eliminar",
+    "op_visible": "venta|compra|no definido",
+    "opciones_ok": false,
+    "siguiente_estado": false,
+    "confianza": 0.9,
+    "campo_detectado": "entidad|monto|tipo_documento|productos|moneda|ninguno"
+}}
+"""

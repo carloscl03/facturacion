@@ -136,13 +136,7 @@ class ExtraccionService:
         # --- Persistir ---
         db_res = self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
 
-        # --- Si no hay nada más por llenar (listo_para_finalizar / cambiar_estado_a_4), pasar estado 3 → 4 en Redis/caché ---
-        if (listo_para_finalizar or cambiar_estado_a_4) and estado == 3:
-            try:
-                self._repo.actualizar(wa_id, id_from, {"estado": 4})
-                estado = 4
-            except Exception:
-                pass
+        # La transición 3 → 4 la hace exclusivamente el flujo confirmar-registro (clasificador devuelve siguiente_estado y el orquestador llama a confirmar-registro).
 
         out: dict = {
             "status": "sincronizado",
