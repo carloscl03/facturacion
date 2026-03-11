@@ -59,13 +59,13 @@ class ClasificadorService:
         self._repo = repo
         self._ai = ai
 
-    def ejecutar(self, mensaje: str, wa_id: str | None, id_empresa: int | None) -> dict:
+    def ejecutar(self, mensaje: str, wa_id: str | None, id_from: int | None) -> dict:
         ultima_pregunta = ""
         estado = 0
         operacion = None
-        if wa_id is not None and id_empresa is not None:
+        if wa_id is not None and id_from is not None:
             try:
-                registro = self._repo.consultar(wa_id, id_empresa)
+                registro = self._repo.consultar(wa_id, id_from)
                 if not registro:
                     if not _indica_compra_o_venta(mensaje) and not _tiene_json_valido(mensaje):
                         return {

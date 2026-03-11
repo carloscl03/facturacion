@@ -12,19 +12,19 @@ class EntityRepository:
     # BÚSQUEDA
     # ------------------------------------------------------------------ #
 
-    def buscar_cliente(self, id_empresa: int, termino: str) -> dict | None:
+    def buscar_cliente(self, id_from: int, termino: str) -> dict | None:
         """Busca un cliente por RUC, DNI o nombre. Retorna data o None."""
         res = requests.get(
             self._url_cliente,
-            params={"codOpe": "BUSCAR_CLIENTE", "empresa_id": id_empresa, "termino": termino},
+            params={"codOpe": "BUSCAR_CLIENTE", "empresa_id": id_from, "termino": termino},
         ).json()
         return res.get("data") if res.get("found") else None
 
-    def buscar_proveedor(self, id_empresa: int, termino: str) -> dict | None:
+    def buscar_proveedor(self, id_from: int, termino: str) -> dict | None:
         """Busca un proveedor por nombre. Retorna data o None."""
         res = requests.post(
             self._url_proveedor,
-            json={"codOpe": "BUSCAR_PROVEEDOR", "id_empresa": id_empresa, "nombre_completo": termino},
+            json={"codOpe": "BUSCAR_PROVEEDOR", "id_from": id_from, "nombre_completo": termino},
         ).json()
         return res.get("data") if res.get("found") else None
 
@@ -32,7 +32,7 @@ class EntityRepository:
     # REGISTRO
     # ------------------------------------------------------------------ #
 
-    def registrar_cliente(self, reg: dict, id_empresa: int) -> dict:
+    def registrar_cliente(self, reg: dict, id_from: int) -> dict:
         """
         Registra un cliente nuevo.
         - Persona Natural (tipo_persona=1): nombres, apellido_paterno, id_tipo_documento, numero_documento.
@@ -44,7 +44,7 @@ class EntityRepository:
         nombre = (reg.get("entidad_nombre") or "").strip() or "Sin nombre"
         es_ruc = id_tipo == 6
 
-        payload: dict = {"codOpe": "REGISTRAR_CLIENTE", "empresa_id": id_empresa}
+        payload: dict = {"codOpe": "REGISTRAR_CLIENTE", "empresa_id": id_from}
         if es_ruc:
             payload["tipo_persona"] = 2
             payload["razon_social"] = nombre
@@ -71,12 +71,12 @@ class EntityRepository:
     # ACTUALIZACIÓN
     # ------------------------------------------------------------------ #
 
-    def actualizar_cliente(self, cliente_id: int, reg: dict, id_empresa: int) -> dict:
+    def actualizar_cliente(self, cliente_id: int, reg: dict, id_from: int) -> dict:
         """Actualiza los datos de un cliente existente."""
         payload: dict = {
             "codOpe": "ACTUALIZAR_CLIENTE",
             "cliente_id": cliente_id,
-            "empresa_id": id_empresa,
+            "empresa_id": id_from,
         }
         for k in (
             "nombres", "apellido_paterno", "apellido_materno", "id_tipo_documento",

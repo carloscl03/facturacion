@@ -13,9 +13,9 @@ router = APIRouter()
 async def servicio_analizador(
     wa_id: str,
     mensaje: str,
-    id_empresa: int,
+    id_from: int,
     repo: CacheRepository = Depends(get_cache_repo),
     ai: AIService = Depends(get_ai_service),
     informacion_repo: InformacionRepository = Depends(get_informacion_repo),
 ):
-    return AnalizadorService(repo, ai, informacion_repo).ejecutar(wa_id, mensaje, id_empresa)
+    return AnalizadorService(repo, ai, informacion_repo).ejecutar(wa_id, mensaje, id_from)

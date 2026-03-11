@@ -12,9 +12,9 @@ router = APIRouter()
 @router.post("/confirmador")
 async def servicio_confirmador(
     wa_id: str,
-    id_empresa: int,
+    id_from: int,
     repo: CacheRepository = Depends(get_cache_repo),
     identificador: IdentificadorService = Depends(get_identificador_service),
     ai: AIService = Depends(get_ai_service),
 ):
-    return ConfirmadorService(repo, identificador, ai).ejecutar(wa_id, id_empresa)
+    return ConfirmadorService(repo, identificador, ai).ejecutar(wa_id, id_from)

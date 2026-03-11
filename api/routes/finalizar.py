@@ -11,8 +11,8 @@ router = APIRouter()
 @router.post("/finalizar-operacion")
 async def finalizar_operacion(
     wa_id: str,
-    id_empresa: int,
+    id_from: int,
     cache_repo: CacheRepository = Depends(get_cache_repo),
     entity_repo: EntityRepository = Depends(get_entity_repo),
 ):
-    return FinalizarService(cache_repo, entity_repo).ejecutar(wa_id, id_empresa)
+    return FinalizarService(cache_repo, entity_repo).ejecutar(wa_id, id_from)

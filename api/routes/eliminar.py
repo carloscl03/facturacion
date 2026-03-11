@@ -10,7 +10,7 @@ router = APIRouter()
 @router.post("/eliminar-operacion")
 async def eliminar_operacion(
     wa_id: str,
-    id_empresa: int,
+    id_from: int,
     repo: CacheRepository = Depends(get_cache_repo),
 ):
-    return EliminarService(repo).ejecutar(wa_id, id_empresa)
+    return EliminarService(repo).ejecutar(wa_id, id_from)

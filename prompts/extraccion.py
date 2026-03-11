@@ -32,7 +32,7 @@ def build_prompt_extractor(
     if estado_actual and isinstance(estado_actual, dict):
         campos = {
             k: v for k, v in estado_actual.items()
-            if k not in ("id", "wa_id", "id_empresa", "created_at", "updated_at")
+            if k not in ("id", "wa_id", "id_from", "created_at", "updated_at")
             and v is not None and v != "" and v != "null"
         }
         if campos:

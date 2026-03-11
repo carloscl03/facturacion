@@ -12,8 +12,8 @@ router = APIRouter()
 async def clasificar_mensaje(
     mensaje: str,
     wa_id: str = None,
-    id_empresa: int = None,
+    id_from: int = None,
     repo: CacheRepository = Depends(get_cache_repo),
     ai: AIService = Depends(get_ai_service),
 ):
-    return ClasificadorService(repo, ai).ejecutar(mensaje, wa_id, id_empresa)
+    return ClasificadorService(repo, ai).ejecutar(mensaje, wa_id, id_from)

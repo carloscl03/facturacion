@@ -45,8 +45,8 @@ class AnalizadorService:
         self._ai = ai
         self._informacion_repo = informacion_repo
 
-    def ejecutar(self, wa_id: str, mensaje: str, id_empresa: int) -> dict:
-        lista = self._repo.consultar_lista(wa_id, id_empresa)
+    def ejecutar(self, wa_id: str, mensaje: str, id_from: int) -> dict:
+        lista = self._repo.consultar_lista(wa_id, id_from)
         estado_actual = lista[0] if lista else {}
         es_registro_nuevo = len(lista) == 0
 
@@ -66,7 +66,7 @@ class AnalizadorService:
         lista_sucursales = []
         if self._informacion_repo:
             try:
-                lista_sucursales = self._informacion_repo.obtener_sucursales_publicas(id_empresa)
+                lista_sucursales = self._informacion_repo.obtener_sucursales_publicas(id_from)
             except Exception:
                 pass
 
@@ -129,7 +129,7 @@ class AnalizadorService:
             payload_db["paso_actual"] = 2
             payload_db["is_ready"] = 0
 
-            db_res = self._repo.upsert(wa_id, id_empresa, payload_db, es_registro_nuevo)
+            db_res = self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
 
             out = {
                 "status": "analizado_y_guardado",

@@ -9,7 +9,7 @@ class IniciarService:
     def __init__(self, repo: CacheRepository) -> None:
         self._repo = repo
 
-    def ejecutar(self, wa_id: str, id_empresa: int, tipo: str) -> dict:
+    def ejecutar(self, wa_id: str, id_from: int, tipo: str) -> dict:
         tipo_lower = tipo.lower()
         if "compr" in tipo_lower:
             operacion = "compra"
@@ -19,7 +19,7 @@ class IniciarService:
             raise HTTPException(status_code=400, detail="El tipo debe ser relacionado a compras o ventas")
 
         try:
-            res = self._repo.insertar(wa_id, id_empresa, {
+            res = self._repo.insertar(wa_id, id_from, {
                 "operacion": operacion,
                 "estado": 0,
             })

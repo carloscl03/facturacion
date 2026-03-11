@@ -14,10 +14,10 @@ router = APIRouter()
 async def procesar_extraccion(
     wa_id: str,
     mensaje: str,
-    id_empresa: int,
+    id_from: int,
     repo: CacheRepository = Depends(get_cache_repo),
     ai: AIService = Depends(get_ai_service),
     identificador: IdentificadorService = Depends(get_identificador_service),
     informacion_repo: InformacionRepository = Depends(get_informacion_repo),
 ):
-    return ExtraccionService(repo, ai, identificador, informacion_repo).ejecutar(wa_id, mensaje, id_empresa)
+    return ExtraccionService(repo, ai, identificador, informacion_repo).ejecutar(wa_id, mensaje, id_from)

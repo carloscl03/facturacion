@@ -2,6 +2,9 @@
 Agente Estado 2: opciones múltiples (sucursal, forma de pago, medio de pago).
 Solo actúa cuando Estado 1 está completo (estado >= 3).
 Persiste en Redis: id_sucursal, sucursal, forma_pago (str), medio_pago (str).
+
+Internamente usa id_from (cache, informacion). Solo al armar el payload para
+ws_send_whatsapp_list.php se envía id_empresa (esa API lo exige).
 """
 from __future__ import annotations
 
@@ -25,8 +28,15 @@ class OpcionesService:
         self._cache = cache
         self._informacion = informacion
 
-    def get_next(self, wa_id: str, id_empresa: int, phone: str) -> dict:
-        registro = self._cache.consultar(wa_id, id_empresa) if wa_id and id_empresa else None
+    def get_next(
+        self,
+        wa_id: str,
+        id_from: int,
+        phone: str,
+        id_empresa: int,
+    ) -> dict:
+        """id_from: contexto/cache. id_empresa: solo para el payload al PHP de lista WhatsApp."""
+        registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         if not registro:
             return {
                 "listo_estado1": False,
@@ -52,6 +62,7 @@ class OpcionesService:
 
         payload_list = self._construir_payload_lista(
             campo=campo,
+            id_from=id_from,
             id_empresa=id_empresa,
             phone=phone or wa_id,
         )
@@ -62,11 +73,11 @@ class OpcionesService:
             "payload_whatsapp_list": payload_list,
         }
 
-    def submit(self, wa_id: str, id_empresa: int, campo: str, valor) -> dict:
+    def submit(self, wa_id: str, id_from: int, campo: str, valor) -> dict:
         if campo not in CAMPOS_ESTADO2:
             return {"success": False, "mensaje": f"Campo no válido: {campo}"}
 
-        registro = self._cache.consultar(wa_id, id_empresa) if wa_id and id_empresa else None
+        registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         if not registro:
             return {"success": False, "mensaje": "No hay registro activo."}
 
@@ -75,7 +86,7 @@ class OpcionesService:
             try:
                 id_suc = int(valor)
                 datos["id_sucursal"] = id_suc
-                lista_suc = self._informacion.obtener_sucursales(id_empresa)
+                lista_suc = self._informacion.obtener_sucursales(id_from)
                 nombre = next((s["nombre"] for s in lista_suc if s.get("id") == id_suc), str(valor))
                 datos["sucursal"] = nombre
             except (TypeError, ValueError):
@@ -93,7 +104,7 @@ class OpcionesService:
             datos["medio_pago"] = v
 
         try:
-            self._cache.actualizar(wa_id, id_empresa, datos)
+            self._cache.actualizar(wa_id, id_from, datos)
         except Exception as e:
             return {"success": False, "mensaje": str(e)}
 
@@ -117,9 +128,16 @@ class OpcionesService:
         reg = {**registro, **datos_guardados}
         return self._siguiente_campo_pendiente(reg)
 
-    def _construir_payload_lista(self, campo: str, id_empresa: int, phone: str) -> dict:
+    def _construir_payload_lista(
+        self,
+        campo: str,
+        id_from: int,
+        id_empresa: int,
+        phone: str,
+    ) -> dict:
+        """Payload para ws_send_whatsapp_list.php. Usa id_from para sucursales; id_empresa en el JSON (la API PHP lo exige)."""
         if campo == "sucursal":
-            sucursales = self._informacion.obtener_sucursales(id_empresa)
+            sucursales = self._informacion.obtener_sucursales(id_from)
             rows = [{"id": str(s["id"]), "title": s["nombre"], "description": ""} for s in sucursales]
             if not rows:
                 rows = [{"id": "0", "title": "Sin sucursales", "description": ""}]

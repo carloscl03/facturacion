@@ -21,8 +21,8 @@ class ExtraccionService:
         self._identificador = identificador
         self._informacion_repo = informacion_repo
 
-    def ejecutar(self, wa_id: str, mensaje: str, id_empresa: int) -> dict:
-        lista = self._repo.consultar_lista(wa_id, id_empresa)
+    def ejecutar(self, wa_id: str, mensaje: str, id_from: int) -> dict:
+        lista = self._repo.consultar_lista(wa_id, id_from)
         estado_actual = lista[0] if lista else {}
         es_registro_nuevo = len(lista) == 0
 
@@ -82,7 +82,7 @@ class ExtraccionService:
         if requiere_identificacion["activo"] and self._identificador:
             tipo_busqueda = requiere_identificacion["tipo_ope"] or payload_db.get("operacion") or "venta"
             salida_identificador = self._identificador.buscar(
-                tipo_busqueda, requiere_identificacion["termino"], id_empresa,
+                tipo_busqueda, requiere_identificacion["termino"], id_from,
             )
             if salida_identificador and salida_identificador.get("identificado"):
                 campos_entidad = salida_identificador.get("campos_entidad") or {}
@@ -111,7 +111,7 @@ class ExtraccionService:
         payload_db["ultima_pregunta"] = ultima_pregunta_keyword or "inicio"
 
         # --- Persistir ---
-        db_res = self._repo.upsert(wa_id, id_empresa, payload_db, es_registro_nuevo)
+        db_res = self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
 
         out: dict = {
             "status": "sincronizado",

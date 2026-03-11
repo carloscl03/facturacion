@@ -24,9 +24,9 @@ class RegistradorService:
         self._repo = repo
         self._identificador = identificador
 
-    def ejecutar(self, wa_id: str, id_empresa: int) -> dict:
+    def ejecutar(self, wa_id: str, id_from: int) -> dict:
         try:
-            registro_pendiente = self._repo.consultar(wa_id, id_empresa)
+            registro_pendiente = self._repo.consultar(wa_id, id_from)
 
             if not registro_pendiente:
                 return {"status": "error", "mensaje": "No hay una propuesta pendiente para confirmar."}
@@ -99,7 +99,7 @@ class RegistradorService:
                 if payload_analizado.get(key) is not None:
                     payload_db[key] = payload_analizado[key]
 
-            res_json = self._repo.actualizar(wa_id, id_empresa, payload_db)
+            res_json = self._repo.actualizar(wa_id, id_from, payload_db)
 
             if not res_json.get("success"):
                 return {"status": "error", "detalle": res_json.get("error", "Error desconocido en DB")}
@@ -143,7 +143,7 @@ class RegistradorService:
                 and cuando_pendiente_datos_solo_si_entidad
             ):
                 termino = self._termino_identificable(payload_analizado)
-                salida_id = self._identificador.ejecutar(wa_id, cod_ope_final, termino, id_empresa)
+                salida_id = self._identificador.ejecutar(wa_id, cod_ope_final, termino, id_from)
                 out["salida_identificador"] = salida_id
                 if salida_id.get("identificado") and salida_id.get("resumen_confirmacion"):
                     out["texto_para_preguntador"] = salida_id["resumen_confirmacion"]

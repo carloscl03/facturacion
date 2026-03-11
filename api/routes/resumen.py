@@ -11,8 +11,8 @@ router = APIRouter()
 @router.get("/generar-resumen")
 async def generar_resumen(
     wa_id: str,
-    id_empresa: int,
+    id_from: int,
     repo: CacheRepository = Depends(get_cache_repo),
     ai: AIService = Depends(get_ai_service),
 ):
-    return ResumenService(repo, ai).ejecutar(wa_id, id_empresa)
+    return ResumenService(repo, ai).ejecutar(wa_id, id_from)

@@ -126,8 +126,8 @@ class FinalizarService:
         self._cache = cache_repo
         self._entities = entity_repo
 
-    def ejecutar(self, wa_id: str, id_empresa: int) -> dict:
-        registro = self._cache.consultar(wa_id, id_empresa)
+    def ejecutar(self, wa_id: str, id_from: int) -> dict:
+        registro = self._cache.consultar(wa_id, id_from)
 
         if not registro:
             return {"status": "error", "mensaje": "No hay una operación activa para finalizar."}
@@ -189,13 +189,13 @@ class FinalizarService:
         try:
             if operacion == "venta":
                 return self._finalizar_venta(
-                    wa_id, reg, id_cliente, id_empresa,
+                    wa_id, reg, id_cliente, id_from,
                     id_tipo_comprobante, monto_total, monto_base, monto_igv,
                     moneda_simbolo, id_moneda, id_forma_pago, tipo_venta,
                     fecha_emision, fecha_pago, id_tipo_doc_entidad,
                 )
 
-            self._marcar_completado(wa_id, id_empresa)
+            self._marcar_completado(wa_id, id_from)
             return {
                 "status": "finalizado",
                 "mensaje": (
@@ -209,9 +209,9 @@ class FinalizarService:
         except Exception as e:
             return {"status": "error", "mensaje": f"Hubo un fallo técnico: {str(e)}"}
 
-    def _marcar_completado(self, wa_id: str, id_empresa: int) -> None:
+    def _marcar_completado(self, wa_id: str, id_from: int) -> None:
         try:
-            self._cache.actualizar(wa_id, id_empresa, {"estado": 4})
+            self._cache.actualizar(wa_id, id_from, {"estado": 4})
         except Exception:
             pass
 
@@ -220,7 +220,7 @@ class FinalizarService:
         wa_id: str,
         reg: dict,
         id_cliente,
-        id_empresa: int,
+        id_from: int,
         id_tipo_comprobante,
         monto_total,
         monto_base,
@@ -234,7 +234,7 @@ class FinalizarService:
         id_tipo_doc_entidad: int,
     ) -> dict:
         if not id_cliente and (reg.get("entidad_nombre") or "").strip() and (reg.get("entidad_numero") or "").strip():
-            resp_cli = self._entities.registrar_cliente(reg, id_empresa)
+            resp_cli = self._entities.registrar_cliente(reg, id_from)
             if resp_cli.get("success") and resp_cli.get("cliente_id"):
                 id_cliente = resp_cli["cliente_id"]
             else:
@@ -244,7 +244,7 @@ class FinalizarService:
                 }
 
         if id_cliente and (reg.get("entidad_nombre") or reg.get("entidad_numero")):
-            self._entities.actualizar_cliente(id_cliente, reg, id_empresa)
+            self._entities.actualizar_cliente(id_cliente, reg, id_from)
 
         if not id_cliente:
             sintesis = _construir_sintesis_actual(reg)
@@ -291,7 +291,7 @@ class FinalizarService:
             or res_json.get("data", {}).get("url_pdf")
         )
         if url_pdf and res_json.get("success"):
-            self._marcar_completado(wa_id, id_empresa)
+            self._marcar_completado(wa_id, id_from)
             serie_num = f"{sunat_data.get('serie', 'F001')}-{sunat_data.get('numero', '000')}"
             return {
                 "status": "finalizado",

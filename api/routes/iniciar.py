@@ -10,8 +10,8 @@ router = APIRouter()
 @router.post("/iniciar-flujo")
 async def iniciar_flujo(
     wa_id: str,
-    id_empresa: int,
+    id_from: int,
     tipo: str,
     repo: CacheRepository = Depends(get_cache_repo),
 ):
-    return IniciarService(repo).ejecutar(wa_id, id_empresa, tipo)
+    return IniciarService(repo).ejecutar(wa_id, id_from, tipo)

@@ -12,8 +12,8 @@ router = APIRouter()
 async def servicio_unificado(
     wa_id: str,
     mensaje: str,
-    id_empresa: int,
+    id_from: int,
     repo: CacheRepository = Depends(get_cache_repo),
     ai: AIService = Depends(get_ai_service),
 ):
-    return UnificadoService(repo, ai).ejecutar(wa_id, mensaje, id_empresa)
+    return UnificadoService(repo, ai).ejecutar(wa_id, mensaje, id_from)

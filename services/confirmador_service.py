@@ -38,9 +38,9 @@ class ConfirmadorService:
         self._registrador = RegistradorService(repo, identificador)
         self._preguntador = PreguntadorV2Service(repo, ai)
 
-    def ejecutar(self, wa_id: str, id_empresa: int) -> dict:
+    def ejecutar(self, wa_id: str, id_from: int) -> dict:
         # Leer estado ANTES del registrador para saber de qué flujo venimos (bandera).
-        registro_previo = self._repo.consultar(wa_id, id_empresa) or {}
+        registro_previo = self._repo.consultar(wa_id, id_from) or {}
         metadata_prev = _parsear_metadata(registro_previo.get("metadata_ia"))
         estado_antes = (metadata_prev.get("estado_flujo") or "").strip()
         ultima_pregunta = (registro_previo.get("ultima_pregunta") or "").strip()
@@ -49,7 +49,7 @@ class ConfirmadorService:
             or "IDENTIFICACION PENDIENTE" in (ultima_pregunta or "").upper()
         )
 
-        res_reg = self._registrador.ejecutar(wa_id, id_empresa)
+        res_reg = self._registrador.ejecutar(wa_id, id_from)
 
         if res_reg.get("status") != "exito":
             return res_reg
@@ -59,16 +59,16 @@ class ConfirmadorService:
 
         res_preg = self._preguntador.ejecutar(
             wa_id,
-            id_empresa,
+            id_from,
             texto_desde_registrador=None,
             datos_registrados=None,
         )
 
         if res_preg.get("listo_para_finalizar") is True:
-            registro = self._repo.consultar(wa_id, id_empresa) or {}
+            registro = self._repo.consultar(wa_id, id_from) or {}
             metadata_ia = _parsear_metadata(registro.get("metadata_ia"))
             metadata_ia["estado_flujo"] = LISTO_PARA_FINALIZAR
-            self._repo.actualizar(wa_id, id_empresa, {"metadata_ia": json.dumps(metadata_ia, ensure_ascii=False)})
+            self._repo.actualizar(wa_id, id_from, {"metadata_ia": json.dumps(metadata_ia, ensure_ascii=False)})
 
         wo = res_preg.get("whatsapp_output", {})
         sintesis = (wo.get("sintesis_visual") or "").strip() or "Aún no hay datos capturados."

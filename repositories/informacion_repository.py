@@ -23,14 +23,14 @@ class InformacionRepository:
     def __init__(self, base_url: str) -> None:
         self._base_url = base_url
 
-    def obtener_sucursales_publicas(self, id_empresa: int) -> list[dict]:
+    def obtener_sucursales_publicas(self, id_from: int) -> list[dict]:
         """
         Obtiene la lista de sucursales públicas de la empresa.
         Retorna lista de {"id": int, "nombre": str}.
         """
         payload = {
             "codOpe": "OBTENER_SUCURSALES_PUBLICAS",
-            "id_empresa": id_empresa,
+            "id_from": id_from,
         }
         try:
             res = requests.post(self._base_url, json=payload, timeout=10)
@@ -48,12 +48,12 @@ class InformacionRepository:
                 out.append(s)
         return out
 
-    def obtener_sucursales(self, id_empresa: int) -> list[dict]:
+    def obtener_sucursales(self, id_from: int) -> list[dict]:
         """
         Obtiene la lista de sucursales de la empresa (codOpe OBTENER_SUCURSALES).
         Retorna lista de {"id": int, "nombre": str}.
         """
-        payload = {"codOpe": "OBTENER_SUCURSALES", "id_empresa": id_empresa}
+        payload = {"codOpe": "OBTENER_SUCURSALES", "id_from": id_from}
         try:
             res = requests.post(self._base_url, json=payload, timeout=10)
             data = res.json()

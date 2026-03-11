@@ -31,11 +31,11 @@ class PreguntadorService:
     def ejecutar(
         self,
         wa_id: str,
-        id_empresa: int,
+        id_from: int,
         texto_desde_registrador: str | None = None,
         datos_registrados: dict | None = None,
     ) -> dict:
-        registro = self._repo.consultar(wa_id, id_empresa)
+        registro = self._repo.consultar(wa_id, id_from)
         bloques_previos = []
         if texto_desde_registrador and texto_desde_registrador.strip():
             bloques_previos.append(texto_desde_registrador.strip())
@@ -81,11 +81,11 @@ class PreguntadorV2Service:
     def ejecutar(
         self,
         wa_id: str,
-        id_empresa: int,
+        id_from: int,
         texto_desde_registrador: str | None = None,
         datos_registrados: dict | None = None,
     ) -> dict:
-        registro = self._repo.consultar(wa_id, id_empresa)
+        registro = self._repo.consultar(wa_id, id_from)
         bloques_previos = []
         if texto_desde_registrador and texto_desde_registrador.strip():
             bloques_previos.append(texto_desde_registrador.strip())

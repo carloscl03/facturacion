@@ -11,8 +11,8 @@ router = APIRouter()
 @router.post("/registrador")
 async def servicio_registrador(
     wa_id: str,
-    id_empresa: int,
+    id_from: int,
     repo: CacheRepository = Depends(get_cache_repo),
     identificador: IdentificadorService = Depends(get_identificador_service),
 ):
-    return RegistradorService(repo, identificador).ejecutar(wa_id, id_empresa)
+    return RegistradorService(repo, identificador).ejecutar(wa_id, id_from)

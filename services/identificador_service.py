@@ -26,10 +26,10 @@ class IdentificadorService:
     # buscar(): solo lectura, NO toca cache ni metadata_ia.
     # Retorna IDs, ficha visual y campos para que el caller persista.
     # -------------------------------------------------------------- #
-    def buscar(self, tipo_ope: str, termino: str, id_empresa: int) -> dict:
+    def buscar(self, tipo_ope: str, termino: str, id_from: int) -> dict:
         try:
-            data_cli = self._entities.buscar_cliente(id_empresa, termino)
-            data_prov = self._entities.buscar_proveedor(id_empresa, termino)
+            data_cli = self._entities.buscar_cliente(id_from, termino)
+            data_prov = self._entities.buscar_proveedor(id_from, termino)
 
             if not data_cli and not data_prov:
                 rol = "cliente" if (tipo_ope or "").lower() == "ventas" else "proveedor"
@@ -132,8 +132,8 @@ class IdentificadorService:
     # ejecutar(): wrapper legacy que busca + persiste en cache.
     # Se mantiene por compatibilidad con rutas/servicios existentes.
     # -------------------------------------------------------------- #
-    def ejecutar(self, wa_id: str, tipo_ope: str, termino: str, id_empresa: int) -> dict:
-        resultado = self.buscar(tipo_ope, termino, id_empresa)
+    def ejecutar(self, wa_id: str, tipo_ope: str, termino: str, id_from: int) -> dict:
+        resultado = self.buscar(tipo_ope, termino, id_from)
 
         if not resultado.get("identificado"):
             return {
@@ -152,7 +152,7 @@ class IdentificadorService:
                 campos_cache[key] = val
 
         if campos_cache:
-            self._cache.actualizar(wa_id, id_empresa, campos_cache)
+            self._cache.actualizar(wa_id, id_from, campos_cache)
 
         return {
             "identificado": True,

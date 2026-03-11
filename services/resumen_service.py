@@ -8,8 +8,8 @@ class ResumenService:
         self._repo = repo
         self._ai = ai
 
-    def ejecutar(self, wa_id: str, id_empresa: int) -> dict:
-        registro = self._repo.consultar(wa_id, id_empresa)
+    def ejecutar(self, wa_id: str, id_from: int) -> dict:
+        registro = self._repo.consultar(wa_id, id_from)
 
         if not registro:
             return {"resumen": "No tienes ninguna operación activa en este momento."}

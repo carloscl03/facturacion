@@ -13,8 +13,8 @@ async def identificar_entidad(
     wa_id: str,
     tipo_ope: str,
     termino: str,
-    id_empresa: int,
+    id_from: int,
     cache_repo: CacheRepository = Depends(get_cache_repo),
     entity_repo: EntityRepository = Depends(get_entity_repo),
 ):
-    return IdentificadorService(cache_repo, entity_repo).ejecutar(wa_id, tipo_ope, termino, id_empresa)
+    return IdentificadorService(cache_repo, entity_repo).ejecutar(wa_id, tipo_ope, termino, id_from)

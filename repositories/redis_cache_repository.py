@@ -14,34 +14,34 @@ class RedisCacheRepository(CacheRepository):
         self._r = redis
         self._ttl = ttl
 
-    def _key(self, wa_id: str, id_empresa: int) -> str:
-        return f"cache:{wa_id}:{id_empresa}"
+    def _key(self, wa_id: str, id_from: int) -> str:
+        return f"cache:{wa_id}:{id_from}"
 
-    def consultar(self, wa_id: str, id_empresa: int) -> dict | None:
-        data = self._r.hgetall(self._key(wa_id, id_empresa))
+    def consultar(self, wa_id: str, id_from: int) -> dict | None:
+        data = self._r.hgetall(self._key(wa_id, id_from))
         if not data:
             return None
         return self._deserializar(data)
 
-    def consultar_lista(self, wa_id: str, id_empresa: int) -> list[dict]:
-        reg = self.consultar(wa_id, id_empresa)
+    def consultar_lista(self, wa_id: str, id_from: int) -> list[dict]:
+        reg = self.consultar(wa_id, id_from)
         return [reg] if reg else []
 
-    def insertar(self, wa_id: str, id_empresa: int, datos: dict) -> dict:
-        key = self._key(wa_id, id_empresa)
+    def insertar(self, wa_id: str, id_from: int, datos: dict) -> dict:
+        key = self._key(wa_id, id_from)
         self._r.hset(key, mapping=self._serializar(datos))
         self._r.expire(key, self._ttl)
         return {"success": True}
 
-    def actualizar(self, wa_id: str, id_empresa: int, datos: dict) -> dict:
-        key = self._key(wa_id, id_empresa)
+    def actualizar(self, wa_id: str, id_from: int, datos: dict) -> dict:
+        key = self._key(wa_id, id_from)
         self._r.hset(key, mapping=self._serializar(datos))
         self._r.expire(key, self._ttl)
         return {"success": True}
 
-    def eliminar(self, wa_id: str, id_empresa: int) -> dict:
+    def eliminar(self, wa_id: str, id_from: int) -> dict:
         try:
-            self._r.delete(self._key(wa_id, id_empresa))
+            self._r.delete(self._key(wa_id, id_from))
             return {"success": True}
         except Exception:
             return {"success": False}
