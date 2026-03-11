@@ -52,6 +52,7 @@ class ClasificadorService:
             if not resultado.get("destino"):
                 mapeo = {
                     "actualizar": "extraccion",
+                    "confirmar_registro": "confirmar-registro",
                     "opciones": "opciones",
                     "resumen": "generar-resumen",
                     "finalizar": "finalizar-operacion",
@@ -68,6 +69,11 @@ class ClasificadorService:
             if resultado.get("destino") == "opciones" and estado < 3:
                 resultado["destino"] = "extraccion"
                 resultado["intencion"] = intencion if intencion != "opciones" else "actualizar"
+
+            # Confirmar registro solo aplica con estado = 3; si no, forzar a extraccion
+            if resultado.get("destino") == "confirmar-registro" and estado != 3:
+                resultado["destino"] = "extraccion"
+                resultado["intencion"] = intencion if intencion != "confirmar_registro" else "actualizar"
 
             return resultado
 

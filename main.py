@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from api.routes import (
     casual,
     clasificador,
+    confirmar_registro,
     eliminar,
     extraccion,
     finalizar,
@@ -19,6 +20,7 @@ app = FastAPI(title="MaravIA Bot API")
 app.include_router(extraccion.router)
 app.include_router(preguntador.router)
 app.include_router(clasificador.router)
+app.include_router(confirmar_registro.router)
 app.include_router(casual.router)
 app.include_router(informador.router)
 app.include_router(resumen.router)

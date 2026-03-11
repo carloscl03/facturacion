@@ -38,10 +38,10 @@ Regla crítica: NO escribas ninguna línea cuya condición no se cumpla. Campo v
 
 ESTRUCTURA_GUIA = """
 Orden obligatorio del texto de guía (resumen_y_guia / salida combinada):
-(1) PREÁMBULO: una frase en lenguaje natural que contextualice (ej: "Para continuar con el registro:", "Resumen de lo capturado:").
-(2) SÍNTESIS VISUAL: solo líneas con datos presentes (según PLANTILLA_VISUAL).
-(3) INVITACIÓN A COMPLETAR: una frase en lenguaje natural (ej: "Para completar el comprobante falta:", "Indique los siguientes datos:").
-(4) PREGUNTAS: lista dinámica enumerada con emojis (1. 🔹 ..., 2. 🔹 ...) solo de los datos que faltan. Si todo está completo, pida confirmación de registro (no use "finalizar"; el clasificador envía finalizar a otro agente).
+(1) PREÁMBULO: una frase en lenguaje natural (ej: "¡Dale! Ya anoté lo principal. Tengo esto:").
+(2) SÍNTESIS VISUAL: estado COMPLETO del registro (todas las líneas con datos presentes según PLANTILLA_VISUAL), no solo lo último registrado.
+(3) INVITACIÓN A COMPLETAR: una frase (ej: "Me faltan algunos datos para completar:").
+(4) PREGUNTAS: listado de TODAS las preguntas por campo faltante, enumeradas con 1️⃣ 2️⃣ 3️⃣ (una por línea). No solo una pregunta; incluir todas las que falten. Confirmación de registro SOLO cuando no quede ninguna pregunta; si faltan datos, no pida confirmación (no "finalizar").
 """
 
 

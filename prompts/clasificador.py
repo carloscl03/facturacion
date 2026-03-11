@@ -19,9 +19,9 @@ def build_prompt_router(
     **Enrutado según estado:**
     - 0 (sin operación): Si el mensaje aporta datos o indica venta/compra → actualizar. Si no → casual.
     - 1 (operación definida): Si aporta datos → actualizar. Si no → casual.
-    - 2 (datos parciales): Si aporta datos → actualizar. Si pregunta por el registro (qué llevo, qué falta, etc.) → resumen. Si pide ayuda → informacion.
-    - 3 (obligatorios completos): **Opciones tiene prioridad sobre actualizar.** Si el mensaje es elegir/responder sucursal, forma de pago o medio de pago → opciones. Si dice finalizar/emitir → finalizar. Si pregunta por el registro → resumen. Solo si modifica explícitamente un dato ya confirmado (entidad, monto, etc.) → actualizar.
-    - 4 (completado): Tratar como estado 0 (nueva operación). Si aporta datos → actualizar. Si no → casual.
+    - 2 (datos parciales): Si aporta datos → actualizar. Si pregunta por el registro → resumen. Si pide ayuda → informacion.
+    - 3 (obligatorios completos, sin preguntas pendientes): Se pidió confirmación de registro. Si el mensaje es **confirmación** (sí, confirmo, dale, correcto, listo, ok) → **confirmar_registro** (pasa a estado 4 y se entra a opciones). Si elige sucursal/forma/medio de pago → opciones. Si finalizar/emitir → finalizar. Si pregunta por el registro → resumen. Si modifica un dato → actualizar.
+    - 4 (registro confirmado): Ya se confirmó; el siguiente paso es opciones (sucursal, forma de pago, medio de pago). Si elige una opción → opciones. Si aporta datos o inicia de nuevo → actualizar/casual.
     """
 
     return f"""
@@ -33,8 +33,9 @@ def build_prompt_router(
     
     ### FLUJO DEL SISTEMA (destino de cada intención):
     - actualizar → Extracción (extrae datos, guarda, genera diagnóstico de faltantes).
-    - opciones → Opciones (sucursal, forma de pago, medio de pago). **Solo si estado >= 3.**
-    - resumen → Generar-resumen (devuelve estado actual del registro y responde preguntas sobre qué hay, qué falta, montos, entidad, etc.).
+    - confirmar_registro → Confirmar-registro (solo si estado = 3; pasa a estado 4 y se entra a opciones).
+    - opciones → Opciones (sucursal, forma de pago, medio de pago). **Solo si estado >= 3 (en la práctica, tras confirmar se usa estado 4).**
+    - resumen → Generar-resumen (devuelve estado actual del registro).
     - finalizar → Finalizar-operacion (emite el comprobante).
     - informacion → Informador (responde con guía de llenado y ayuda).
     - eliminar → Eliminar-operacion.
@@ -46,33 +47,36 @@ def build_prompt_router(
     0. MENSAJE CON JSON (prioridad máxima):
        Si el mensaje contiene un JSON válido (objeto o array), clasifica como **actualizar** y destino **extraccion**.
 
-    1. OPCIONES (solo si estado >= 3; prioridad sobre actualizar en ese caso):
-       El usuario elige o responde sobre **sucursal**, **forma de pago** o **medio de pago**, o pide la lista de opciones.
-       Ejemplos: "Sucursal 2", "La 3", "Por transferencia", "Tarjeta", "Al contado", "Crédito", "Dame las opciones", "¿Qué sucursales hay?".
-       Si estado < 3, no clasificar como opciones (usar actualizar o casual según el mensaje).
-       Destino: opciones.
+    1. CONFIRMAR REGISTRO (solo si estado = 3):
+       El usuario responde afirmando que confirma el registro (no hay más preguntas; se pidió "¿Confirmo registro?").
+       Ejemplos: "Sí", "Confirmo", "Dale", "Correcto", "Listo", "Ok", "Confirmar", "Sí, confirmo".
+       Destino: confirmar-registro (el sistema pasará a estado 4 y entrará a opciones).
 
-    2. ACTUALIZAR (prioridad sobre información; después de opciones cuando estado >= 3):
+    2. OPCIONES (solo si estado >= 3; prioridad sobre actualizar en ese caso):
+       El usuario elige o responde sobre **sucursal**, **forma de pago** o **medio de pago**, o pide la lista de opciones.
+       Ejemplos: "Sucursal 2", "La 3", "Por transferencia", "Tarjeta", "Al contado", "Crédito", "Dame las opciones".
+       Si estado < 3, no clasificar como opciones. Destino: opciones.
+
+    3. ACTUALIZAR (prioridad sobre información; después de opciones cuando estado >= 3):
        El mensaje viene a MODIFICAR algún campo: entidad, productos, tipo documento, moneda, montos, banco, fechas.
        - Si estado >= 3 y el mensaje es una SELECCIÓN de sucursal/forma de pago/medio de pago → es OPCIONES, no actualizar.
        - Si el usuario aporta o cambia CUALQUIERA de esos datos de Estado 1 → intención = actualizar.
        - Afirmativas cortas que validan ("Sí", "Ok", "Dale", "Correcto") sin datos nuevos → actualizar (extracción interpreta contexto).
        - REGLA: Si hay un dato técnico que debe guardarse y no es selección de opciones, es ACTUALIZAR.
 
-    3. RESUMEN (preguntas sobre el registro):
+    4. RESUMEN (preguntas sobre el registro):
        El usuario pregunta por el ESTADO ACTUAL del registro o por datos ya ingresados.
-       - "¿Qué llevo?", "¿Qué datos tengo?", "¿Qué falta?", "Dime el resumen", "¿Cuál es el monto?", "¿A quién le facturo?", "¿Qué comprobante es?", "¿Ya está todo?".
        Destino: generar-resumen.
 
-    4. FINALIZAR:
+    5. FINALIZAR:
        Ordena emitir el documento oficial. Ej: "Procesa la factura", "Envíalo ya", "Emite el documento".
        Destino: finalizar-operacion.
 
-    5. CASUAL: Saludos o mensajes sin intención contable.
+    6. CASUAL: Saludos o mensajes sin intención contable.
 
-    6. ELIMINAR: Borrar, cancelar, "empezar de cero". Destino: eliminar-operacion.
+    7. ELIMINAR: Borrar, cancelar, "empezar de cero". Destino: eliminar-operacion.
 
-    7. INFORMACION:
+    8. INFORMACION:
        Preguntas de ayuda: "¿Cómo...?", "¿Qué es...?", "Explícame", "No entiendo cómo poner...".
        Destino: informador.
        Si el mensaje es una afirmación con dato (ej: "Será en dólares"), es ACTUALIZAR, no informacion.
@@ -82,8 +86,8 @@ def build_prompt_router(
 
     RESPONDE EXCLUSIVAMENTE EN JSON:
     {{
-        "intencion": "actualizar|opciones|resumen|finalizar|casual|eliminar|informacion",
-        "destino": "extraccion|opciones|generar-resumen|finalizar-operacion|eliminar-operacion|informador|casual",
+        "intencion": "actualizar|confirmar_registro|opciones|resumen|finalizar|casual|eliminar|informacion",
+        "destino": "extraccion|confirmar-registro|opciones|generar-resumen|finalizar-operacion|eliminar-operacion|informador|casual",
         "confianza": float,
         "urgencia": "alta|media|baja",
         "necesita_extraccion": bool,
