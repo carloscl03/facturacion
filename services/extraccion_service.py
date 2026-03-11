@@ -26,7 +26,12 @@ class ExtraccionService:
         estado_actual = lista[0] if lista else {}
         es_registro_nuevo = len(lista) == 0
 
-        operacion = (estado_actual.get("operacion") or "").strip().lower()
+        # Leer operación de registro (operacion o cod_ope por compatibilidad con backend)
+        operacion = (estado_actual.get("operacion") or estado_actual.get("cod_ope") or "").strip().lower()
+        if operacion == "compras":
+            operacion = "compra"
+        elif operacion == "ventas":
+            operacion = "venta"
         if operacion not in ("venta", "compra"):
             operacion = None
 
@@ -60,12 +65,26 @@ class ExtraccionService:
         payload_base = self._construir_payload(propuesta, estado_actual, contexto_previo)
         payload_db = {k: v for k, v in payload_base.items() if self._es_valor_valido(v)}
 
-        if operacion:
-            payload_db["operacion"] = operacion
-        elif es_registro_nuevo and payload_base.get("operacion"):
-            payload_db["operacion"] = str(payload_base["operacion"]).strip().lower()
+        # Fijar operación (compra/venta): siempre persistir para que no se pierda ni se vuelva a preguntar
+        op_val = operacion or (str(payload_base.get("operacion") or "").strip().lower())
+        if op_val == "compras":
+            op_val = "compra"
+        elif op_val == "ventas":
+            op_val = "venta"
+        if op_val in ("venta", "compra"):
+            payload_db["operacion"] = op_val
+            payload_db["cod_ope"] = "ventas" if op_val == "venta" else "compras"  # backend puede usar cod_ope
         else:
-            payload_db.pop("operacion", None)
+            # Preservar la que ya tenía el registro (re-persistir para no perderla)
+            if estado_actual.get("operacion") in ("venta", "compra"):
+                payload_db["operacion"] = estado_actual["operacion"]
+                payload_db["cod_ope"] = "ventas" if estado_actual["operacion"] == "venta" else "compras"
+            elif estado_actual.get("cod_ope") in ("ventas", "compras"):
+                payload_db["cod_ope"] = estado_actual["cod_ope"]
+                payload_db["operacion"] = "venta" if estado_actual["cod_ope"] == "ventas" else "compra"
+            else:
+                payload_db.pop("operacion", None)
+                payload_db.pop("cod_ope", None)
 
         # --- Identificación inline ---
         req_id = output_ia.get("requiere_identificacion") or {}

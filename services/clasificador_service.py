@@ -48,7 +48,8 @@ class ClasificadorService:
                     }
                 ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
                 estado = _obtener_estado(registro)
-                operacion = (registro.get("operacion") or "").strip() or None
+                op = (registro.get("operacion") or registro.get("cod_ope") or "").strip().lower()
+                operacion = "venta" if op == "ventas" else "compra" if op == "compras" else (op if op in ("venta", "compra") else None)
             except Exception:
                 registro = None
 

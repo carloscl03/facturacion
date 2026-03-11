@@ -67,7 +67,8 @@ def _construir_sintesis_actual(reg: dict) -> str:
     if not reg or not isinstance(reg, dict):
         return ""
     lineas = ["📋 *Estado actual del registro*", "━━━━━━━━━━━━━━━━━━━━"]
-    operacion = (reg.get("operacion") or "").strip().lower()
+    op = (reg.get("operacion") or reg.get("cod_ope") or "").strip().lower()
+    operacion = "venta" if op == "ventas" else "compra" if op == "compras" else op
     if operacion == "venta":
         lineas.append("📤 *VENTA*")
     elif operacion == "compra":
@@ -135,7 +136,8 @@ class FinalizarService:
         reg = registro
 
         # --- Traducir campos naturales a IDs --- #
-        operacion = (reg.get("operacion") or "").strip().lower()
+        op = (reg.get("operacion") or reg.get("cod_ope") or "").strip().lower()
+        operacion = "venta" if op == "ventas" else "compra" if op == "compras" else op
         tipo_ope_upper = "VENTAS" if operacion == "venta" else "COMPRAS"
 
         tipo_doc_str = (reg.get("tipo_documento") or "").strip().lower()

@@ -107,7 +107,8 @@ class PreguntadorV2Service:
                 },
             }
 
-        operacion = (registro.get("operacion") or "").strip().lower() or None
+        op = (registro.get("operacion") or registro.get("cod_ope") or "").strip().lower()
+        operacion = "venta" if op == "ventas" else "compra" if op == "compras" else (op if op in ("venta", "compra") else None)
         prompt = build_prompt_preguntador_v2(registro, operacion)
         resultado = self._ai.completar_json(prompt)
 
