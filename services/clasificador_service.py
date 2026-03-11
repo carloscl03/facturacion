@@ -1,3 +1,5 @@
+import re
+
 from fastapi import HTTPException
 
 from prompts.clasificador import build_prompt_router
@@ -9,6 +11,47 @@ def _obtener_estado(registro: dict | None) -> int:
     if not registro:
         return 0
     return int(registro.get("estado") or 0)
+
+
+def _datos_obligatorios_completos(registro: dict | None) -> bool:
+    """True si monto/detalle, entidad, tipo_documento y moneda están definidos (equivalente a estado 3)."""
+    if not registro:
+        return False
+    tiene_monto = float(registro.get("monto_total") or 0) > 0
+    prod = registro.get("productos")
+    tiene_productos = isinstance(prod, list) and len(prod) > 0
+    if isinstance(prod, str) and prod.strip() and prod.strip() != "[]":
+        tiene_productos = True
+    tiene_entidad = bool(registro.get("entidad_nombre") or registro.get("entidad_numero") or registro.get("entidad_id"))
+    tiene_doc = bool(registro.get("tipo_documento"))
+    tiene_moneda = bool(registro.get("moneda"))
+    return (tiene_monto or tiene_productos) and tiene_entidad and tiene_doc and tiene_moneda
+
+
+# Frases que indican solo confirmación (sin aportar datos). Mensaje normalizado: minúsculas, sin puntuación fuerte.
+_CONFIRMACIONES = re.compile(
+    r"^(s[ií]|confirmo?|dale|correcto|listo|ok|vale|confirmar|de\s+acuerdo|va|perfecto|"
+    r"adelante|acepto|est[aá]\s+bien|procede?|confirmado|de\s+una|bueno|genial|"
+    r"claro|por\s+supuesto|seguro|as[ií]\s+est[aá]|todo\s+bien)[\s\.\!]*$",
+    re.IGNORECASE,
+)
+
+
+def _es_solo_confirmacion(mensaje: str) -> bool:
+    """True si el mensaje es solo una afirmación de confirmación, sin datos nuevos."""
+    if not mensaje or not isinstance(mensaje, str):
+        return False
+    txt = mensaje.strip()
+    if len(txt) > 80:
+        return False
+    # Quitar puntuación final y normalizar espacios
+    txt_norm = re.sub(r"[\.,;:\!]+$", "", txt).strip().lower()
+    if _CONFIRMACIONES.match(txt_norm):
+        return True
+    # Frases cortas muy típicas
+    if txt_norm in ("si", "sí", "sip", "yep", "yes", "confirmar", "confirmo", "dale", "ok", "listo"):
+        return True
+    return False
 
 
 def _opciones_completo(registro: dict | None) -> bool:
@@ -54,9 +97,13 @@ class ClasificadorService:
                 registro = None
 
         opciones_completo = _opciones_completo(registro) if registro else False
+        # Estado efectivo: si el cache no tiene "estado" pero los datos obligatorios están completos, tratar como 3
+        datos_completos = _datos_obligatorios_completos(registro) if registro else False
+        estado_efectivo = estado if estado > 0 else (3 if datos_completos else estado)
+        mensaje_es_confirmacion = _es_solo_confirmacion(mensaje)
 
         prompt = build_prompt_router(
-            mensaje, ultima_pregunta, estado, operacion, opciones_completo=opciones_completo
+            mensaje, ultima_pregunta, estado_efectivo, operacion, opciones_completo=opciones_completo
         )
 
         try:
@@ -81,13 +128,20 @@ class ClasificadorService:
             if resultado.get("destino") in ("analizador", "registrador"):
                 resultado["destino"] = "extraccion"
 
+            # Heurística: si el mensaje es solo confirmación y los datos están completos (estado 3 o equivalente),
+            # forzar confirmar_registro para cerrar actualizar y permitir el paso a opciones.
+            if mensaje_es_confirmacion and (estado_efectivo == 3 or datos_completos):
+                resultado["intencion"] = "confirmar_registro"
+                resultado["destino"] = "confirmar-registro"
+                resultado["necesita_extraccion"] = False
+
             # Opciones solo desde estado 4 (tras confirmar registro)
-            if resultado.get("destino") == "opciones" and estado < 4:
+            if resultado.get("destino") == "opciones" and estado_efectivo < 4:
                 resultado["destino"] = "extraccion"
                 resultado["intencion"] = intencion if intencion != "opciones" else "actualizar"
 
-            # Confirmar registro solo con estado = 3 (el servicio pasará a estado 4)
-            if resultado.get("destino") == "confirmar-registro" and estado != 3:
+            # Confirmar registro: permitir solo cuando estado efectivo = 3 (o datos completos). No redirigir a extracción.
+            if resultado.get("destino") == "confirmar-registro" and estado_efectivo != 3 and not datos_completos:
                 resultado["destino"] = "extraccion"
                 resultado["intencion"] = intencion if intencion != "confirmar_registro" else "actualizar"
 

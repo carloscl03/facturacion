@@ -20,12 +20,12 @@ def build_prompt_router(
     opciones_completo (Estado 2) = {opciones_ok}
 
     **Acceso por estado (interpreta el mensaje del usuario, no términos estáticos):**
-    - **Casual:** Solo cuando NO hay registro activo (este caso no aplica si ya tienes estado; si hay registro, nunca clasifiques como casual).
-    - **Actualizar:** Estados 0, 1, 2 y 3. El usuario aporta o modifica datos del comprobante (entidad, productos, montos, tipo doc, moneda, fechas). Interpreta afirmativas o datos implícitos como actualizar cuando el contexto indique que está completando el registro. (Banco/forma de pago se eligen en opciones, estado 4.)
-    - **Confirmar registro:** Solo estado 3. El mensaje expresa confirmación (sí, confirmo, dale, correcto, listo, ok, confirmar). El sistema habrá pedido "¿Confirmar todo para continuar?"; si el usuario responde afirmando, es confirmar_registro. Tras ello se pasa a estado 4.
-    - **Opciones:** Solo desde estado 4. El usuario elige o responde sobre sucursal, forma de pago o medio de pago, o pide la lista. Si estado < 4, no clasificar como opciones.
-    - **Finalizar:** Solo cuando estado >= 4 Y opciones_completo = Sí. El usuario expresa intención de emitir, procesar o finalizar el comprobante (interpreta variantes: "emitir", "procesar", "finalizar", "enviar", "listo para emitir", etc.). Si opciones no están completas, no clasificar como finalizar.
-    - **Resumen / Eliminar / Información:** Sin restricción de estado; clasifica por intención del mensaje.
+    - **Confirmar registro (PRIORIDAD sobre actualizar):** Solo estado 3 (o datos obligatorios completos). Si el mensaje expresa SOLO confirmación en lenguaje natural (sí, confirmo, dale, correcto, listo, ok, confirmar, de acuerdo, va, perfecto, adelante, acepto, vale, está bien, procede, etc.) y NO aporta datos nuevos (no JSON, no montos, no entidad, no productos), clasifica como **confirmar_registro**. El sistema habrá pedido "¿Confirmar todo para continuar?"; la respuesta afirmativa cierra el flujo de actualizar y permite pasar a estado 4 y al menú de opciones. **Nunca clasificar como actualizar** cuando el mensaje es pura confirmación y el registro está listo (estado 3).
+    - **Opciones:** Solo desde estado 4. Tras confirmar, el usuario elige sucursal, forma de pago o medio de pago. Si estado < 4, no clasificar como opciones.
+    - **Actualizar:** Estados 0, 1, 2 y 3. Solo cuando el usuario **aporta o modifica datos** (entidad, productos, montos, tipo doc, moneda, fechas). Si el mensaje es únicamente una afirmación de confirmación (sí, dale, confirmar, etc.) y estado = 3, es confirmar_registro, no actualizar.
+    - **Casual:** Solo cuando NO hay registro activo. Si hay registro, nunca clasifiques como casual.
+    - **Finalizar:** Solo cuando estado >= 4 y opciones_completo = Sí. Intención de emitir/procesar el comprobante.
+    - **Resumen / Eliminar / Información:** Sin restricción de estado.
     """
 
     return f"""
@@ -44,21 +44,22 @@ def build_prompt_router(
     - resumen → Generar-resumen. informacion → Informador. eliminar → Eliminar-operacion.
     
     ### 1. REGLAS DE CLASIFICACIÓN (JERARQUÍA ESTRICTA):
-    Evalúa en este orden. **Interpreta la intención del mensaje**, no solo palabras literales. La primera que coincida gana.
+    Evalúa en este orden. **La confirmación cierra actualizar y abre opciones;** no enrutes confirmación a extracción.
 
     0. MENSAJE CON JSON (prioridad máxima):
        Si el mensaje contiene un JSON válido (objeto o array), clasifica como **actualizar** y destino **extraccion**.
 
-    1. CONFIRMAR REGISTRO (solo si estado = 3):
-       El usuario expresa que confirma o acepta (el sistema habrá mostrado "¿Confirmar todo para continuar?"). Interpreta afirmaciones y variantes: sí, confirmo, dale, correcto, listo, ok, confirmar, de acuerdo, va, etc.
-       Destino: confirmar-registro (el sistema pasará a estado 4 y entrará a opciones).
+    1. CONFIRMAR REGISTRO (solo si estado = 3; prioridad sobre actualizar):
+       Si el mensaje expresa **solo** confirmación/aceptación en lenguaje natural (sí, confirmo, dale, correcto, listo, ok, confirmar, de acuerdo, va, perfecto, adelante, acepto, vale, está bien, procede, confirmado, de una, etc.) y **no** incluye datos nuevos (ni JSON, ni montos, ni RUC, ni productos, ni tipo de documento), clasifica como **confirmar_registro**.
+       La validación de datos completos (estado 3) + intención de confirmar permiten el cambio a estado 4 y al menú de opciones. **No clasificar como actualizar** cuando el mensaje es pura confirmación.
+       Destino: confirmar-registro (el sistema pasará a estado 4; el orquestador enviará luego a opciones).
 
     2. OPCIONES (solo si estado >= 4):
-       El usuario elige o responde sobre sucursal, forma de pago o medio de pago, o pide ver/eligir opciones. Interpreta selecciones y peticiones de lista. Si estado < 4, no clasificar como opciones.
+       El usuario elige o responde sobre sucursal, forma de pago o medio de pago, o pide ver/elegir opciones. Si estado < 4, no clasificar como opciones.
        Destino: opciones.
 
     3. ACTUALIZAR (estados 0, 1, 2, 3):
-       El mensaje aporta o modifica datos del comprobante (entidad, productos, montos, tipo doc, moneda, fechas). Incluye afirmativas en contexto de completar datos. Si estado >= 4 y el mensaje es selección de sucursal/forma/medio de pago → opciones, no actualizar.
+       Solo cuando el usuario **aporta o modifica datos** del comprobante (entidad, productos, montos, tipo doc, moneda, fechas). Si el mensaje es únicamente una afirmación de confirmación (sí, dale, confirmar, etc.) y estado = 3, es confirmar_registro, no actualizar.
        Destino: extraccion.
 
     4. FINALIZAR (solo si estado >= 4 y opciones_completo = Sí):
