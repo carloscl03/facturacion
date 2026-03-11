@@ -125,6 +125,41 @@ El flujo se orquesta desde un **clasificador** que lee el mensaje del usuario y 
 
 - **Finalizar** (`POST /finalizar-operacion`): Comprueba que estén llenos monto, tipo comprobante y cliente/proveedor (ventas). Si falta `entidad_id_maestro` pero hay nombre y documento, intenta registrar la entidad y continuar. Compra: devuelve síntesis; venta: síntesis + PDF (vía API SUNAT). Tras éxito escribe `paso_actual: 4`.
 
+### Campos por agente (Extractor vs Opciones)
+
+**Extractor (Estado 1 — `POST /procesar-extraccion`)**  
+Los siguientes campos los extrae o recibe el extractor y se persisten en Redis/caché:
+
+| Concepto | Campo en caché | Notas |
+|----------|----------------|--------|
+| Operación | `cod_ope` | "ventas" o "compras" |
+| Entidad nombre | `entidad_nombre` | Razón social o nombre del cliente/proveedor |
+| Entidad número (documento) | `entidad_numero_documento` | DNI 8 dígitos, RUC 11 dígitos |
+| Tipo de documento (entidad) | `entidad_id_tipo_documento` | 1=DNI, 6=RUC |
+| Tipo de comprobante | `id_comprobante_tipo` | Factura, Boleta, Nota de venta (según backend) |
+| Número de documento (comprobante) | `numero_documento` | Ej: F001-00005678 (formato SUNAT) |
+| Fecha de emisión | `fecha_emision` | Formato DD-MM-YYYY |
+| Fecha de pago | `fecha_pago` | Formato DD-MM-YYYY |
+| Moneda | `id_moneda` | PEN (1) o USD (2) |
+| Monto total | `monto_total` | |
+| Monto sin IGV | `monto_base` | |
+| IGV | `monto_impuesto` | |
+| Banco / cuenta | `caja_banco` | |
+| id_empresa | (por request) | No lo extrae el extractor; viene del identificador de la sesión |
+| Identificado | `identificado` | Bool; lo fija el identificador cuando encuentra la entidad (entidad_id_maestro, cliente_id, proveedor_id) |
+
+**Opciones (Estado 2 — `POST /opciones`)**  
+Los siguientes campos los define el agente de opciones (listas) y se persisten en Redis:
+
+| Concepto | Campo en caché | Notas |
+|----------|----------------|--------|
+| Sucursal (nombre) | `sucursal_nombre` | Texto mostrado; lista desde `ws_informacion_ia.php` (OBTENER_SUCURSALES) |
+| id sucursal | `id_sucursal` | ID numérico de la sucursal elegida |
+| Forma de pago | `id_forma_pago` | Transferencia, TD, TC, Billetera virtual (IDs según backend) |
+| Medio de pago | `tipo_operacion` | Contado o Crédito |
+
+---
+
 ### Indicador de progreso (`paso_actual`)
 
 | Valor | Significado | Condición |

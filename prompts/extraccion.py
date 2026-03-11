@@ -85,13 +85,14 @@ def build_prompt_extractor(
     El mensaje del usuario **puede contener un JSON** (objeto o array), por ejemplo un documento con muchos datos. Si detectas sintaxis JSON válida, trátalo como prioridad y **presta especial atención a las etiquetas/claves del JSON**: suelen traer gran cantidad de datos; mapea todas las que sean útiles para **llenar la mayor cantidad de campos** y reducir al mínimo las preguntas siguientes.
     1. **Parsea el JSON** e intenta extraer todo lo que sea útil para propuesta_cache.
     2. **Mapea** las claves del JSON a los campos de propuesta_cache según corresponda (nombres pueden variar). Ejemplos de mapeo:
-       - Entidad: "cliente", "cliente_nombre", "razon_social", "proveedor", "entidad_nombre" → entidad_nombre; "ruc", "dni", "numero_documento", "documento" → entidad_numero_documento; "tipo_documento" (6 o "RUC") → entidad_id_tipo_documento (6=RUC, 1=DNI).
+       - Entidad: "cliente", "cliente_nombre", "razon_social", "proveedor", "entidad_nombre" → entidad_nombre; "ruc", "dni", "numero_documento", "documento" → entidad_numero_documento (DNI 8 dígitos, RUC 11 dígitos); "tipo_documento" (6 o "RUC") → entidad_id_tipo_documento (6=RUC, 1=DNI).
        - Operación: "tipo_operacion", "cod_ope", "operacion" ("ventas"/"compras") → cod_ope.
-       - Comprobante: "tipo_comprobante", "comprobante" (1/2/"Factura"/"Boleta") → id_comprobante_tipo (1=Factura, 2=Boleta).
+       - Comprobante: "tipo_comprobante", "comprobante" (1/2/"Factura"/"Boleta"/"Nota de venta") → id_comprobante_tipo (1=Factura, 2=Boleta, etc.); "numero_documento", "serie", "numero", "comprobante_numero" → numero_documento (ej. F001-00005678 según SUNAT).
        - Montos: "total", "monto_total", "monto" → monto_total; "subtotal", "monto_base", "base" → monto_base; "igv", "monto_igv", "impuesto" → monto_impuesto.
        - Productos: "productos", "items", "detalle", "productos_json" → productos_json; cada ítem puede tener "nombre"/"descripcion", "cantidad"/"qty", "precio"/"precio_unitario".
-       - Moneda y pago: "moneda" (1/"PEN"/"Soles" → id_moneda=1; 2/"USD"/"Dolares" → id_moneda=2), "tipo_operacion"/"tipo_pago" → tipo_operacion, "forma_pago" → forma_pago.
-       - Fechas y logística: "fecha_emision", "fecha_pago", "fecha_vencimiento" → mismo nombre; "sucursal", "id_sucursal" → sucursal_nombre/id_sucursal; "centro_costo", "caja_banco" → mismo nombre.
+       - Moneda: "moneda" (1/"PEN"/"Soles" → id_moneda=1; 2/"USD"/"Dolares" → id_moneda=2). Pago: "tipo_operacion"/"tipo_pago" → tipo_operacion (contado/credito).
+       - Fechas: "fecha_emision", "fecha_pago" → formato DD-MM-YYYY.
+       - Logística: "sucursal", "id_sucursal" → sucursal_nombre/id_sucursal; "centro_costo", "caja_banco", "banco" → caja_banco.
     3. **Combina** lo extraído del JSON con cualquier dato que el usuario haya escrito en texto libre; el JSON tiene prioridad.
     4. Si el JSON es inválido o está truncado, extrae todo lo que puedas del fragmento válido e ignora el resto.
     5. Tras procesar un documento JSON, el **diagnóstico** debe listar únicamente los datos que **siguen faltando** en lenguaje natural; por lógica serán menos que antes.
@@ -129,16 +130,18 @@ def build_prompt_extractor(
 
     **Datos obligatorios (generar pregunta si falta):**
     1. **Monto/Detalle:** FALTA si monto_total = 0 y productos_json vacío.
-    2. **Cliente (ventas) o Proveedor (compras):** FALTA si no hay entidad_nombre ni entidad_id_maestro.
-    3. **Tipo de comprobante:** FALTA si id_comprobante_tipo no existe o es 0. No asumir Boleta.
-    4. **Moneda:** FALTA si id_moneda no existe o es 0. No asumir Soles.
-    5. **Tipo de pago:** FALTA si tipo_operacion no es "contado" ni "credito". No asumir Contado.
-    6. **Solo si tipo_operacion = "credito":** FALTA si no hay plazo_dias ni fecha_vencimiento.
-    7. **Fecha emisión** y **Fecha pago** (si aplican); **Cuenta/Caja** (caja_banco) cuando el contexto lo requiera.
+    2. **Cliente (ventas) o Proveedor (compras):** FALTA si no hay entidad_nombre ni entidad_id_maestro. Entidad incluye entidad_numero_documento (DNI 8 dígitos o RUC 11 dígitos).
+    3. **Tipo de comprobante:** FALTA si id_comprobante_tipo no existe o es 0 (Factura, Boleta, Nota de venta). No asumir.
+    4. **Número de documento:** FALTA si numero_documento está vacío (ej. F001-00005678 según SUNAT).
+    5. **Fecha emisión** y **Fecha pago:** FALTA si no están en DD-MM-YYYY cuando el contexto lo requiera.
+    6. **Moneda:** FALTA si id_moneda no existe o es 0 (PEN o USD). No asumir.
+    7. **Tipo de pago (medio de pago):** FALTA si tipo_operacion no es "contado" ni "credito". No asumir. (La forma de pago concreta —transferencia, TD, TC, etc.— se gestiona por otro agente.)
+    8. **Solo si tipo_operacion = "credito":** FALTA si no hay plazo_dias ni fecha_vencimiento.
+    9. **Banco/Caja (caja_banco):** cuando el contexto lo requiera.
 
     **NO generar preguntas ni listar como faltantes:** sucursal (id_sucursal, sucursal_nombre), centro de costo (id_centro_costo, centro_costo_nombre), forma de pago (id_forma_pago, forma_pago). Estos campos se gestionan por otro medio; nunca incluir en diagnostico ni en listado de obligatorios.
 
-    **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad, (3) tipo comprobante, (4) moneda, (5) tipo_operacion, y (6) si es crédito, plazo_dias o fecha_vencimiento. false si falta alguno.
+    **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad (nombre + entidad_numero_documento o entidad_id_maestro), (3) tipo comprobante, (4) numero_documento, (5) fechas si aplican, (6) moneda, (7) tipo_operacion (contado/credito), (8) si es crédito, plazo_dias o fecha_vencimiento, (9) caja_banco si aplica. false si falta alguno.
 
     Si todos los obligatorios están completos, en diagnostico escribe una sola línea invitando a finalizar o a completar datos opcionales.
 
@@ -158,21 +161,21 @@ def build_prompt_extractor(
         "propuesta_cache": {{
             "cod_ope": "ventas o compras o null",
             "entidad_nombre": "...",
-            "entidad_numero_documento": "...",
+            "entidad_numero_documento": "DNI 8 dígitos o RUC 11 dígitos",
             "entidad_id_tipo_documento": int,
-            "id_moneda": int o null,
             "id_comprobante_tipo": int o null,
+            "numero_documento": "ej. F001-00005678 o null",
+            "fecha_emision": "DD-MM-YYYY o null",
+            "fecha_pago": "DD-MM-YYYY o null",
+            "id_moneda": int o null,
             "tipo_operacion": "contado/credito o null",
             "monto_total": float,
             "monto_base": float,
             "monto_impuesto": float,
+            "caja_banco": "banco o cuenta o null",
             "productos_json": [{{ "nombre": str, "cantidad": float, "precio": float }}],
             "id_sucursal": int o null,
-            "sucursal_nombre": str,
-            "centro_costo": str,
-            "forma_pago": str,
-            "caja_banco": str,
-            "fecha_pago": "YYYY-MM-DD"
+            "sucursal_nombre": str
         }},
         "mensaje_entendimiento": "Frase corta que muestre que entendiste al usuario",
         "resumen_visual": "Resumen de lo extraído en ESTE mensaje siguiendo PLANTILLA_RESUMEN_FINAL (solo líneas con datos en propuesta_cache). Cierra con ¿Confirmo registro?",

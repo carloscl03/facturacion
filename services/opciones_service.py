@@ -1,7 +1,11 @@
 """
-Agente Estado 2: opciones múltiples (sucursal, forma de pago, método de pago).
-Solo actúa cuando no hay datos pendientes del Estado 1 (paso_actual >= 3 / listo para finalizar).
-Persiste en Redis (cache) id_sucursal, sucursal_nombre, id_forma_pago, tipo_operacion.
+Agente Estado 2: opciones múltiples. Solo actúa cuando paso_actual >= 3 (Estado 1 completo).
+
+Campos que define y persiste en Redis (cache):
+  - sucursal      → sucursal_nombre (texto)
+  - id_sucursal   → id numérico de sucursal (lista desde ws_informacion_ia OBTENER_SUCURSALES)
+  - forma de pago → id_forma_pago (transferencia, TD, TC, billetera virtual)
+  - medio de pago → tipo_operacion ("contado" | "credito")
 """
 from __future__ import annotations
 

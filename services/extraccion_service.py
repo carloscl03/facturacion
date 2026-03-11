@@ -115,6 +115,9 @@ class ExtraccionService:
                     val = campos_entidad.get(key)
                     if val is not None and val != "":
                         payload_db[key] = val
+                payload_db["identificado"] = True
+            else:
+                payload_db["identificado"] = False
 
         # --- Calcular paso_actual ---
         paso = self._calcular_paso(payload_db)
@@ -179,10 +182,11 @@ class ExtraccionService:
         tiene_monto = float(datos.get("monto_total") or 0) > 0
         tiene_entidad = bool(datos.get("entidad_nombre")) or bool(datos.get("entidad_id_maestro"))
         tiene_comprobante = bool(datos.get("id_comprobante_tipo"))
+        tiene_numero_doc = bool((datos.get("numero_documento") or "").strip())
         tiene_moneda = bool(datos.get("id_moneda"))
         tiene_pago = (datos.get("tipo_operacion") or "") in ("contado", "credito")
 
-        obligatorios = [tiene_monto, tiene_entidad, tiene_comprobante, tiene_moneda, tiene_pago]
+        obligatorios = [tiene_monto, tiene_entidad, tiene_comprobante, tiene_numero_doc, tiene_moneda, tiene_pago]
         if all(obligatorios):
             return 3
         if any(obligatorios):
@@ -223,12 +227,16 @@ class ExtraccionService:
             "entidad_nombre": obtener("entidad_nombre", ""),
             "entidad_numero_documento": obtener("entidad_numero_documento", ""),
             "entidad_id_tipo_documento": propuesta.get("entidad_id_tipo_documento") or estado_actual.get("entidad_id_tipo_documento"),
-            "id_moneda": obtener("id_moneda", None),
             "id_comprobante_tipo": obtener("id_comprobante_tipo", None),
+            "numero_documento": obtener("numero_documento", "") or estado_actual.get("numero_documento"),
+            "fecha_emision": obtener("fecha_emision", "") or estado_actual.get("fecha_emision"),
+            "fecha_pago": obtener("fecha_pago", "") or estado_actual.get("fecha_pago"),
+            "id_moneda": obtener("id_moneda", None),
             "tipo_operacion": obtener("tipo_operacion", None),
             "monto_total": float(propuesta.get("monto_total") or estado_actual.get("monto_total") or 0),
             "monto_base": float(propuesta.get("monto_base") or estado_actual.get("monto_base") or 0),
             "monto_impuesto": float(propuesta.get("monto_impuesto") or estado_actual.get("monto_impuesto") or 0),
+            "caja_banco": obtener("caja_banco", "") or estado_actual.get("caja_banco"),
             "productos_json": productos_str,
             "id_sucursal": propuesta.get("id_sucursal") or estado_actual.get("id_sucursal"),
             "sucursal_nombre": obtener("sucursal_nombre", "") or obtener("sucursal", ""),
