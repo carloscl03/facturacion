@@ -10,7 +10,7 @@ Lee campos con nombres naturales desde Redis y los traduce a los IDs que espera 
 - entidad_numero → inferir tipo: len 8 = DNI (1), len 11 = RUC (6)
 - monto_sin_igv → monto_base, igv → monto_impuesto
 - fecha_emision / fecha_pago DD-MM-YYYY → YYYY-MM-DD
-- banco → id_caja_banco (texto libre por ahora)
+- forma_pago → id_forma_pago (banco o billetera elegidos en opciones; legacy: transferencia/td/tc/billetera_virtual)
 - entidad_id → id_cliente
 """
 import json
@@ -49,6 +49,8 @@ FORMA_PAGO_MAP = {
     "td": 2,
     "tc": 3,
     "billetera_virtual": 4,
+    "yape": 4,
+    "plin": 4,
 }
 
 
@@ -115,8 +117,9 @@ def _construir_sintesis_actual(reg: dict) -> str:
         lineas.append(f"💵 *Moneda:* {moneda_str}")
     if (reg.get("fecha_emision") or "").strip():
         lineas.append(f"📅 *Emisión:* {reg.get('fecha_emision')}")
-    if (reg.get("banco") or "").strip():
-        lineas.append(f"🏦 *Banco:* {reg.get('banco')}")
+    forma_pago_val = (reg.get("forma_pago") or "").strip()
+    if forma_pago_val:
+        lineas.append(f"🏦 *Forma de pago:* {forma_pago_val}")
 
     lineas.append("━━━━━━━━━━━━━━━━━━━━")
     return "\n".join(lineas)
@@ -151,7 +154,11 @@ class FinalizarService:
         tipo_venta = medio_pago.capitalize() if medio_pago in ("contado", "credito") else None
 
         forma_pago_str = (reg.get("forma_pago") or "").strip().lower()
-        id_forma_pago = FORMA_PAGO_MAP.get(forma_pago_str, 9)
+        # forma_pago puede ser un ID numérico del banco (API OBTENER_METODOS_PAGO) o un nombre legacy
+        try:
+            id_forma_pago = int(forma_pago_str)
+        except (TypeError, ValueError):
+            id_forma_pago = FORMA_PAGO_MAP.get(forma_pago_str, 9)
 
         monto_total = float(reg.get("monto_total") or 0)
         monto_base = float(reg.get("monto_sin_igv") or 0)

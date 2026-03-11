@@ -27,10 +27,10 @@ El registro en caché (Redis/API PHP) tiene un campo numérico **`estado`** (0 a
 
 | Origen | Valor | Archivo |
 |--------|--------|---------|
-| **IniciarService** | 0 | `iniciar_service.py`: al insertar registro con `operacion` (venta/compra). |
+| **IniciarService** | 1 | `iniciar_service.py`: al insertar registro con `operacion` (venta/compra); ya tiene tipo definido. |
 | **ExtraccionService** | 0, 1, 2 o 3 | `extraccion_service.py`: `_calcular_estado(payload_db)`; **no pisa 4** (si ya es 4, lo mantiene). |
-| **ConfirmarRegistroService** | 4 | `confirmar_registro_service.py`: solo si `estado == 3`; actualiza a 4. |
-| **ClasificadorService** | 4 | `clasificador_service.py`: si destino = confirmar-registro y estado = 3, actualiza a 4 en Redis (además del propio confirmar-registro). |
+| **ConfirmarRegistroService** | 4 | `confirmar_registro_service.py`: solo si `estado == 3`; actualiza a 4. Única fuente de verdad para la transición 3→4. |
+| **ClasificadorService** | — | `clasificador_service.py`: solo clasifica y enruta; no muta el estado. |
 | **FinalizarService** | 4 | `finalizar_service.py`: tras éxito de emisión, actualiza registro con `estado: 4`. |
 
 ---
@@ -88,5 +88,5 @@ Definido en `clasificador_service._opciones_completo`.
 
 1. **Campo en caché**: el nombre usado en el código es **`estado`** (numérico). En documentación antigua puede aparecer **`paso_actual`** (por ejemplo en `analizador_service` o README); el flujo principal usa `estado`.
 2. **Config/estados.py**: está marcado como DEPRECATED; define constantes de texto (ej. `PENDIENTE_CONFIRMACION`). El flujo actual no depende de ellas; usa solo el entero 0–4.
-3. **Opciones y estado 3**: `OpcionesService.get_next` acepta registro con **estado ≥ 3**. El **clasificador** solo envía a opciones cuando **estado ≥ 4**. En la práctica el usuario llega a opciones tras confirmar (3→4); si alguien llamara POST /opciones con estado 3, el servicio sí devolvería la primera lista.
+3. **Opciones y estado 4**: `OpcionesService.get_next` exige **estado ≥ 4** (coherente con el clasificador que solo envía a opciones cuando estado ≥ 4). Ambos guards están alineados.
 4. **Protección del 4 en extracción**: si el registro ya está en estado 4, `ExtraccionService` no lo baja; usa `estado_calculado` solo cuando `estado_actual.get("estado") != 4`.

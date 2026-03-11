@@ -1,6 +1,6 @@
 """
 Agente Estado 2: opciones múltiples (sucursal, forma de pago, medio de pago).
-Solo actúa cuando Estado 1 está completo (estado >= 3).
+Solo actúa cuando el registro está confirmado (estado >= 4).
 Persiste en Redis: id_sucursal, sucursal, forma_pago (str), medio_pago (str).
 
 Convención: id_from = id_informacion (API de información: sucursales, métodos de pago).
@@ -45,10 +45,10 @@ class OpcionesService:
                 "payload_whatsapp_list": None,
             }
         estado = int(registro.get("estado") or 0)
-        if estado < 3:
+        if estado < 4:
             return {
                 "listo_estado1": False,
-                "mensaje": "Faltan datos obligatorios del registro. Complete Estado 1 antes de elegir sucursal y forma de pago.",
+                "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir sucursal y forma de pago.",
                 "payload_whatsapp_list": None,
             }
 

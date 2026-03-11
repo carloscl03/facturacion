@@ -21,7 +21,7 @@ class IniciarService:
         try:
             res = self._repo.insertar(wa_id, id_from, {
                 "operacion": operacion,
-                "estado": 0,
+                "estado": 1,
             })
 
             if isinstance(res, dict) and res.get("status_code", 200) != 200:
