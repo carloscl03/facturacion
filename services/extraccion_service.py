@@ -100,8 +100,13 @@ class ExtraccionService:
                     payload_db["entidad_id"] = maestro
                     payload_db["identificado"] = True
 
-        # --- Calcular estado ---
-        estado = self._calcular_estado(payload_db)
+        # --- Calcular estado (una sola asignación; no sobrescribir estado 4) ---
+        estado_calculado = self._calcular_estado(payload_db)
+        # Estado 4 solo lo pone confirmar_registro; extracción no debe pisarlo
+        if estado_actual.get("estado") == 4:
+            estado = 4
+        else:
+            estado = estado_calculado
         payload_db["estado"] = estado
 
         # --- ultima_pregunta como keyword ---

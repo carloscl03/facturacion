@@ -95,6 +95,12 @@ class ClasificadorService:
                 resultado["destino"] = "generar-resumen"
                 resultado["intencion"] = "resumen"
 
+            # Con registro activo es imposible ir a casual (solo sin registro se usa POST /casual)
+            if registro is not None and resultado.get("destino") == "casual":
+                resultado["destino"] = "extraccion"
+                resultado["intencion"] = "actualizar"
+                resultado["necesita_extraccion"] = True
+
             return resultado
 
         except Exception as e:
