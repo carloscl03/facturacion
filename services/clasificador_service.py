@@ -18,7 +18,7 @@ def _obtener_estado(registro: dict | None) -> int:
     if not registro:
         return 0
     try:
-        v = registro.get("estado")
+        v = registro.get("estado") or registro.get("paso_actual")  # paso_actual por compatibilidad
         if v is None or v == "":
             return 0
         return int(v)
@@ -69,6 +69,7 @@ class ClasificadorService:
                 operacion = "venta" if op == "ventas" else "compra" if op == "compras" else (op if op in ("venta", "compra") else None)
             except Exception:
                 registro = None
+                estado = 0
 
         opciones_completo = _opciones_completo(registro) if registro else False
 
