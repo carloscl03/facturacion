@@ -45,7 +45,9 @@ class ConfirmarRegistroService:
                 "estado": estado,
             }
         try:
-            self._repo.actualizar(wa_id, id_from, {"estado": 4})
+            # Escribir registro completo con estado 4 para que Redis/API persistan correctamente.
+            payload = {**registro, "estado": 4}
+            self._repo.actualizar(wa_id, id_from, payload)
         except Exception as e:
             return {
                 "success": False,
