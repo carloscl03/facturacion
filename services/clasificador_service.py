@@ -13,9 +13,16 @@ from services.ai_service import AIService
 
 
 def _obtener_estado(registro: dict | None) -> int:
+    """Lee estado del registro en Redis/caché. 0 si no hay registro o no viene el campo."""
     if not registro:
         return 0
-    return int(registro.get("estado") or 0)
+    try:
+        v = registro.get("estado")
+        if v is None or v == "":
+            return 0
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _opciones_completo(registro: dict | None) -> bool:
@@ -44,6 +51,7 @@ class ClasificadorService:
                 registro = self._repo.consultar(wa_id, id_from)
                 if not registro:
                     return {
+                        "estado": 0,
                         "intencion": "casual",
                         "destino": "casual",
                         "op_visible": "no definido",
@@ -113,6 +121,7 @@ class ClasificadorService:
             necesidad_extraccion = intencion == "actualizar"
 
             return {
+                "estado": estado,
                 "intencion": intencion,
                 "destino": destino,
                 "op_visible": op_visible,
