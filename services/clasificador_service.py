@@ -100,14 +100,15 @@ class ClasificadorService:
                 destino = "generar-resumen"
                 intencion = "resumen"
 
-            # Con registro activo no ir a casual
-            if registro is not None and destino == "casual":
+            # Candado: casual solo en estado 0 (sin registro). A partir de estado >= 1 no se permite casual.
+            if estado >= 1 and (intencion == "casual" or destino == "casual"):
                 destino = "extraccion"
                 intencion = "actualizar"
 
-            # Cuando siguiente_estado = true (estado 3 + confirmación), destino = confirmar-registro para cambiar 3→4
+            # Cuando siguiente_estado = true (estado 3 + confirmación): destino = confirmar-registro (3→4) e intención = opciones
             if siguiente_estado and estado == 3:
                 destino = "confirmar-registro"
+                intencion = "opciones"  # El registro se manda con intención de opciones; a partir de ahora actualizar = opciones
 
             necesidad_extraccion = intencion == "actualizar"
 
