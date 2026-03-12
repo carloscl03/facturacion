@@ -47,7 +47,7 @@ Al confirmar → estado 4 → opciones (sucursal, forma_pago, medio_pago).
 
 | Consumidor | Uso |
 |------------|-----|
-| **ClasificadorService** | `_obtener_estado(registro)`. Sin registro → casual. Con registro: estado + `opciones_completo` para forzar destino: opciones solo si estado ≥ 4; confirmar-registro solo si estado = 3; finalizar solo si estado ≥ 4 y opciones completas. |
+| **ClasificadorService** | Lee estado de Redis con `_obtener_estado(registro)`; el return del nodo incluye ese **estado** (leído de Redis; 0 si no hay registro). **Casual** solo cuando no hay registro; con registro nunca devuelve casual. Con registro: estado + `opciones_completo` para forzar destino (opciones si estado ≥ 4; confirmar-registro si estado = 3; finalizar si estado ≥ 4 y opciones completas). |
 | **OpcionesService** | `estado = int(registro.get("estado") or 0)`. Si estado < 3 → no muestra listas (listo_estado1 = False). Si ≥ 3 → devuelve siguiente lista (sucursal / forma_pago / medio_pago). |
 | **ConfirmarRegistroService** | Solo ejecuta la transición 3→4 si `estado == 3`. |
 

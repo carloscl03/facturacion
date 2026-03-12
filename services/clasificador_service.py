@@ -1,6 +1,7 @@
 """
 Clasificador: mensaje + estado Redis entran a la IA.
-Salidas: (1) intencion (prioridad actualizar|opciones|resumen|finalizar|casual|eliminar), (2) siguiente_estado (bool 3→4).
+- Casual: accesible únicamente cuando no hay registro en Redis; si hay registro, nunca se devuelve casual.
+- Salidas: intencion, siguiente_estado (bool 3→4), y estado (leído directamente de Redis; 0 si no hay registro).
 Actualizar solo cuando estado < 3; estado >= 4 → opciones. Finalizar reutiliza la lógica con otros estados.
 """
 from __future__ import annotations
@@ -49,9 +50,10 @@ class ClasificadorService:
         if wa_id is not None and id_from is not None:
             try:
                 registro = self._repo.consultar(wa_id, id_from)
+                # Sin registro en Redis → casual (único caso en que se devuelve casual). estado = 0.
                 if not registro:
                     return {
-                        "estado": 0,
+                        "estado": 0,  # leído de Redis (no hay registro → 0)
                         "intencion": "casual",
                         "destino": "casual",
                         "op_visible": "no definido",
@@ -108,8 +110,8 @@ class ClasificadorService:
                 destino = "generar-resumen"
                 intencion = "resumen"
 
-            # Candado: casual solo en estado 0 (sin registro). A partir de estado >= 1 no se permite casual.
-            if estado >= 1 and (intencion == "casual" or destino == "casual"):
+            # Candado: casual solo cuando no hay registro. Si hay registro en Redis, nunca devolver casual.
+            if registro is not None and (intencion == "casual" or destino == "casual"):
                 destino = "extraccion"
                 intencion = "actualizar"
 
@@ -120,6 +122,7 @@ class ClasificadorService:
 
             necesidad_extraccion = intencion == "actualizar"
 
+            # estado es el leído directamente de Redis en _obtener_estado(registro)
             return {
                 "estado": estado,
                 "intencion": intencion,

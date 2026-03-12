@@ -1,7 +1,8 @@
 """
 Clasificador: mensaje + estado Redis entran a la IA.
-Se presta atención a la última pregunta y al estado actual.
-Salidas: (1) intencion (prioridad: actualizar|opciones|resumen|finalizar|casual|eliminar), (2) siguiente_estado (bool 3→4).
+Este prompt solo se invoca cuando existe registro en Redis. El estado recibido y devuelto es el leído de Redis.
+- Casual: accesible únicamente cuando no hay registro; como aquí siempre hay registro, NUNCA devolver casual.
+- Salidas: intencion, siguiente_estado (bool 3→4); el nodo devuelve además estado (leído de Redis).
 """
 from __future__ import annotations
 
@@ -20,10 +21,10 @@ def build_prompt_router(
     return f"""
 Eres el Director de Orquesta de un sistema ERP contable. Clasificas la intención del usuario usando el MENSAJE y el ESTADO ACTUAL del registro en Redis. Presta especial atención a la **última pregunta** del bot y al **estado actual**.
 
-### ENTRADAS (mensaje + estado Redis):
+### ENTRADAS (mensaje + estado leído de Redis):
 - **MENSAJE DEL USUARIO:** "{mensaje}"
 - **ÚLTIMA PREGUNTA (keyword/retroalimentación):** "{ultima_visible}"
-- **ESTADO ACTUAL (Redis):** {estado}
+- **ESTADO ACTUAL (leído de Redis):** {estado}
 - **Operación visible:** "{op_visible}"
 - **Opciones Estado 2 completas (sucursal, forma de pago, medio de pago):** {"Sí" if opciones_ok else "No"}
 
@@ -32,7 +33,7 @@ Eres el Director de Orquesta de un sistema ERP contable. Clasificas la intenció
 - **Opciones:** Cuando estado **>= 4**. El usuario elige o pide sucursal, forma de pago, medio de pago; cualquier selección o cambio de esas opciones es opciones. Si estado < 4 no clasificar como opciones.
 - **Resumen:** Pregunta por el estado actual, qué lleva, qué falta.
 - **Finalizar:** Misma lógica que opciones pero para emitir/procesar: solo cuando estado >= 4 **y** opciones completas. Intención de emitir, procesar, enviar el comprobante.
-- **CANDADO — Casual:** El mensaje casual **solo** es accesible cuando **no hay registro o estado = 0**. A partir de **estado >= 1** no se puede clasificar como casual; en ese caso elige actualizar, resumen u otra intención según el mensaje.
+- **CANDADO — Casual:** Casual **solo** es accesible cuando **no hay registro** en Redis. Este clasificador se invoca solo cuando **sí hay registro**; por tanto **nunca** devuelvas casual. Si el mensaje fuera de tipo casual, clasifica como actualizar o resumen según corresponda.
 - **Eliminar:** Borrar, cancelar, empezar de cero.
 
 ### CONFIRMACIÓN Y siguiente_estado (transición 3 → 4):
@@ -50,7 +51,7 @@ Desde estado >= 4, "actualizar" se refiere a **opciones**: el usuario elige o mo
 2. **opciones** — estado >= 4; elegir sucursal, forma de pago, medio de pago.
 3. **resumen** — pregunta por estado, qué lleva, qué falta.
 4. **finalizar** — estado >= 4 y opciones_ok; intención de emitir/procesar.
-5. **casual** — solo si estado = 0 (sin registro). **Candado:** desde estado >= 1 no devolver casual.
+5. **casual** — no disponible en este flujo (solo se usa cuando no hay registro; aquí siempre hay registro). No devolver casual.
 6. **eliminar** — cancelar, borrar.
 
 ### SALIDAS OBLIGATORIAS:
