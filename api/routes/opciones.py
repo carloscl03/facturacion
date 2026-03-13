@@ -54,7 +54,7 @@ async def opciones(
     Modo SUBMIT (action=submit):
       - campo + valor/mensaje (valor = id o mensaje con el nombre de la opción).
       - Origen del valor: query 'valor' → body valor → query 'mensaje' → body mensaje.
-      - Matchea por nombre (exacto, substring, IA) y devuelve texto_lista_siguiente.
+      - Matchea por nombre (exacto, substring, IA) y devuelve texto_lista y mensaje.
     """
     # DEBUG: traza de entrada a /opciones
     print(
