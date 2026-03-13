@@ -54,18 +54,36 @@ def _buscar_opcion_por_substring(mensaje: str, opciones: list[dict]) -> tuple:
     return (None, None)
 
 
+def _parse_opciones_actuales(raw: Any) -> list[dict]:
+    """Convierte opciones_actuales (puede venir como str desde Redis) en lista de dicts."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, list) else []
+        except (TypeError, json.JSONDecodeError):
+            return []
+    return []
+
+
 def _build_prompt_resolver_opcion(mensaje: str, opciones: list[dict]) -> str:
-    """Prompt: opciones_actuales + mensaje → la IA devuelve el id de la opción elegida."""
+    """Envía opciones_actuales + mensaje a la IA; la IA devuelve solo un id en JSON."""
     lista_txt = json.dumps([{"id": o.get("id"), "nombre": o.get("nombre") or o.get("title")} for o in opciones], ensure_ascii=False)
-    return f"""Tienes una lista de opciones y el mensaje del usuario. Devuelve el "id" de la opción a la que se refiere el usuario.
+    return f"""Tienes esta lista de opciones (cada una con "id" y "nombre") y el mensaje del usuario. El usuario está eligiendo UNA opción de la lista.
 
 Lista de opciones:
 {lista_txt}
 
 Mensaje del usuario: "{mensaje}"
 
-Identifica la opción (por nombre, sinónimo, parte del nombre o typo leve). Si no corresponde a ninguna, devuelve null.
-Responde SOLO un JSON válido: {{ "id": <id de la opción o null> }}"""
+Devuelve el "id" numérico (o el id tal cual si es texto como "yape") de la opción a la que se refiere el usuario. Si el mensaje no corresponde a ninguna opción, devuelve null.
+
+Responde ÚNICAMENTE con un JSON de una sola clave "id". Ejemplos:
+- Si eligió la primera: {{"id": 29}}
+- Si no hay coincidencia: {{"id": null}}"""
 
 
 class OpcionesService:
@@ -166,14 +184,7 @@ class OpcionesService:
 
         valor_id = valor
         valor_nombre = None
-        opciones_actuales = registro.get(OPCIONES_ACTUALES_KEY)
-        if isinstance(opciones_actuales, str):
-            try:
-                opciones_actuales = json.loads(opciones_actuales)
-            except (TypeError, json.JSONDecodeError):
-                opciones_actuales = []
-        if not isinstance(opciones_actuales, list):
-            opciones_actuales = []
+        opciones_actuales = _parse_opciones_actuales(registro.get(OPCIONES_ACTUALES_KEY))
 
         if isinstance(valor, str) and opciones_actuales:
             for op in opciones_actuales:
