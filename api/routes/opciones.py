@@ -1,8 +1,7 @@
 """
-Estado 2: agente de opciones (centro de costo, sucursal, forma de pago, medio de pago).
-Alineado con test_opciones.py: id_empresa para tablas y/o id_whatsapp; id_empresa_tablas opcional.
-
-Query: wa_id, id_from (cache), id_empresa (id_whatsapp para lista), phone, id_empresa_tablas (opcional, para jalar tablas).
+Estado 2: opciones (sucursal → centro de costo → método de pago).
+Solo aplica con estado >= 4. Opciones se devuelven como texto_lista; el usuario responde con el nombre y se matchea por opciones_actuales en Redis.
+Alineado con test_opciones.py: id_empresa_tablas para jalar sucursales/métodos.
 """
 from __future__ import annotations
 
@@ -28,28 +27,30 @@ class OpcionesBody(BaseModel):
 async def opciones(
     wa_id: str,
     id_from: int,
-    id_empresa: int,
-    phone: str = "",
     id_empresa_tablas: int | None = None,
+    id_empresa: int | None = None,
+    phone: str = "",
     body: OpcionesBody | None = Body(None),
     cache: CacheRepository = Depends(get_cache_repo),
     informacion: InformacionRepository = Depends(get_informacion_repo),
     parametros: ParametrosRepository = Depends(get_parametros_repo),
 ):
     """
-    Estado 2: opciones. Solo aplica con estado >= 4.
-
-    Query: wa_id, id_from (cache), id_empresa (id_whatsapp, payload lista), phone, id_empresa_tablas (opcional; si no se pasa, se usa id_empresa para jalar sucursales/métodos).
-    Body: { "action": "get" } o { "action": "submit", "campo": "centro_costo"|"sucursal"|"forma_pago"|"medio_pago", "valor": id o clave }.
+    Query: wa_id, id_from (cache), id_empresa_tablas (para sucursales/métodos; si no, se usa id_empresa o id_from).
+    Body get: devuelve texto_lista y persiste opciones_actuales en Redis.
+    Body submit: campo + valor (valor = id o mensaje con el nombre de la opción); matchea por nombre y devuelve texto_lista_siguiente.
     """
     b = body or OpcionesBody()
     action = (b.action or "get").strip().lower()
     campo = b.campo
     valor = b.valor
+    id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_empresa
 
     service = OpcionesService(cache, informacion, parametros)
     if action == "submit":
-        if campo is None or valor is None:
-            return {"success": False, "mensaje": "Se requieren campo y valor para action=submit."}
-        return service.submit(wa_id, id_from, campo, valor)
-    return service.get_next(wa_id, id_from, phone or wa_id, id_empresa, id_empresa_tablas)
+        if campo is None:
+            return {"success": False, "mensaje": "Se requiere campo para action=submit."}
+        if valor is None and campo:
+            return {"success": False, "mensaje": "Se requiere valor (id o texto con el nombre de la opción)."}
+        return service.submit(wa_id, id_from, campo, valor, id_empresa_tablas=id_tablas)
+    return service.get_next(wa_id, id_from, id_empresa_tablas=id_tablas, id_empresa=id_empresa, phone=phone or wa_id)

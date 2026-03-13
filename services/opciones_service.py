@@ -1,31 +1,31 @@
 """
-Agente Estado 2: opciones múltiples (centro de costo, sucursal, forma de pago, medio de pago).
+Agente Estado 2: opciones (sucursal → centro de costo → método de pago).
 Solo actúa cuando el registro está confirmado (estado >= 4).
-Persiste en Redis: id_centro_costo, centro_costo, id_sucursal, sucursal, forma_pago, medio_pago.
-
-Alineado con test_opciones.py:
-- Centros de costo: GET ws_parametros OBTENER_TABLAS_MAESTRAS (wa_id).
-- Sucursales / Métodos de pago: POST ws_informacion_ia con id_empresa (tablas).
-- Envío lista WhatsApp: id_empresa = id_whatsapp (credenciales). Filas: title ≤24, description ≤72.
+Opciones se presentan como lista de texto; el usuario responde con el nombre y se guarda el id.
+Se guarda en Redis un diccionario temporal opciones_actuales (id + nombre) para matchear el mensaje.
+Orden: sucursal → centro_costo → forma_pago → medio_pago (alineado con test_opciones.py).
 """
 from __future__ import annotations
+
+import json
 
 from repositories.base import CacheRepository
 from repositories.informacion_repository import InformacionRepository
 from repositories.parametros_repository import ParametrosRepository
 
-# Orden del flujo Estado 2 (como en test_opciones: centros, sucursales, métodos de pago, luego medio)
-CAMPOS_ESTADO2 = ("centro_costo", "sucursal", "forma_pago", "medio_pago")
+# Orden: primero sucursal, luego centro de costo, por último método de pago (forma + medio)
+CAMPOS_ESTADO2 = ("sucursal", "centro_costo", "forma_pago", "medio_pago")
 
-# Límites WhatsApp list message (test_opciones.py)
-MAX_ROW_TITLE = 24
-MAX_ROW_DESC = 72
+# Clave en Redis para el diccionario temporal de opciones mostradas (matchear mensaje → id)
+OPCIONES_ACTUALES_KEY = "opciones_actuales"
 
 
-def _truncar(s: str, max_len: int) -> str:
-    if not s or max_len <= 0:
-        return (s or "")[:max_len] if max_len > 0 else ""
-    return s[:max_len] if len(s) <= max_len else s[: max_len - 1].rstrip() + "…"
+def _normalizar_texto(s: str) -> str:
+    return (s or "").strip().lower()
+
+
+def _coincide_nombre(mensaje: str, nombre: str) -> bool:
+    return _normalizar_texto(mensaje) == _normalizar_texto(nombre)
 
 
 class OpcionesService:
@@ -43,26 +43,30 @@ class OpcionesService:
         self,
         wa_id: str,
         id_from: int,
-        phone: str,
-        id_empresa: int,
         id_empresa_tablas: int | None = None,
+        id_empresa: int | None = None,
+        phone: str = "",
     ) -> dict:
         """
-        id_from = contexto/cache. id_empresa = id_whatsapp (payload lista WhatsApp).
-        id_empresa_tablas = empresa para jalar sucursales/métodos (si None, se usa id_empresa).
+        Devuelve la siguiente lista de opciones en texto (no API WhatsApp).
+        Persiste en Redis opciones_actuales = [{id, nombre}, ...] para matchear después.
         """
         registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         if not registro:
             return {
                 "listo_estado1": False,
                 "mensaje": "No hay registro activo. Complete primero el registro (Estado 1).",
+                "texto_lista": None,
+                "campo_pendiente": None,
                 "payload_whatsapp_list": None,
             }
         estado = int(registro.get("estado") or 0)
         if estado < 4:
             return {
                 "listo_estado1": False,
-                "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir centro de costo, sucursal y forma de pago.",
+                "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir sucursal, centro de costo y método de pago.",
+                "texto_lista": None,
+                "campo_pendiente": None,
                 "payload_whatsapp_list": None,
             }
 
@@ -72,25 +76,43 @@ class OpcionesService:
                 "listo_estado1": True,
                 "estado2_completo": True,
                 "campo_pendiente": None,
+                "texto_lista": None,
+                "opciones_actuales": None,
                 "payload_whatsapp_list": None,
             }
 
-        id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_empresa
-        payload_list = self._construir_payload_lista(
-            campo=campo,
-            wa_id=wa_id,
-            id_empresa=id_empresa,
-            id_empresa_tablas=id_tablas,
-            phone=phone or wa_id,
-        )
+        id_tablas = id_empresa_tablas if id_empresa_tablas is not None else (id_empresa or id_from)
+        opciones_raw = self._obtener_lista_opciones(campo, wa_id, id_tablas)
+        opciones_actuales = self._lista_para_redis(campo, opciones_raw)
+        texto_lista = self._formatear_texto_lista(opciones_actuales)
+
+        try:
+            self._cache.actualizar(wa_id, id_from, {OPCIONES_ACTUALES_KEY: opciones_actuales})
+        except Exception:
+            pass
+
         return {
             "listo_estado1": True,
             "estado2_completo": False,
             "campo_pendiente": campo,
-            "payload_whatsapp_list": payload_list,
+            "texto_lista": texto_lista,
+            "opciones_actuales": opciones_actuales,
+            "payload_whatsapp_list": None,
         }
 
-    def submit(self, wa_id: str, id_from: int, campo: str, valor) -> dict:
+    def submit(
+        self,
+        wa_id: str,
+        id_from: int,
+        campo: str,
+        valor,
+        id_empresa_tablas: int | None = None,
+    ) -> dict:
+        """
+        valor puede ser el id (número) o el mensaje del usuario (nombre de la opción).
+        Si es texto, se matchea con opciones_actuales en Redis y se guarda el id.
+        Tras guardar, se devuelve el siguiente grupo (texto_lista) para desplegar de inmediato.
+        """
         if campo not in CAMPOS_ESTADO2:
             return {"success": False, "mensaje": f"Campo no válido: {campo}"}
 
@@ -98,55 +120,89 @@ class OpcionesService:
         if not registro:
             return {"success": False, "mensaje": "No hay registro activo."}
 
+        valor_id = valor
+        valor_nombre = None
+        opciones_actuales = registro.get(OPCIONES_ACTUALES_KEY)
+        if isinstance(opciones_actuales, str):
+            try:
+                opciones_actuales = json.loads(opciones_actuales)
+            except (TypeError, json.JSONDecodeError):
+                opciones_actuales = []
+        if not isinstance(opciones_actuales, list):
+            opciones_actuales = []
+
+        if isinstance(valor, str) and opciones_actuales:
+            for op in opciones_actuales:
+                nom = op.get("nombre") or op.get("title") or ""
+                if _coincide_nombre(valor, nom):
+                    valor_id = op.get("id")
+                    valor_nombre = nom
+                    break
+            else:
+                try:
+                    valor_id = int(valor)
+                except (TypeError, ValueError):
+                    return {"success": False, "mensaje": f"No se reconoce la opción '{valor}'. Escriba exactamente el nombre de la lista."}
+
         datos = {}
-        if campo == "centro_costo":
+        id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_from
+        if campo == "sucursal":
             try:
-                id_cc = int(valor)
-                datos["id_centro_costo"] = id_cc
-                centros = []
-                if self._parametros:
-                    centros = self._parametros.obtener_centros_costo(wa_id)
-                nombre = next((c.get("nombre") or str(c.get("id")) for c in centros if c.get("id") == id_cc), str(valor))
-                datos["centro_costo"] = nombre
-            except (TypeError, ValueError):
-                return {"success": False, "mensaje": "Valor de centro de costo debe ser un ID numérico."}
-        elif campo == "sucursal":
-            try:
-                id_suc = int(valor)
+                id_suc = int(valor_id)
                 datos["id_sucursal"] = id_suc
-                lista_suc = self._informacion.obtener_sucursales(id_from)
-                nombre = next((s["nombre"] for s in lista_suc if s.get("id") == id_suc), str(valor))
+                lista_suc = self._informacion.obtener_sucursales(id_tablas)
+                nombre = valor_nombre or next((s.get("nombre") or str(s.get("id")) for s in lista_suc if s.get("id") == id_suc), str(valor_id))
                 datos["sucursal"] = nombre
             except (TypeError, ValueError):
-                return {"success": False, "mensaje": "Valor de sucursal debe ser un ID numérico."}
+                return {"success": False, "mensaje": "Valor de sucursal no válido."}
+        elif campo == "centro_costo":
+            try:
+                id_cc = int(valor_id)
+                datos["id_centro_costo"] = id_cc
+                centros = self._parametros.obtener_centros_costo(wa_id) if self._parametros else []
+                nombre = valor_nombre or next((c.get("nombre") or str(c.get("id")) for c in centros if c.get("id") == id_cc), str(valor_id))
+                datos["centro_costo"] = nombre
+            except (TypeError, ValueError):
+                return {"success": False, "mensaje": "Valor de centro de costo no válido."}
         elif campo == "forma_pago":
-            v = (str(valor) or "").strip()
+            v = (str(valor_id) or str(valor) or "").strip()
             if not v:
                 return {"success": False, "mensaje": "Valor de forma de pago vacío."}
             datos["forma_pago"] = v
         elif campo == "medio_pago":
-            v = (str(valor) or "").strip().lower()
+            v = (str(valor_id) or str(valor) or "").strip().lower()
             if v not in ("contado", "credito"):
-                return {"success": False, "mensaje": "Valor debe ser contado o credito."}
+                return {"success": False, "mensaje": "Valor debe ser contado o crédito."}
             datos["medio_pago"] = v
 
+        siguiente = self._siguiente_campo_despues_de(registro, datos)
+        id_tablas_next = id_empresa_tablas if id_empresa_tablas is not None else id_from
+        opciones_actuales_next = []
+        if siguiente:
+            opciones_raw = self._obtener_lista_opciones(siguiente, wa_id, id_tablas_next)
+            opciones_actuales_next = self._lista_para_redis(siguiente, opciones_raw)
+
+        payload = {**datos, OPCIONES_ACTUALES_KEY: opciones_actuales_next}
         try:
-            self._cache.actualizar(wa_id, id_from, datos)
+            self._cache.actualizar(wa_id, id_from, payload)
         except Exception as e:
             return {"success": False, "mensaje": str(e)}
 
-        siguiente = self._siguiente_campo_despues_de(registro, datos)
+        texto_siguiente = self._formatear_texto_lista(opciones_actuales_next) if opciones_actuales_next else None
         return {
             "success": True,
             "campo_guardado": campo,
             "siguiente": siguiente,
+            "estado2_completo": siguiente is None,
+            "texto_lista_siguiente": texto_siguiente,
+            "opciones_actuales": opciones_actuales_next if opciones_actuales_next else None,
         }
 
     def _siguiente_campo_pendiente(self, registro: dict) -> str | None:
-        if self._parametros and not registro.get("id_centro_costo"):
-            return "centro_costo"
         if not registro.get("id_sucursal"):
             return "sucursal"
+        if self._parametros and not registro.get("id_centro_costo"):
+            return "centro_costo"
         if not (registro.get("forma_pago") or "").strip():
             return "forma_pago"
         if (registro.get("medio_pago") or "").strip().lower() not in ("contado", "credito"):
@@ -157,105 +213,31 @@ class OpcionesService:
         reg = {**registro, **datos_guardados}
         return self._siguiente_campo_pendiente(reg)
 
-    def _filas_centros_costo(self, wa_id: str) -> list[dict]:
-        """Filas para lista WhatsApp (title ≤24, description "")."""
-        centros = self._parametros.obtener_centros_costo(wa_id) if self._parametros else []
-        if not isinstance(centros, list):
-            return []
-        filas = []
-        for c in centros:
-            if isinstance(c, dict):
-                cid = c.get("id")
-                nombre = (c.get("nombre") or "").strip() or str(cid)
-                filas.append({"id": str(cid), "title": _truncar(nombre, MAX_ROW_TITLE), "description": ""})
-            elif isinstance(c, (str, int)):
-                filas.append({"id": str(c), "title": _truncar(str(c), MAX_ROW_TITLE), "description": ""})
-        return filas
-
-    def _filas_sucursales(self, id_empresa_tablas: int) -> list[dict]:
-        sucursales = self._informacion.obtener_sucursales(id_empresa_tablas)
-        if not sucursales:
-            return []
-        return [
-            {"id": str(s["id"]), "title": _truncar((s.get("nombre") or "").strip() or str(s["id"]), MAX_ROW_TITLE), "description": ""}
-            for s in sucursales
-        ]
-
-    def _filas_metodos_pago(self, id_empresa_tablas: int) -> list[dict]:
-        rows = self._informacion.obtener_metodos_pago(id_empresa_tablas)
-        if not rows:
-            return []
-        return [
-            {"id": r.get("id", ""), "title": _truncar(r.get("title") or "", MAX_ROW_TITLE), "description": _truncar(r.get("description") or "", MAX_ROW_DESC)}
-            for r in rows
-        ]
-
-    def _build_payload_whatsapp(
-        self,
-        id_empresa: int,
-        phone: str,
-        section_title: str,
-        rows: list[dict],
-        body: str,
-        header: str,
-        footer: str,
-        button: str,
-    ) -> dict:
-        """Payload para ws_send_whatsapp_list.php (como test_opciones.build_payload_whatsapp)."""
-        if not rows:
-            rows = [{"id": "0", "title": f"Sin {section_title.lower()}", "description": ""}]
-        return {
-            "id_empresa": id_empresa,
-            "phone": phone,
-            "body_text": body,
-            "button_text": button,
-            "header_text": header,
-            "footer_text": footer,
-            "sections": [{"title": section_title, "rows": rows}],
-        }
-
-    def _construir_payload_lista(
-        self,
-        campo: str,
-        wa_id: str,
-        id_empresa: int,
-        id_empresa_tablas: int,
-        phone: str,
-    ) -> dict:
-        """Payload para ws_send_whatsapp_list.php. id_empresa = id_whatsapp; tablas con id_empresa_tablas."""
-        if campo == "centro_costo" and self._parametros:
-            filas = self._filas_centros_costo(wa_id)
-            return self._build_payload_whatsapp(
-                id_empresa, phone,
-                "Centros de costo", filas,
-                "Centros de costo disponibles: ", "Centros de costo", "Selecciona un centro de costo", "Ver centros de costo",
-            )
+    def _obtener_lista_opciones(self, campo: str, wa_id: str, id_tablas: int) -> list:
         if campo == "sucursal":
-            filas = self._filas_sucursales(id_empresa_tablas)
-            if not filas:
-                filas = [{"id": "0", "title": "Sin sucursales", "description": ""}]
-            return self._build_payload_whatsapp(
-                id_empresa, phone,
-                "Sucursales", filas,
-                "Sucursales disponibles: ", "Sucursales", "Selecciona una sucursal", "Ver sucursales",
-            )
+            return self._informacion.obtener_sucursales(id_tablas)
+        if campo == "centro_costo" and self._parametros:
+            return self._parametros.obtener_centros_costo(wa_id)
         if campo == "forma_pago":
-            filas = self._filas_metodos_pago(id_empresa_tablas)
-            if not filas:
-                filas = [{"id": "0", "title": "Sin métodos de pago", "description": ""}]
-            return self._build_payload_whatsapp(
-                id_empresa, phone,
-                "Métodos de pago", filas,
-                "Métodos de pago disponibles: ", "Métodos de pago", "Selecciona un método de pago", "Ver métodos de pago",
-            )
+            return self._informacion.obtener_metodos_pago(id_tablas)
         if campo == "medio_pago":
-            rows = [
-                {"id": "contado", "title": "Contado", "description": "Pago al contado"},
-                {"id": "credito", "title": "Crédito", "description": "Pago a crédito"},
-            ]
-            return self._build_payload_whatsapp(
-                id_empresa, phone,
-                "Medio de pago", rows,
-                "Selecciona entre estas opciones: ", "Medio de pago", "Contado o crédito", "Ver opciones",
-            )
-        return {}
+            return [{"id": "contado", "nombre": "Contado"}, {"id": "credito", "nombre": "Crédito"}]
+        return []
+
+    def _lista_para_redis(self, campo: str, raw: list) -> list[dict]:
+        """Convierte la lista cruda en [{id, nombre}, ...] para guardar en Redis y matchear."""
+        out = []
+        for item in raw or []:
+            if isinstance(item, dict):
+                id_v = item.get("id")
+                nom = (item.get("nombre") or item.get("title") or "").strip() or str(id_v)
+                out.append({"id": id_v, "nombre": nom})
+            elif isinstance(item, (str, int)):
+                out.append({"id": item, "nombre": str(item)})
+        return out
+
+    def _formatear_texto_lista(self, opciones: list[dict]) -> str:
+        if not opciones:
+            return "No hay opciones disponibles."
+        lineas = ["• " + (op.get("nombre") or str(op.get("id")) or "") for op in opciones]
+        return "\n".join(lineas)
