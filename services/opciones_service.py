@@ -15,9 +15,12 @@ from typing import Any
 from repositories.base import CacheRepository
 from repositories.informacion_repository import InformacionRepository
 from repositories.parametros_repository import ParametrosRepository
-
-# Orden: primero sucursal, luego centro de costo, por último método de pago (forma + medio)
-CAMPOS_ESTADO2 = ("sucursal", "centro_costo", "forma_pago", "medio_pago")
+from services.helpers.opciones_domain import (
+    CAMPOS_ESTADO2,
+    lista_para_redis,
+    normalizar_opciones_actuales,
+    siguiente_campo_pendiente,
+)
 
 # Clave en Redis para el diccionario temporal de opciones mostradas (matchear mensaje → id)
 OPCIONES_ACTUALES_KEY = "opciones_actuales"
@@ -52,21 +55,6 @@ def _buscar_opcion_por_substring(mensaje: str, opciones: list[dict]) -> tuple:
         if msg in nom_low or nom_low in msg:
             return (op.get("id"), nom or str(op.get("id")))
     return (None, None)
-
-
-def _parse_opciones_actuales(raw: Any) -> list[dict]:
-    """Convierte opciones_actuales (puede venir como str desde Redis) en lista de dicts."""
-    if raw is None:
-        return []
-    if isinstance(raw, list):
-        return raw
-    if isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, list) else []
-        except (TypeError, json.JSONDecodeError):
-            return []
-    return []
 
 
 def _build_prompt_resolver_opcion(mensaje: str, opciones: list[dict]) -> str:
@@ -127,7 +115,7 @@ class OpcionesService:
                 "payload_whatsapp_list": None,
             }
 
-        campo = self._siguiente_campo_pendiente(registro)
+        campo = siguiente_campo_pendiente(registro, self._parametros is not None)
         if not campo:
             return {
                 "listo_estado1": True,
@@ -141,7 +129,7 @@ class OpcionesService:
 
         # Para tablas externas (sucursales / métodos de pago) también se usa id_from como id_empresa.
         opciones_raw = self._obtener_lista_opciones(campo, wa_id, id_from)
-        opciones_actuales = self._lista_para_redis(campo, opciones_raw)
+        opciones_actuales = lista_para_redis(opciones_raw)
         titulo = self._titulo_campo(campo)
         texto_lista = f"{titulo}\n" + self._formatear_texto_lista(opciones_actuales) if opciones_actuales else "No hay opciones disponibles."
 
@@ -172,15 +160,37 @@ class OpcionesService:
         Tras guardar, se devuelve el siguiente grupo (texto_lista) para desplegar de inmediato.
         """
         if campo not in CAMPOS_ESTADO2:
+            print(
+                "[OpcionesService.submit] Campo no válido",
+                {"wa_id": wa_id, "id_from": id_from, "campo": campo},
+                flush=True,
+            )
             return {"success": False, "mensaje": f"Campo no válido: {campo}"}
 
         registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         if not registro:
+            print(
+                "[OpcionesService.submit] No hay registro activo",
+                {"wa_id": wa_id, "id_from": id_from},
+                flush=True,
+            )
             return {"success": False, "mensaje": "No hay registro activo."}
 
         valor_id = valor
         valor_nombre = None
-        opciones_actuales = _parse_opciones_actuales(registro.get(OPCIONES_ACTUALES_KEY))
+        opciones_actuales = normalizar_opciones_actuales(registro.get(OPCIONES_ACTUALES_KEY))
+
+        print(
+            "[OpcionesService.submit] IN",
+            {
+                "wa_id": wa_id,
+                "id_from": id_from,
+                "campo": campo,
+                "valor_raw": valor,
+                "opciones_actuales": opciones_actuales,
+            },
+            flush=True,
+        )
 
         if isinstance(valor, str) and opciones_actuales:
             for op in opciones_actuales:
@@ -200,7 +210,21 @@ class OpcionesService:
                         valor_id = int(valor)
                         valor_nombre = next((op.get("nombre") or op.get("title") for op in opciones_actuales if _id_match(op, valor_id)), None)
                     except (TypeError, ValueError):
-                        return {"success": False, "mensaje": f"No se reconoce la opción '{valor}'. Escriba el nombre de la lista o un texto que lo identifique."}
+                        print(
+                            "[OpcionesService.submit] No se reconoce la opción",
+                            {"valor": valor},
+                            flush=True,
+                        )
+                        return {
+                            "success": False,
+                            "mensaje": f"No se reconoce la opción '{valor}'. Escriba el nombre de la lista o un texto que lo identifique.",
+                        }
+
+        print(
+            "[OpcionesService.submit] Después de resolver valor",
+            {"valor_id": valor_id, "valor_nombre": valor_nombre},
+            flush=True,
+        )
 
         datos = {}
         # Para sucursales / métodos de pago, id_from se usa como id_empresa de tablas externas.
@@ -213,6 +237,11 @@ class OpcionesService:
                 nombre = valor_nombre or next((s.get("nombre") or str(s.get("id")) for s in lista_suc if s.get("id") == id_suc), str(valor_id))
                 datos["sucursal"] = nombre
             except (TypeError, ValueError):
+                print(
+                    "[OpcionesService.submit] Valor de sucursal no válido",
+                    {"valor_id": valor_id},
+                    flush=True,
+                )
                 return {"success": False, "mensaje": "Valor de sucursal no válido."}
         elif campo == "centro_costo":
             try:
@@ -222,16 +251,31 @@ class OpcionesService:
                 nombre = valor_nombre or next((c.get("nombre") or str(c.get("id")) for c in centros if c.get("id") == id_cc), str(valor_id))
                 datos["centro_costo"] = nombre
             except (TypeError, ValueError):
+                print(
+                    "[OpcionesService.submit] Valor de centro de costo no válido",
+                    {"valor_id": valor_id},
+                    flush=True,
+                )
                 return {"success": False, "mensaje": "Valor de centro de costo no válido."}
         elif campo == "forma_pago":
             v = (str(valor_id) or str(valor) or "").strip()
             if not v:
+                print(
+                    "[OpcionesService.submit] Valor de forma de pago vacío",
+                    {"valor_id": valor_id, "valor": valor},
+                    flush=True,
+                )
                 return {"success": False, "mensaje": "Valor de forma de pago vacío."}
             datos["id_metodo_pago"] = valor_id
             datos["forma_pago"] = valor_nombre or v
         elif campo == "medio_pago":
             v = (str(valor_id) or str(valor) or "").strip().lower()
             if v not in ("contado", "credito"):
+                print(
+                    "[OpcionesService.submit] Medio de pago inválido",
+                    {"v": v, "valor_id": valor_id, "valor": valor},
+                    flush=True,
+                )
                 return {"success": False, "mensaje": "Valor debe ser contado o crédito."}
             datos["medio_pago"] = v
 
@@ -240,18 +284,23 @@ class OpcionesService:
         opciones_actuales_next = []
         if siguiente:
             opciones_raw = self._obtener_lista_opciones(siguiente, wa_id, id_tablas_next)
-            opciones_actuales_next = self._lista_para_redis(siguiente, opciones_raw)
+            opciones_actuales_next = lista_para_redis(opciones_raw)
 
         payload = {**datos, OPCIONES_ACTUALES_KEY: opciones_actuales_next}
         try:
             self._cache.actualizar(wa_id, id_from, payload)
         except Exception as e:
+            print(
+                "[OpcionesService.submit] Error al actualizar cache",
+                {"wa_id": wa_id, "id_from": id_from, "error": str(e)},
+                flush=True,
+            )
             return {"success": False, "mensaje": str(e)}
 
         titulo_siguiente = self._titulo_campo(siguiente) if siguiente else None
         texto_siguiente = (f"{titulo_siguiente}\n" + self._formatear_texto_lista(opciones_actuales_next)) if opciones_actuales_next else None
         mensaje_siguiente = "Diga 'finalizar registro' para continuar." if siguiente is None else None
-        return {
+        resp = {
             "success": True,
             "campo_guardado": campo,
             "id_detectada": valor_id,
@@ -262,6 +311,12 @@ class OpcionesService:
             "opciones_actuales": opciones_actuales_next if opciones_actuales_next else None,
             "mensaje_siguiente": mensaje_siguiente,
         }
+        print(
+            "[OpcionesService.submit] OUT respuesta",
+            resp,
+            flush=True,
+        )
+        return resp
 
     def _resolver_opcion_ia(self, mensaje: str, opciones: list[dict]) -> tuple:
         """Recibe opciones_actuales y mensaje; la IA devuelve el id. Retorna (id, nombre) o (None, None)."""
@@ -287,20 +342,9 @@ class OpcionesService:
         except Exception:
             return (None, None)
 
-    def _siguiente_campo_pendiente(self, registro: dict) -> str | None:
-        if not registro.get("id_sucursal"):
-            return "sucursal"
-        if self._parametros and not registro.get("id_centro_costo"):
-            return "centro_costo"
-        if not (registro.get("forma_pago") or "").strip():
-            return "forma_pago"
-        if (registro.get("medio_pago") or "").strip().lower() not in ("contado", "credito"):
-            return "medio_pago"
-        return None
-
     def _siguiente_campo_despues_de(self, registro: dict, datos_guardados: dict) -> str | None:
         reg = {**registro, **datos_guardados}
-        return self._siguiente_campo_pendiente(reg)
+        return siguiente_campo_pendiente(reg, self._parametros is not None)
 
     def _obtener_lista_opciones(self, campo: str, wa_id: str, id_tablas: int) -> list:
         if campo == "sucursal":

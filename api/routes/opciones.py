@@ -54,6 +54,21 @@ async def opciones(
       - Si no se envía valor ni en query ni en body, se usa el query param mensaje.
       - Matchea por nombre (exacto, substring, IA) y devuelve texto_lista_siguiente.
     """
+    # DEBUG: traza de entrada a /opciones
+    print(
+        "[/opciones] IN:",
+        {
+            "wa_id": wa_id,
+            "id_from": id_from,
+            "mensaje": mensaje,
+            "q_action": action,
+            "q_campo": campo,
+            "q_valor": valor,
+            "body": body.dict() if body else None,
+        },
+        flush=True,
+    )
+
     b = body or OpcionesBody()
 
     # Prioridad de origen:
@@ -73,6 +88,11 @@ async def opciones(
 
     service = OpcionesService(cache, informacion, parametros, ai=ai)
     if action_final == "submit":
+        print(
+            "[/opciones] MODO submit:",
+            {"action_final": action_final, "campo_final": campo_final, "valor_final": valor_final},
+            flush=True,
+        )
         if campo_final is None:
             return {"success": False, "mensaje": "Se requiere campo para action=submit."}
         if valor_final is None and campo_final:
@@ -81,4 +101,9 @@ async def opciones(
                 "mensaje": "Se requiere valor (id o texto con el nombre de la opción) ya sea en el body, en el query param 'valor' o en el query param 'mensaje'.",
             }
         return service.submit(wa_id, id_from, campo_final, valor_final)
+    print(
+        "[/opciones] MODO get_next:",
+        {"action_final": action_final},
+        flush=True,
+    )
     return service.get_next(wa_id, id_from)

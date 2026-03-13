@@ -5,6 +5,8 @@ import json
 from prompts.extraccion import build_prompt_extractor
 from repositories.base import CacheRepository
 from services.ai_service import AIService
+from services.helpers.productos import productos_a_str
+from services.helpers.registro_domain import calcular_estado, operacion_desde_registro
 from services.identificador_service import IdentificadorService
 
 
@@ -27,13 +29,7 @@ class ExtraccionService:
         es_registro_nuevo = len(lista) == 0
 
         # Leer operación de registro (operacion o cod_ope por compatibilidad con backend)
-        operacion = (estado_actual.get("operacion") or estado_actual.get("cod_ope") or "").strip().lower()
-        if operacion == "compras":
-            operacion = "compra"
-        elif operacion == "ventas":
-            operacion = "venta"
-        if operacion not in ("venta", "compra"):
-            operacion = None
+        operacion = operacion_desde_registro(estado_actual)
 
         contexto_previo = self._detectar_contexto(mensaje, estado_actual)
 
@@ -119,7 +115,7 @@ class ExtraccionService:
                     payload_db["identificado"] = True
 
         # --- Calcular estado (una sola asignación; no sobrescribir estado 4) ---
-        estado_calculado = self._calcular_estado(payload_db)
+        estado_calculado = calcular_estado(payload_db)
         # Estado 4 solo lo pone confirmar_registro; extracción no debe pisarlo
         if estado_actual.get("estado") == 4:
             estado = 4
@@ -220,10 +216,7 @@ class ExtraccionService:
     @staticmethod
     def _construir_payload(propuesta: dict, estado_actual: dict, contexto_previo: str | None) -> dict:
         productos_raw = propuesta.get("productos") or propuesta.get("productos_json") or []
-        if isinstance(productos_raw, list):
-            productos_str = json.dumps(productos_raw, ensure_ascii=False)
-        else:
-            productos_str = str(productos_raw)
+        productos_str = productos_a_str(productos_raw)
 
         def obtener(campo_nuevo, campo_viejo=None, default=None):
             nuevo = propuesta.get(campo_nuevo)

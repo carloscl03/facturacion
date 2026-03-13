@@ -12,30 +12,11 @@ from fastapi import HTTPException
 from prompts.clasificador import build_prompt_router
 from repositories.base import CacheRepository
 from services.ai_service import AIService
-
-
-def _obtener_estado(registro: dict | None) -> int:
-    """Lee estado del registro en Redis/caché. 0 si no hay registro o no viene el campo."""
-    if not registro:
-        return 0
-    try:
-        v = registro.get("estado") or registro.get("paso_actual")  # paso_actual por compatibilidad
-        if v is None or v == "":
-            return 0
-        return int(v)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _opciones_completo(registro: dict | None) -> bool:
-    """True si sucursal, forma de pago y medio de pago ya están definidos (Estado 2 completo)."""
-    if not registro:
-        return False
-    has_suc = bool(registro.get("id_sucursal"))
-    has_fp = bool((registro.get("forma_pago") or "").strip())
-    mp = (registro.get("medio_pago") or "").strip().lower()
-    has_mp = mp in ("contado", "credito")
-    return has_suc and has_fp and has_mp
+from services.helpers.registro_domain import (
+    obtener_estado,
+    operacion_desde_registro,
+    opciones_completas,
+)
 
 
 class ClasificadorService:
@@ -75,13 +56,12 @@ class ClasificadorService:
         if not registro:
             return self._respuesta_casual()
 
-        # Estado siempre leído de Redis cuando existe el registro.
-        estado = _obtener_estado(registro)
+        # Estado y operación siempre leídos de Redis cuando existe el registro.
+        estado = obtener_estado(registro)
 
         ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
-        op = (registro.get("operacion") or registro.get("cod_ope") or "").strip().lower()
-        operacion = "venta" if op == "ventas" else "compra" if op == "compras" else (op if op in ("venta", "compra") else None)
-        opciones_completo = _opciones_completo(registro)
+        operacion = operacion_desde_registro(registro)
+        opciones_completo = opciones_completas(registro)
 
         prompt = build_prompt_router(
             mensaje, ultima_pregunta, estado, operacion, opciones_completo=opciones_completo
