@@ -29,8 +29,6 @@ async def opciones(
     wa_id: str,
     id_from: int,
     id_empresa_tablas: int | None = None,
-    id_empresa: int | None = None,
-    phone: str = "",
     body: OpcionesBody | None = Body(None),
     cache: CacheRepository = Depends(get_cache_repo),
     informacion: InformacionRepository = Depends(get_informacion_repo),
@@ -38,7 +36,7 @@ async def opciones(
     ai: AIService = Depends(get_ai_service),
 ):
     """
-    Query: wa_id, id_from (cache), id_empresa_tablas (para sucursales/métodos; si no, se usa id_empresa o id_from).
+    Query: wa_id, id_from (cache), id_empresa_tablas (para sucursales/métodos; si no, se usa id_from).
     Body get: devuelve texto_lista y persiste opciones_actuales en Redis.
     Body submit: campo + valor (valor = id o mensaje con el nombre de la opción); matchea por nombre y devuelve texto_lista_siguiente.
     """
@@ -46,7 +44,7 @@ async def opciones(
     action = (b.action or "get").strip().lower()
     campo = b.campo
     valor = b.valor
-    id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_empresa
+    id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_from
 
     service = OpcionesService(cache, informacion, parametros, ai=ai)
     if action == "submit":
@@ -55,4 +53,4 @@ async def opciones(
         if valor is None and campo:
             return {"success": False, "mensaje": "Se requiere valor (id o texto con el nombre de la opción)."}
         return service.submit(wa_id, id_from, campo, valor, id_empresa_tablas=id_tablas)
-    return service.get_next(wa_id, id_from, id_empresa_tablas=id_tablas, id_empresa=id_empresa, phone=phone or wa_id)
+    return service.get_next(wa_id, id_from, id_empresa_tablas=id_tablas)

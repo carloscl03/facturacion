@@ -104,8 +104,6 @@ class OpcionesService:
         wa_id: str,
         id_from: int,
         id_empresa_tablas: int | None = None,
-        id_empresa: int | None = None,
-        phone: str = "",
     ) -> dict:
         """
         Devuelve la siguiente lista de opciones en texto (no API WhatsApp).
@@ -142,7 +140,7 @@ class OpcionesService:
                 "mensaje_siguiente": "Diga 'finalizar registro' para continuar.",
             }
 
-        id_tablas = id_empresa_tablas if id_empresa_tablas is not None else (id_empresa or id_from)
+        id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_from
         opciones_raw = self._obtener_lista_opciones(campo, wa_id, id_tablas)
         opciones_actuales = self._lista_para_redis(campo, opciones_raw)
         titulo = self._titulo_campo(campo)
