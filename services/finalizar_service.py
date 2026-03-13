@@ -72,7 +72,7 @@ class FinalizarService:
         if not params["id_moneda"]:
             errores.append("Moneda (PEN/USD)")
         if operacion == "venta" and not params["id_cliente"]:
-            tiene_datos = (reg.get("entidad_nombre") or "").strip() and params["entidad_numero"]
+            tiene_datos = str(reg.get("entidad_nombre") or "").strip() and params["entidad_numero"]
             if not tiene_datos:
                 errores.append("Cliente (nombre y documento) para facturar")
         return errores
@@ -84,7 +84,7 @@ class FinalizarService:
     def _finalizar_venta(self, wa_id: str, reg: dict, id_from: int, params: dict) -> dict:
         id_cliente = params["id_cliente"]
 
-        if not id_cliente and (reg.get("entidad_nombre") or "").strip() and (reg.get("entidad_numero") or "").strip():
+        if not id_cliente and str(reg.get("entidad_nombre") or "").strip() and str(reg.get("entidad_numero") or "").strip():
             resp_cli = self._entities.registrar_cliente(reg, id_from)
             if resp_cli.get("success") and resp_cli.get("cliente_id"):
                 id_cliente = resp_cli["cliente_id"]

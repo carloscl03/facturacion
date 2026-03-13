@@ -47,29 +47,29 @@ def construir_sintesis_actual(reg: Dict[str, Any]) -> str:
     if not reg or not isinstance(reg, dict):
         return ""
     lineas = ["📋 *Estado actual del registro*", "━━━━━━━━━━━━━━━━━━━━"]
-    op = (reg.get("operacion") or reg.get("cod_ope") or "").strip().lower()
+    op = str(reg.get("operacion") or reg.get("cod_ope") or "").strip().lower()
     operacion = "venta" if op == "ventas" else "compra" if op == "compras" else op
     if operacion == "venta":
         lineas.append("📤 *VENTA*")
     elif operacion == "compra":
         lineas.append("🛒 *COMPRA*")
 
-    tipo_doc = (reg.get("tipo_documento") or "").strip()
+    tipo_doc = str(reg.get("tipo_documento") or "").strip()
     if tipo_doc:
         lineas.append(f"📄 *Comprobante:* {tipo_doc.capitalize()}")
 
-    num_doc = (reg.get("numero_documento") or "").strip()
+    num_doc = str(reg.get("numero_documento") or "").strip()
     if num_doc:
         lineas.append(f"📄 *Nro:* {num_doc}")
 
-    if (reg.get("entidad_nombre") or "").strip():
+    if str(reg.get("entidad_nombre") or "").strip():
         lineas.append(f"👤 *Cliente/Proveedor:* {reg.get('entidad_nombre')}")
-    if (reg.get("entidad_numero") or "").strip():
+    if str(reg.get("entidad_numero") or "").strip():
         lineas.append(f"🆔 *Documento:* {reg.get('entidad_numero')}")
 
     monto = float(reg.get("monto_total") or 0)
     if monto > 0:
-        moneda = (reg.get("moneda") or "PEN").upper()
+        moneda = str(reg.get("moneda") or "PEN").upper()
         simbolo = MONEDA_SIMBOLO.get(moneda, "S/")
         lineas.append(f"💰 *Total:* {simbolo} {monto}")
 
@@ -82,21 +82,21 @@ def construir_sintesis_actual(reg: Dict[str, Any]) -> str:
     elif isinstance(prod, str) and prod.strip() and prod.strip() != "[]":
         lineas.append("📦 *Productos:* (con detalle)")
 
-    if (reg.get("sucursal") or "").strip():
+    if str(reg.get("sucursal") or "").strip():
         lineas.append(f"📍 *Sucursal:* {reg.get('sucursal')}")
     elif reg.get("id_sucursal"):
         lineas.append(f"📍 *Sucursal:* (id {reg.get('id_sucursal')})")
 
-    medio = (reg.get("medio_pago") or "").strip().lower()
+    medio = str(reg.get("medio_pago") or "").strip().lower()
     if medio in ("contado", "credito"):
         lineas.append(f"💳 *Pago:* {medio.capitalize()}")
 
-    moneda_str = (reg.get("moneda") or "").strip()
+    moneda_str = str(reg.get("moneda") or "").strip()
     if moneda_str:
         lineas.append(f"💵 *Moneda:* {moneda_str}")
-    if (reg.get("fecha_emision") or "").strip():
+    if str(reg.get("fecha_emision") or "").strip():
         lineas.append(f"📅 *Emisión:* {reg.get('fecha_emision')}")
-    forma_pago_val = (reg.get("forma_pago") or "").strip()
+    forma_pago_val = str(reg.get("forma_pago") or "").strip()
     if forma_pago_val:
         lineas.append(f"🏦 *Forma de pago:* {forma_pago_val}")
 
@@ -112,14 +112,14 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
     Devuelve (operacion_normalizada, dict_parametros).
     """
     operacion = operacion_desde_registro(reg) or ""
-    tipo_doc_str = (reg.get("tipo_documento") or "").strip().lower()
+    tipo_doc_str = str(reg.get("tipo_documento") or "").strip().lower()
     id_tipo_comprobante = TIPO_DOCUMENTO_MAP.get(tipo_doc_str)
 
-    moneda_str = (reg.get("moneda") or "").strip()
+    moneda_str = str(reg.get("moneda") or "").strip()
     id_moneda = MONEDA_MAP.get(moneda_str)
     moneda_simbolo = MONEDA_SIMBOLO.get(moneda_str, "S/")
 
-    medio_pago = (reg.get("medio_pago") or "").strip().lower()
+    medio_pago = str(reg.get("medio_pago") or "").strip().lower()
     tipo_venta = medio_pago.capitalize() if medio_pago in ("contado", "credito") else None
 
     # Preferir id ya guardado (p. ej. desde opciones Estado 2); si no, mapear por nombre.
@@ -202,7 +202,7 @@ def construir_payload_venta(
         "id_tipo_comprobante": id_tipo_comprobante,
         "serie": reg.get("serie"),
         "numero": reg.get("numero"),
-        "observaciones": (reg.get("observaciones") or "").strip() or None,
+        "observaciones": str(reg.get("observaciones") or "").strip() or None,
         "detalle_items": detalle_items,
     }
     if payload["observaciones"] is None:
