@@ -27,19 +27,80 @@ class FinalizarService:
         self._entities = entity_repo
         self._sunat = sunat_client or SunatClient()
 
+    def _debug_tipos(self, d: dict | None) -> dict:
+        """Devuelve un dict clave -> tipo del valor para diagnosticar int/str en el return."""
+        if not d or not isinstance(d, dict):
+            return {}
+        return {k: type(v).__name__ for k, v in d.items()}
+
     def ejecutar(self, wa_id: str, id_from: int) -> dict:
-        registro = self._cache.consultar(wa_id, id_from)
+        debug: dict = {"paso": "inicio"}
+
+        try:
+            registro = self._cache.consultar(wa_id, id_from)
+            debug["paso"] = "consultar_cache"
+        except Exception as e:
+            return {
+                "status": "error",
+                "mensaje": f"Hubo un fallo técnico: {str(e)}",
+                "debug": {"paso_fallo": "consultar_cache", "error": str(e), "tipo_error": type(e).__name__},
+            }
+
         if not registro:
-            return {"status": "error", "mensaje": "No hay una operación activa para finalizar."}
+            return {"status": "error", "mensaje": "No hay una operación activa para finalizar.", "debug": debug}
 
-        operacion, params = traducir_registro_a_parametros(registro)
+        try:
+            operacion, params = traducir_registro_a_parametros(registro)
+            debug["paso"] = "traducir_registro"
+            debug["operacion"] = operacion
+            debug["registro_tipos"] = self._debug_tipos(registro)
+            debug["params_tipos"] = self._debug_tipos(params)
+        except Exception as e:
+            return {
+                "status": "error",
+                "mensaje": f"Hubo un fallo técnico: {str(e)}",
+                "debug": {
+                    "paso_fallo": "traducir_registro_a_parametros",
+                    "error": str(e),
+                    "tipo_error": type(e).__name__,
+                    "registro_tipos": self._debug_tipos(registro),
+                },
+            }
 
-        errores = self._validar_campos(operacion, registro, params)
+        try:
+            errores = self._validar_campos(operacion, registro, params)
+            debug["paso"] = "validar_campos"
+            debug["errores"] = errores
+        except Exception as e:
+            return {
+                "status": "error",
+                "mensaje": f"Hubo un fallo técnico: {str(e)}",
+                "debug": {
+                    "paso_fallo": "validar_campos",
+                    "error": str(e),
+                    "tipo_error": type(e).__name__,
+                    "registro_tipos": self._debug_tipos(registro),
+                    "params_tipos": self._debug_tipos(params),
+                },
+            }
+
         if errores and not (operacion == "venta" and registro.get("entidad_nombre") and params["entidad_numero"]):
-            sintesis = construir_sintesis_actual(registro)
-            faltan = f"⚠️ *No se puede finalizar.*\n\nFaltan: **{', '.join(errores)}**."
-            mensaje = f"{sintesis}\n\n{faltan}" if sintesis else faltan
-            return {"status": "incompleto", "mensaje": mensaje, "sintesis_actual": sintesis}
+            try:
+                sintesis = construir_sintesis_actual(registro)
+                faltan = f"⚠️ *No se puede finalizar.*\n\nFaltan: **{', '.join(errores)}**."
+                mensaje = f"{sintesis}\n\n{faltan}" if sintesis else faltan
+                return {"status": "incompleto", "mensaje": mensaje, "sintesis_actual": sintesis, "debug": {**debug, "paso": "sintesis_incompleto"}}
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "mensaje": f"Hubo un fallo técnico: {str(e)}",
+                    "debug": {
+                        "paso_fallo": "construir_sintesis_actual",
+                        "error": str(e),
+                        "tipo_error": type(e).__name__,
+                        "registro_tipos": self._debug_tipos(registro),
+                    },
+                }
 
         try:
             if operacion == "venta":
@@ -54,9 +115,21 @@ class FinalizarService:
                     f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']}\n"
                     f"📝 *Estado:* Guardado en el historial de compras."
                 ),
+                "debug": {**debug, "paso": "compra_ok"},
             }
         except Exception as e:
-            return {"status": "error", "mensaje": f"Hubo un fallo técnico: {str(e)}"}
+            return {
+                "status": "error",
+                "mensaje": f"Hubo un fallo técnico: {str(e)}",
+                "debug": {
+                    "paso_fallo": "finalizar_venta_o_compra",
+                    "error": str(e),
+                    "tipo_error": type(e).__name__,
+                    "operacion": operacion,
+                    "registro_tipos": self._debug_tipos(registro),
+                    "params_tipos": self._debug_tipos(params),
+                },
+            }
 
     # ------------------------------------------------------------------ #
     # Validación

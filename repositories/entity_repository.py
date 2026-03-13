@@ -38,10 +38,10 @@ class EntityRepository:
         - Persona Natural (tipo_persona=1): nombres, apellido_paterno, id_tipo_documento, numero_documento.
         - Persona Jurídica (tipo_persona=2): razon_social, id_tipo_documento, ruc.
         """
-        num_raw = (reg.get("entidad_numero") or reg.get("entidad_numero_documento") or "").strip()
+        num_raw = str(reg.get("entidad_numero") or reg.get("entidad_numero_documento") or "").strip()
         id_tipo = 6 if len(num_raw) == 11 else 1
         numero_doc = num_raw
-        nombre = (reg.get("entidad_nombre") or "").strip() or "Sin nombre"
+        nombre = str(reg.get("entidad_nombre") or "").strip() or "Sin nombre"
         es_ruc = id_tipo == 6
 
         payload: dict = {"codOpe": "REGISTRAR_CLIENTE", "empresa_id": id_from}
