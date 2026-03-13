@@ -99,13 +99,18 @@ class OpcionesService:
         """
         registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         debug_agente = {"modo": "get_next", "tiene_registro": registro is not None}
-        # Qué se leyó de Redis (campos Estado 2) para diagnosticar si la lectura fue correcta.
+        # Qué se leyó de Redis (campos Estado 2 y opciones_actuales) para diagnosticar.
         if registro is not None:
+            opciones_en_redis = normalizar_opciones_actuales(registro.get(OPCIONES_ACTUALES_KEY))
             debug_agente["redis_leido"] = {
                 "id_sucursal": registro.get("id_sucursal"),
                 "id_centro_costo": registro.get("id_centro_costo"),
                 "forma_pago": (registro.get("forma_pago") or "").strip() or None,
                 "medio_pago": (registro.get("medio_pago") or "").strip() or None,
+            }
+            debug_agente["opciones_actuales_de_redis"] = {
+                "recuperado": len(opciones_en_redis) > 0,
+                "count": len(opciones_en_redis),
             }
 
         if not registro:
@@ -159,6 +164,7 @@ class OpcionesService:
 
         debug_agente["motivo"] = "lista_mostrada"
         debug_agente["opciones_count"] = len(opciones_actuales) if opciones_actuales else 0
+        debug_agente["lista_devuelta_origen"] = "api_y_guardada_en_redis"
         return {
             "listo_estado1": True,
             "estado2_completo": False,
