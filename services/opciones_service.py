@@ -99,6 +99,14 @@ class OpcionesService:
         """
         registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         debug_agente = {"modo": "get_next", "tiene_registro": registro is not None}
+        # Qué se leyó de Redis (campos Estado 2) para diagnosticar si la lectura fue correcta.
+        if registro is not None:
+            debug_agente["redis_leido"] = {
+                "id_sucursal": registro.get("id_sucursal"),
+                "id_centro_costo": registro.get("id_centro_costo"),
+                "forma_pago": (registro.get("forma_pago") or "").strip() or None,
+                "medio_pago": (registro.get("medio_pago") or "").strip() or None,
+            }
 
         if not registro:
             debug_agente["motivo"] = "no_hay_registro"
