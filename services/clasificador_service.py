@@ -1,9 +1,9 @@
 """
-Clasificador: mensaje + estado Redis entran a la IA.
-- wa_id e id_from obligatorios: siempre se consulta Redis; el estado devuelto es el leído de Redis cuando existe registro.
-- Casual: solo cuando no hay registro en Redis; con registro nunca se devuelve casual.
-- Salidas: intencion, siguiente_estado (bool 3→4), estado (siempre de Redis; 0 si no hay registro).
-Actualizar solo cuando estado < 3; estado >= 4 → opciones. Finalizar reutiliza la lógica con otros estados.
+Clasificador: mensaje + estado Redis entran a la IA. Actúa como orquestador.
+- wa_id e id_from obligatorios: siempre se consulta Redis; el estado devuelto es el leído de Redis (o 4 tras confirmar).
+- Transición 3→4: cuando estado es 3 y el mensaje es confirmación, el clasificador escribe estado 4 en Redis y devuelve destino confirmar-registro (no hace falta llamar a confirmar-registro por separado).
+- Casual: solo cuando no hay registro; con registro nunca se devuelve casual.
+- Salidas: intencion, destino, estado, siguiente_estado, etc.
 """
 from __future__ import annotations
 
@@ -130,10 +130,16 @@ class ClasificadorService:
             destino = "generar-resumen"
             intencion = "resumen"
 
-        # 4. Confirmación 3→4: mensaje de confirmar + estado 3 → confirmar-registro.
+        # 4. Confirmación 3→4: mensaje de confirmar + estado 3 → el clasificador hace el cambio en Redis.
         if siguiente_estado and estado == 3:
             destino = "confirmar-registro"
             intencion = "opciones"
+            try:
+                payload = {**registro, "estado": 4}
+                self._repo.actualizar(wa_id, id_from, payload)
+                estado = 4
+            except Exception:
+                pass
 
         necesidad_extraccion = intencion == "actualizar"
 

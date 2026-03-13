@@ -1,8 +1,10 @@
 """
 Agente Estado 2: opciones (sucursal → centro de costo → método de pago).
 Solo actúa cuando el registro está confirmado (estado >= 4).
+El cambio de estado 3 → 4 se hace en el Clasificador con la confirmación del usuario; este agente
+nunca escribe estado 4, solo lo exige para mostrar listas y guardar elecciones.
 Opciones se presentan como lista de texto; el usuario responde con el nombre y se guarda el id.
-Se guarda en Redis un diccionario temporal opciones_actuales (id + nombre) para matchear el mensaje.
+Se guarda en Redis opciones_actuales (id + nombre) para matchear el mensaje.
 Orden: sucursal → centro_costo → forma_pago → medio_pago (alineado con test_opciones.py).
 """
 from __future__ import annotations
@@ -79,12 +81,14 @@ class OpcionesService:
                 "texto_lista": None,
                 "opciones_actuales": None,
                 "payload_whatsapp_list": None,
+                "mensaje_siguiente": "Diga 'finalizar registro' para continuar.",
             }
 
         id_tablas = id_empresa_tablas if id_empresa_tablas is not None else (id_empresa or id_from)
         opciones_raw = self._obtener_lista_opciones(campo, wa_id, id_tablas)
         opciones_actuales = self._lista_para_redis(campo, opciones_raw)
-        texto_lista = self._formatear_texto_lista(opciones_actuales)
+        titulo = self._titulo_campo(campo)
+        texto_lista = f"{titulo}\n" + self._formatear_texto_lista(opciones_actuales) if opciones_actuales else "No hay opciones disponibles."
 
         try:
             self._cache.actualizar(wa_id, id_from, {OPCIONES_ACTUALES_KEY: opciones_actuales})
@@ -188,7 +192,9 @@ class OpcionesService:
         except Exception as e:
             return {"success": False, "mensaje": str(e)}
 
-        texto_siguiente = self._formatear_texto_lista(opciones_actuales_next) if opciones_actuales_next else None
+        titulo_siguiente = self._titulo_campo(siguiente) if siguiente else None
+        texto_siguiente = (f"{titulo_siguiente}\n" + self._formatear_texto_lista(opciones_actuales_next)) if opciones_actuales_next else None
+        mensaje_siguiente = "Diga 'finalizar registro' para continuar." if siguiente is None else None
         return {
             "success": True,
             "campo_guardado": campo,
@@ -196,6 +202,7 @@ class OpcionesService:
             "estado2_completo": siguiente is None,
             "texto_lista_siguiente": texto_siguiente,
             "opciones_actuales": opciones_actuales_next if opciones_actuales_next else None,
+            "mensaje_siguiente": mensaje_siguiente,
         }
 
     def _siguiente_campo_pendiente(self, registro: dict) -> str | None:
@@ -235,6 +242,17 @@ class OpcionesService:
             elif isinstance(item, (str, int)):
                 out.append({"id": item, "nombre": str(item)})
         return out
+
+    def _titulo_campo(self, campo: str) -> str:
+        if campo == "sucursal":
+            return "Sucursales:"
+        if campo == "centro_costo":
+            return "Centros de costo:"
+        if campo == "forma_pago":
+            return "Métodos de pago:"
+        if campo == "medio_pago":
+            return "Medio de pago (contado o crédito):"
+        return "Opciones:"
 
     def _formatear_texto_lista(self, opciones: list[dict]) -> str:
         if not opciones:
