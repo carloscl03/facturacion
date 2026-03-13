@@ -1,7 +1,7 @@
 """
 Estado 2: opciones (sucursal → centro de costo → método de pago).
 Solo aplica con estado >= 4. Opciones se devuelven como texto_lista; el usuario responde con el nombre y se matchea por opciones_actuales en Redis.
-Alineado con test_opciones.py: id_empresa_tablas para jalar sucursales/métodos.
+Se trabaja solo con id_from tanto para Redis como para las APIs de información.
 """
 from __future__ import annotations
 
@@ -28,7 +28,6 @@ class OpcionesBody(BaseModel):
 async def opciones(
     wa_id: str,
     id_from: int,
-    id_empresa_tablas: int | None = None,
     body: OpcionesBody | None = Body(None),
     cache: CacheRepository = Depends(get_cache_repo),
     informacion: InformacionRepository = Depends(get_informacion_repo),
@@ -36,7 +35,7 @@ async def opciones(
     ai: AIService = Depends(get_ai_service),
 ):
     """
-    Query: wa_id, id_from (cache), id_empresa_tablas (para sucursales/métodos; si no, se usa id_from).
+    Query: wa_id, id_from (cache). id_from se usa también como id de tablas para sucursales/métodos.
     Body get: devuelve texto_lista y persiste opciones_actuales en Redis.
     Body submit: campo + valor (valor = id o mensaje con el nombre de la opción); matchea por nombre y devuelve texto_lista_siguiente.
     """
@@ -44,7 +43,6 @@ async def opciones(
     action = (b.action or "get").strip().lower()
     campo = b.campo
     valor = b.valor
-    id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_from
 
     service = OpcionesService(cache, informacion, parametros, ai=ai)
     if action == "submit":
@@ -52,5 +50,5 @@ async def opciones(
             return {"success": False, "mensaje": "Se requiere campo para action=submit."}
         if valor is None and campo:
             return {"success": False, "mensaje": "Se requiere valor (id o texto con el nombre de la opción)."}
-        return service.submit(wa_id, id_from, campo, valor, id_empresa_tablas=id_tablas)
-    return service.get_next(wa_id, id_from, id_empresa_tablas=id_tablas)
+        return service.submit(wa_id, id_from, campo, valor)
+    return service.get_next(wa_id, id_from)

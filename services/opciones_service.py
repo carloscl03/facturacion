@@ -103,7 +103,6 @@ class OpcionesService:
         self,
         wa_id: str,
         id_from: int,
-        id_empresa_tablas: int | None = None,
     ) -> dict:
         """
         Devuelve la siguiente lista de opciones en texto (no API WhatsApp).
@@ -140,8 +139,8 @@ class OpcionesService:
                 "mensaje_siguiente": "Diga 'finalizar registro' para continuar.",
             }
 
-        id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_from
-        opciones_raw = self._obtener_lista_opciones(campo, wa_id, id_tablas)
+        # Para tablas externas (sucursales / métodos de pago) también se usa id_from como id_empresa.
+        opciones_raw = self._obtener_lista_opciones(campo, wa_id, id_from)
         opciones_actuales = self._lista_para_redis(campo, opciones_raw)
         titulo = self._titulo_campo(campo)
         texto_lista = f"{titulo}\n" + self._formatear_texto_lista(opciones_actuales) if opciones_actuales else "No hay opciones disponibles."
@@ -166,7 +165,6 @@ class OpcionesService:
         id_from: int,
         campo: str,
         valor,
-        id_empresa_tablas: int | None = None,
     ) -> dict:
         """
         valor puede ser el id (número) o el mensaje del usuario (nombre de la opción).
@@ -205,7 +203,8 @@ class OpcionesService:
                         return {"success": False, "mensaje": f"No se reconoce la opción '{valor}'. Escriba el nombre de la lista o un texto que lo identifique."}
 
         datos = {}
-        id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_from
+        # Para sucursales / métodos de pago, id_from se usa como id_empresa de tablas externas.
+        id_tablas = id_from
         if campo == "sucursal":
             try:
                 id_suc = int(valor_id)
@@ -237,7 +236,7 @@ class OpcionesService:
             datos["medio_pago"] = v
 
         siguiente = self._siguiente_campo_despues_de(registro, datos)
-        id_tablas_next = id_empresa_tablas if id_empresa_tablas is not None else id_from
+        id_tablas_next = id_from
         opciones_actuales_next = []
         if siguiente:
             opciones_raw = self._obtener_lista_opciones(siguiente, wa_id, id_tablas_next)
