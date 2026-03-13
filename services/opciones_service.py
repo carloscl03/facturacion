@@ -31,6 +31,29 @@ def _coincide_nombre(mensaje: str, nombre: str) -> bool:
     return _normalizar_texto(mensaje) == _normalizar_texto(nombre)
 
 
+def _id_match(op: dict, id_val: Any) -> bool:
+    """Compara id de la opción con id_val sin depender de tipo (int vs str)."""
+    oid = op.get("id")
+    if oid is None and id_val is None:
+        return True
+    if oid is None or id_val is None:
+        return False
+    return str(oid) == str(id_val)
+
+
+def _buscar_opcion_por_substring(mensaje: str, opciones: list[dict]) -> tuple:
+    """Si el mensaje está contenido en un nombre (o al revés), devuelve (id, nombre); si no, (None, None)."""
+    msg = _normalizar_texto(mensaje)
+    if not msg:
+        return (None, None)
+    for op in opciones:
+        nom = (op.get("nombre") or op.get("title") or "").strip()
+        nom_low = nom.lower()
+        if msg in nom_low or nom_low in msg:
+            return (op.get("id"), nom or str(op.get("id")))
+    return (None, None)
+
+
 def _build_prompt_resolver_opcion(mensaje: str, opciones: list[dict]) -> str:
     """Prompt: opciones_actuales + mensaje → la IA devuelve el id de la opción elegida."""
     lista_txt = json.dumps([{"id": o.get("id"), "nombre": o.get("nombre") or o.get("title")} for o in opciones], ensure_ascii=False)
@@ -160,12 +183,15 @@ class OpcionesService:
                     valor_nombre = nom
                     break
             else:
-                # Sin match exacto: intentar reconocimiento por IA
-                valor_id, valor_nombre = self._resolver_opcion_ia(valor, opciones_actuales)
+                # Match por substring (ej. "Lima" en "Sucursal Lima")
+                valor_id, valor_nombre = _buscar_opcion_por_substring(valor, opciones_actuales)
+                if valor_id is None:
+                    # Reconocimiento por IA: opciones_actuales + mensaje → id
+                    valor_id, valor_nombre = self._resolver_opcion_ia(valor, opciones_actuales)
                 if valor_id is None:
                     try:
                         valor_id = int(valor)
-                        valor_nombre = next((op.get("nombre") or op.get("title") for op in opciones_actuales if op.get("id") == valor_id), None)
+                        valor_nombre = next((op.get("nombre") or op.get("title") for op in opciones_actuales if _id_match(op, valor_id)), None)
                     except (TypeError, ValueError):
                         return {"success": False, "mensaje": f"No se reconoce la opción '{valor}'. Escriba el nombre de la lista o un texto que lo identifique."}
 
@@ -235,11 +261,18 @@ class OpcionesService:
             prompt = _build_prompt_resolver_opcion(mensaje, opciones)
             out = self._ai.completar_json(prompt)
             id_val = out.get("id")
-            if id_val is None or (isinstance(id_val, str) and id_val.lower() in ("null", "")):
+            if id_val is None:
                 return (None, None)
-            if isinstance(id_val, str) and id_val.isdigit():
+            if isinstance(id_val, str) and id_val.strip().lower() in ("null", ""):
+                return (None, None)
+            # Normalizar id: puede venir como float, str "1", etc.
+            if isinstance(id_val, float) and id_val.is_integer():
                 id_val = int(id_val)
-            nombre_final = next((o.get("nombre") or o.get("title") for o in opciones if o.get("id") == id_val), None)
+            elif isinstance(id_val, str) and id_val.isdigit():
+                id_val = int(id_val)
+            # Buscar nombre comparando id sin depender del tipo en opciones
+            op_elegida = next((o for o in opciones if _id_match(o, id_val)), None)
+            nombre_final = (op_elegida.get("nombre") or op_elegida.get("title")) if op_elegida else str(id_val)
             return (id_val, nombre_final)
         except Exception:
             return (None, None)
