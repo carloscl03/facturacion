@@ -29,6 +29,9 @@ async def opciones(
     wa_id: str,
     id_from: int,
     mensaje: str | None = None,
+    action: str | None = None,
+    campo: str | None = None,
+    valor: str | int | None = None,
     body: OpcionesBody | None = Body(None),
     cache: CacheRepository = Depends(get_cache_repo),
     informacion: InformacionRepository = Depends(get_informacion_repo),
@@ -36,28 +39,46 @@ async def opciones(
     ai: AIService = Depends(get_ai_service),
 ):
     """
-    Query: wa_id, id_from (cache), mensaje (texto libre del usuario).
+    Query:
+      - wa_id, id_from (cache).
+      - mensaje: texto libre del usuario (se usa como valor cuando no se envía en el body).
+      - action, campo, valor: opcionales; si vienen en query tienen prioridad sobre el body.
+
     id_from se usa también como id de tablas para sucursales/métodos.
 
-    Body get: devuelve texto_lista y persiste opciones_actuales en Redis.
-    Body submit: campo + valor/mensaje (valor = id o mensaje con el nombre de la opción);
-    si no se envía valor en el body, se usa el query param mensaje. Matchea por nombre y
-    devuelve texto_lista_siguiente.
+    Modo GET (action=get):
+      - Devuelve texto_lista y persiste opciones_actuales en Redis.
+
+    Modo SUBMIT (action=submit):
+      - campo + valor/mensaje (valor = id o mensaje con el nombre de la opción).
+      - Si no se envía valor ni en query ni en body, se usa el query param mensaje.
+      - Matchea por nombre (exacto, substring, IA) y devuelve texto_lista_siguiente.
     """
     b = body or OpcionesBody()
-    action = (b.action or "get").strip().lower()
-    campo = b.campo
-    # Prioridad: si viene valor en el body, usarlo; si no, usar mensaje de query.
-    valor = b.valor if b.valor is not None else mensaje
+
+    # Prioridad de origen:
+    # 1) Query param (action/campo/valor) si vienen.
+    # 2) Body OpcionesBody.
+    # 3) Defaults (action="get").
+    action_final = (action or b.action or "get").strip().lower()
+    campo_final = campo or b.campo
+
+    # Valor: prioridad query.valor, luego body.valor, luego mensaje (query).
+    if valor is not None:
+        valor_final = valor
+    elif b.valor is not None:
+        valor_final = b.valor
+    else:
+        valor_final = mensaje
 
     service = OpcionesService(cache, informacion, parametros, ai=ai)
-    if action == "submit":
-        if campo is None:
+    if action_final == "submit":
+        if campo_final is None:
             return {"success": False, "mensaje": "Se requiere campo para action=submit."}
-        if valor is None and campo:
+        if valor_final is None and campo_final:
             return {
                 "success": False,
-                "mensaje": "Se requiere valor (id o texto con el nombre de la opción) ya sea en el body o en el query param 'mensaje'.",
+                "mensaje": "Se requiere valor (id o texto con el nombre de la opción) ya sea en el body, en el query param 'valor' o en el query param 'mensaje'.",
             }
-        return service.submit(wa_id, id_from, campo, valor)
+        return service.submit(wa_id, id_from, campo_final, valor_final)
     return service.get_next(wa_id, id_from)
