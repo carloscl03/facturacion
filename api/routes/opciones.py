@@ -22,6 +22,7 @@ class OpcionesBody(BaseModel):
     action: str = "get"
     campo: str | None = None
     valor: str | int | None = None
+    mensaje: str | None = None
 
 
 @router.post("/opciones")
@@ -51,7 +52,7 @@ async def opciones(
 
     Modo SUBMIT (action=submit):
       - campo + valor/mensaje (valor = id o mensaje con el nombre de la opción).
-      - Si no se envía valor ni en query ni en body, se usa el query param mensaje.
+      - Origen del valor: query 'valor' → body valor → query 'mensaje' → body mensaje.
       - Matchea por nombre (exacto, substring, IA) y devuelve texto_lista_siguiente.
     """
     # DEBUG: traza de entrada a /opciones
@@ -78,13 +79,15 @@ async def opciones(
     action_final = (action or b.action or "get").strip().lower()
     campo_final = campo or b.campo
 
-    # Valor: prioridad query.valor, luego body.valor, luego mensaje (query).
+    # Valor: prioridad query.valor → body.valor → query mensaje → body.mensaje.
     if valor is not None:
         valor_final = valor
     elif b.valor is not None:
         valor_final = b.valor
-    else:
+    elif mensaje is not None:
         valor_final = mensaje
+    else:
+        valor_final = b.mensaje
 
     service = OpcionesService(cache, informacion, parametros, ai=ai)
     if action_final == "submit":

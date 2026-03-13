@@ -47,12 +47,14 @@ def lista_para_redis(raw: Iterable[Any]) -> List[Dict[str, Any]]:
 def normalizar_opciones_actuales(raw: Any) -> List[Dict[str, Any]]:
     """
     Normaliza el valor crudo de opciones_actuales (puede venir como lista,
-    string JSON o None) a una lista de dicts estándar.
+    string JSON, bytes o None) a una lista de dicts estándar.
     """
     if raw is None:
         return []
     if isinstance(raw, list):
         return raw
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
     if isinstance(raw, str):
         import json
 

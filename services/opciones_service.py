@@ -86,6 +86,7 @@ class OpcionesService:
         self._informacion = informacion
         self._parametros = parametros
         self._ai = ai
+        self._last_ai_error: str | None = None
 
     def get_next(
         self,
@@ -159,13 +160,16 @@ class OpcionesService:
         Si es texto, se matchea con opciones_actuales en Redis y se guarda el id.
         Tras guardar, se devuelve el siguiente grupo (texto_lista) para desplegar de inmediato.
         """
+        self._last_ai_error = None
+        debug: dict = {"ai_llamada": False}
+
         if campo not in CAMPOS_ESTADO2:
             print(
                 "[OpcionesService.submit] Campo no válido",
                 {"wa_id": wa_id, "id_from": id_from, "campo": campo},
                 flush=True,
             )
-            return {"success": False, "mensaje": f"Campo no válido: {campo}"}
+            return {"success": False, "mensaje": f"Campo no válido: {campo}", "debug": {"etapa": "validacion_campo"}}
 
         registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         if not registro:
@@ -174,11 +178,15 @@ class OpcionesService:
                 {"wa_id": wa_id, "id_from": id_from},
                 flush=True,
             )
-            return {"success": False, "mensaje": "No hay registro activo."}
+            return {"success": False, "mensaje": "No hay registro activo.", "debug": {"etapa": "sin_registro"}}
 
         valor_id = valor
         valor_nombre = None
         opciones_actuales = normalizar_opciones_actuales(registro.get(OPCIONES_ACTUALES_KEY))
+
+        debug["opciones_count"] = len(opciones_actuales) if opciones_actuales else 0
+        debug["valor_tipo"] = type(valor).__name__
+        debug["ai_inyectado"] = self._ai is not None
 
         print(
             "[OpcionesService.submit] IN",
@@ -193,32 +201,49 @@ class OpcionesService:
         )
 
         if isinstance(valor, str) and opciones_actuales:
+            match_etapa = "ninguno"
             for op in opciones_actuales:
                 nom = op.get("nombre") or op.get("title") or ""
                 if _coincide_nombre(valor, nom):
                     valor_id = op.get("id")
                     valor_nombre = nom
+                    match_etapa = "exacto"
                     break
-            else:
-                # Match por substring (ej. "Lima" en "Sucursal Lima")
+            if match_etapa != "exacto":
                 valor_id, valor_nombre = _buscar_opcion_por_substring(valor, opciones_actuales)
-                if valor_id is None:
-                    # Reconocimiento por IA: opciones_actuales + mensaje → id
-                    valor_id, valor_nombre = self._resolver_opcion_ia(valor, opciones_actuales)
-                if valor_id is None:
-                    try:
-                        valor_id = int(valor)
-                        valor_nombre = next((op.get("nombre") or op.get("title") for op in opciones_actuales if _id_match(op, valor_id)), None)
-                    except (TypeError, ValueError):
-                        print(
-                            "[OpcionesService.submit] No se reconoce la opción",
-                            {"valor": valor},
-                            flush=True,
-                        )
-                        return {
-                            "success": False,
-                            "mensaje": f"No se reconoce la opción '{valor}'. Escriba el nombre de la lista o un texto que lo identifique.",
-                        }
+                if valor_id is not None:
+                    match_etapa = "substring"
+            if valor_id is None:
+                valor_id, valor_nombre = self._resolver_opcion_ia(valor, opciones_actuales)
+                match_etapa = "ia"
+                debug["ai_llamada"] = True
+                if self._last_ai_error:
+                    debug["ai_error"] = self._last_ai_error
+            if valor_id is None:
+                try:
+                    valor_id = int(valor)
+                    valor_nombre = next((op.get("nombre") or op.get("title") for op in opciones_actuales if _id_match(op, valor_id)), None)
+                    match_etapa = "int"
+                except (TypeError, ValueError):
+                    print(
+                        "[OpcionesService.submit] No se reconoce la opción",
+                        {"valor": valor},
+                        flush=True,
+                    )
+                    debug["match_etapa"] = match_etapa
+                    return {
+                        "success": False,
+                        "mensaje": f"No se reconoce la opción '{valor}'. Escriba el nombre de la lista o un texto que lo identifique.",
+                        "debug": debug,
+                    }
+            debug["match_etapa"] = match_etapa
+        else:
+            if not isinstance(valor, str):
+                debug["match_etapa"] = "valor_no_texto"
+                debug["mensaje_interno"] = "Se requiere valor como texto para matchear por nombre o IA; si es id numérico, envíalo como número."
+            elif not opciones_actuales:
+                debug["match_etapa"] = "sin_opciones_actuales"
+                debug["mensaje_interno"] = "No hay opciones_actuales en Redis; llame primero a get_next para cargar la lista."
 
         print(
             "[OpcionesService.submit] Después de resolver valor",
@@ -310,6 +335,7 @@ class OpcionesService:
             "texto_lista_siguiente": texto_siguiente,
             "opciones_actuales": opciones_actuales_next if opciones_actuales_next else None,
             "mensaje_siguiente": mensaje_siguiente,
+            "debug": debug,
         }
         print(
             "[OpcionesService.submit] OUT respuesta",
@@ -320,15 +346,25 @@ class OpcionesService:
 
     def _resolver_opcion_ia(self, mensaje: str, opciones: list[dict]) -> tuple:
         """Recibe opciones_actuales y mensaje; la IA devuelve el id. Retorna (id, nombre) o (None, None)."""
-        if not self._ai or not opciones or not (mensaje or "").strip():
+        self._last_ai_error = None
+        if not self._ai:
+            self._last_ai_error = "Servicio de IA no inyectado"
+            return (None, None)
+        if not opciones:
+            self._last_ai_error = "Lista de opciones vacía"
+            return (None, None)
+        if not (mensaje or "").strip():
+            self._last_ai_error = "Mensaje vacío"
             return (None, None)
         try:
             prompt = _build_prompt_resolver_opcion(mensaje, opciones)
             out = self._ai.completar_json(prompt)
             id_val = out.get("id")
             if id_val is None:
+                self._last_ai_error = "IA devolvió id null"
                 return (None, None)
             if isinstance(id_val, str) and id_val.strip().lower() in ("null", ""):
+                self._last_ai_error = "IA devolvió id null o vacío"
                 return (None, None)
             # Normalizar id: puede venir como float, str "1", etc.
             if isinstance(id_val, float) and id_val.is_integer():
@@ -339,7 +375,8 @@ class OpcionesService:
             op_elegida = next((o for o in opciones if _id_match(o, id_val)), None)
             nombre_final = (op_elegida.get("nombre") or op_elegida.get("title")) if op_elegida else str(id_val)
             return (id_val, nombre_final)
-        except Exception:
+        except Exception as e:
+            self._last_ai_error = str(e)
             return (None, None)
 
     def _siguiente_campo_despues_de(self, registro: dict, datos_guardados: dict) -> str | None:
