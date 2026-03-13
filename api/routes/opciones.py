@@ -1,6 +1,6 @@
 """
 Estado 2: opciones (sucursal → centro de costo → método de pago).
-Solo aplica con estado >= 4. Opciones se devuelven como texto_lista; el usuario responde con el nombre y se matchea por opciones_actuales en Redis.
+Solo aplica con estado >= 4. Opciones se devuelven en mensaje; el usuario responde con el nombre y se matchea por opciones_actuales en Redis.
 Se trabaja solo con id_from tanto para Redis como para las APIs de información.
 """
 from __future__ import annotations
@@ -49,12 +49,12 @@ async def opciones(
     id_from se usa también como id de tablas para sucursales/métodos.
 
     Modo GET (action=get):
-      - Devuelve texto_lista y persiste opciones_actuales en Redis.
+      - Devuelve mensaje (lista o instrucción) y persiste opciones_actuales en Redis.
 
     Modo SUBMIT (action=submit):
       - campo + valor/mensaje (valor = id o mensaje con el nombre de la opción).
       - Origen del valor: query 'valor' → body valor → query 'mensaje' → body mensaje.
-      - Matchea por nombre (exacto, substring, IA) y devuelve texto_lista y mensaje.
+      - Matchea por nombre (exacto, substring, IA) y devuelve mensaje.
     """
     # DEBUG: traza de entrada a /opciones
     print(

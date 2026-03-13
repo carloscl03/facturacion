@@ -122,11 +122,19 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
     medio_pago = (reg.get("medio_pago") or "").strip().lower()
     tipo_venta = medio_pago.capitalize() if medio_pago in ("contado", "credito") else None
 
-    forma_pago_str = (reg.get("forma_pago") or "").strip().lower()
-    try:
-        id_forma_pago = int(forma_pago_str)
-    except (TypeError, ValueError):
-        id_forma_pago = FORMA_PAGO_MAP.get(forma_pago_str, 9)
+    # Preferir id ya guardado (p. ej. desde opciones Estado 2); si no, mapear por nombre.
+    id_forma_pago = None
+    if reg.get("id_metodo_pago") is not None:
+        try:
+            id_forma_pago = int(reg.get("id_metodo_pago"))
+        except (TypeError, ValueError):
+            pass
+    if id_forma_pago is None:
+        forma_pago_str = (reg.get("forma_pago") or "").strip().lower()
+        try:
+            id_forma_pago = int(forma_pago_str)
+        except (TypeError, ValueError):
+            id_forma_pago = FORMA_PAGO_MAP.get(forma_pago_str, 9)
 
     monto_total = float(reg.get("monto_total") or 0)
     monto_base = float(reg.get("monto_sin_igv") or 0)
@@ -177,13 +185,14 @@ def construir_payload_venta(
     a partir del registro y de los parámetros ya traducidos.
     """
     detalle_items = construir_detalle_desde_registro(reg, monto_total, monto_base, monto_igv)
-    return {
+    payload = {
         "codOpe": "CREAR_VENTA",
         "id_usuario": reg.get("id_usuario", 3),
         "id_cliente": id_cliente,
         "id_sucursal": reg.get("id_sucursal") or 14,
         "id_moneda": id_moneda,
         "id_forma_pago": id_forma_pago,
+        "id_medio_pago": reg.get("id_medio_pago"),
         "tipo_venta": tipo_venta or "Contado",
         "fecha_emision": fecha_emision,
         "fecha_pago": fecha_pago,
@@ -191,6 +200,12 @@ def construir_payload_venta(
         "id_caja_banco": reg.get("id_caja_banco", 4),
         "tipo_facturacion": "facturacion_electronica",
         "id_tipo_comprobante": id_tipo_comprobante,
+        "serie": reg.get("serie"),
+        "numero": reg.get("numero"),
+        "observaciones": (reg.get("observaciones") or "").strip() or None,
         "detalle_items": detalle_items,
     }
+    if payload["observaciones"] is None:
+        payload.pop("observaciones", None)
+    return payload
 

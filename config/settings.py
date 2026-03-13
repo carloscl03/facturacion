@@ -16,8 +16,10 @@ URL_INFORMACION_IA: str = "https://api.maravia.pe/servicio/ws_informacion_ia.php
 URL_PARAMETROS: str = "https://api.maravia.pe/servicio/n8n/ws_parametros.php"
 URL_SEND_WHATSAPP_LIST: str = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_list.php"
 
-# --- Tokens ---
-TOKEN_SUNAT: str = os.getenv("TOKEN_SUNAT", "")
+# --- SUNAT / Login (token para CREAR_VENTA; no se usa token fijo en env) ---
+URL_LOGIN: str = os.getenv("MARAVIA_URL_LOGIN", "https://api.maravia.pe/servicio/ws_login.php")
+MARAVIA_USER: str = os.getenv("MARAVIA_USER", "")
+MARAVIA_PASSWORD: str = os.getenv("MARAVIA_PASSWORD", "")
 
 # --- Redis (cache alternativo) ---
 # Por defecto "http" para desarrollo local sin Redis; en producción usar CACHE_BACKEND=redis en .env

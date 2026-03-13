@@ -11,6 +11,7 @@ from repositories.informacion_repository import InformacionRepository
 from repositories.parametros_repository import ParametrosRepository
 from repositories.redis_cache_repository import RedisCacheRepository
 from services.ai_service import AIService, OpenAIService
+from services.helpers.sunat_client import SunatClient, obtener_token_sunat
 from services.identificador_service import IdentificadorService
 
 _redis_client: Redis | None = None
@@ -50,3 +51,9 @@ def get_identificador_service(
     entity_repo: EntityRepository = Depends(get_entity_repo),
 ) -> IdentificadorService:
     return IdentificadorService(cache_repo, entity_repo)
+
+
+def get_sunat_client() -> SunatClient:
+    """Cliente SUNAT con token obtenido por login (MARAVIA_USER / MARAVIA_PASSWORD)."""
+    token = obtener_token_sunat()
+    return SunatClient(token=token)

@@ -118,7 +118,6 @@ class OpcionesService:
             return {
                 "listo_estado1": False,
                 "mensaje": "No hay registro activo. Complete primero el registro (Estado 1).",
-                "texto_lista": None,
                 "campo_pendiente": None,
                 "payload_whatsapp_list": None,
                 "debug": debug_agente,
@@ -130,7 +129,6 @@ class OpcionesService:
             return {
                 "listo_estado1": False,
                 "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir sucursal, centro de costo y método de pago.",
-                "texto_lista": None,
                 "campo_pendiente": None,
                 "payload_whatsapp_list": None,
                 "debug": debug_agente,
@@ -144,7 +142,6 @@ class OpcionesService:
                 "listo_estado1": True,
                 "estado2_completo": True,
                 "campo_pendiente": None,
-                "texto_lista": None,
                 "opciones_actuales": None,
                 "payload_whatsapp_list": None,
                 "mensaje": "Diga 'finalizar registro' para continuar.",
@@ -155,7 +152,7 @@ class OpcionesService:
         opciones_raw = self._obtener_lista_opciones(campo, wa_id, id_from)
         opciones_actuales = lista_para_redis(opciones_raw)
         titulo = self._titulo_campo(campo)
-        texto_lista = f"{titulo}\n" + self._formatear_texto_lista(opciones_actuales) if opciones_actuales else "No hay opciones disponibles."
+        mensaje = f"{titulo}\n" + self._formatear_texto_lista(opciones_actuales) if opciones_actuales else "No hay opciones disponibles."
 
         try:
             self._cache.actualizar(wa_id, id_from, {OPCIONES_ACTUALES_KEY: opciones_actuales})
@@ -169,10 +166,9 @@ class OpcionesService:
             "listo_estado1": True,
             "estado2_completo": False,
             "campo_pendiente": campo,
-            "texto_lista": texto_lista,
             "opciones_actuales": opciones_actuales,
             "payload_whatsapp_list": None,
-            "mensaje": None,
+            "mensaje": mensaje,
             "debug": debug_agente,
         }
 
@@ -186,7 +182,7 @@ class OpcionesService:
         """
         valor puede ser el id (número) o el mensaje del usuario (nombre de la opción).
         Si es texto, se matchea con opciones_actuales en Redis y se guarda el id.
-        Tras guardar, se devuelve el siguiente grupo (texto_lista) para desplegar de inmediato.
+        Tras guardar, se devuelve el siguiente grupo en mensaje para desplegar de inmediato.
         """
         self._last_ai_error = None
         debug: dict = {"ai_llamada": False}
@@ -351,14 +347,13 @@ class OpcionesService:
             return {"success": False, "mensaje": str(e)}
 
         titulo_siguiente = self._titulo_campo(siguiente) if siguiente else None
-        texto_lista = (f"{titulo_siguiente}\n" + self._formatear_texto_lista(opciones_actuales_next)) if opciones_actuales_next else None
-        mensaje = "Diga 'finalizar registro' para continuar." if siguiente is None else None
+        texto_siguiente = (f"{titulo_siguiente}\n" + self._formatear_texto_lista(opciones_actuales_next)) if opciones_actuales_next else None
+        mensaje = "Diga 'finalizar registro' para continuar." if siguiente is None else (texto_siguiente or None)
         resp = {
             "success": True,
             "listo_estado1": True,
             "estado2_completo": siguiente is None,
             "campo_pendiente": siguiente,
-            "texto_lista": texto_lista,
             "opciones_actuales": opciones_actuales_next if opciones_actuales_next else None,
             "payload_whatsapp_list": None,
             "mensaje": mensaje,

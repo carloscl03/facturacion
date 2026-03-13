@@ -81,7 +81,7 @@ def test_get_next_sucursales_y_submit_sucursal_match_exacto():
     resp_next = service.get_next(wa_id, id_from)
     assert resp_next["listo_estado1"] is True
     assert resp_next["campo_pendiente"] == "sucursal"
-    assert "San Isidro" in (resp_next["texto_lista"] or "")
+    assert "San Isidro" in (resp_next.get("mensaje") or "")
     assert resp_next["opciones_actuales"]
 
     registro = cache.consultar(wa_id, id_from)
