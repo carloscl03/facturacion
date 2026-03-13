@@ -254,6 +254,8 @@ class OpcionesService:
         return {
             "success": True,
             "campo_guardado": campo,
+            "id_detectada": valor_id,
+            "nombre_detectado": valor_nombre,
             "siguiente": siguiente,
             "estado2_completo": siguiente is None,
             "texto_lista_siguiente": texto_siguiente,
