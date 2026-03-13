@@ -89,6 +89,22 @@ async def opciones(
     else:
         valor_final = b.mensaje
 
+    # Debug para el nodo: qué recibió la API (diagnóstico).
+    debug_request = {
+        "action_final": action_final,
+        "campo_final": campo_final,
+        "valor_final": valor_final,
+        "mensaje_query": mensaje,
+        "body_mensaje": b.mensaje,
+        "wa_id": wa_id,
+        "id_from": id_from,
+    }
+
+    def _respuesta_con_debug(resp: dict) -> dict:
+        agente = resp.pop("debug", None) or {}
+        resp["debug"] = {"request": debug_request, "agente": agente}
+        return resp
+
     service = OpcionesService(cache, informacion, parametros, ai=ai)
     if action_final == "submit":
         print(
@@ -97,16 +113,17 @@ async def opciones(
             flush=True,
         )
         if campo_final is None:
-            return {"success": False, "mensaje": "Se requiere campo para action=submit."}
+            return _respuesta_con_debug({"success": False, "mensaje": "Se requiere campo para action=submit.", "debug": {"etapa": "falta_campo"}})
         if valor_final is None and campo_final:
-            return {
+            return _respuesta_con_debug({
                 "success": False,
                 "mensaje": "Se requiere valor (id o texto con el nombre de la opción) ya sea en el body, en el query param 'valor' o en el query param 'mensaje'.",
-            }
-        return service.submit(wa_id, id_from, campo_final, valor_final)
+                "debug": {"etapa": "falta_valor"},
+            })
+        return _respuesta_con_debug(service.submit(wa_id, id_from, campo_final, valor_final))
     print(
         "[/opciones] MODO get_next:",
         {"action_final": action_final},
         flush=True,
     )
-    return service.get_next(wa_id, id_from)
+    return _respuesta_con_debug(service.get_next(wa_id, id_from))

@@ -98,26 +98,35 @@ class OpcionesService:
         Persiste en Redis opciones_actuales = [{id, nombre}, ...] para matchear después.
         """
         registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
+        debug_agente = {"modo": "get_next", "tiene_registro": registro is not None}
+
         if not registro:
+            debug_agente["motivo"] = "no_hay_registro"
             return {
                 "listo_estado1": False,
                 "mensaje": "No hay registro activo. Complete primero el registro (Estado 1).",
                 "texto_lista": None,
                 "campo_pendiente": None,
                 "payload_whatsapp_list": None,
+                "debug": debug_agente,
             }
         estado = int(registro.get("estado") or 0)
+        debug_agente["estado"] = estado
         if estado < 4:
+            debug_agente["motivo"] = "estado_menor_4"
             return {
                 "listo_estado1": False,
                 "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir sucursal, centro de costo y método de pago.",
                 "texto_lista": None,
                 "campo_pendiente": None,
                 "payload_whatsapp_list": None,
+                "debug": debug_agente,
             }
 
         campo = siguiente_campo_pendiente(registro, self._parametros is not None)
+        debug_agente["campo_pendiente"] = campo
         if not campo:
+            debug_agente["motivo"] = "estado2_completo"
             return {
                 "listo_estado1": True,
                 "estado2_completo": True,
@@ -126,6 +135,7 @@ class OpcionesService:
                 "opciones_actuales": None,
                 "payload_whatsapp_list": None,
                 "mensaje_siguiente": "Diga 'finalizar registro' para continuar.",
+                "debug": debug_agente,
             }
 
         # Para tablas externas (sucursales / métodos de pago) también se usa id_from como id_empresa.
@@ -139,6 +149,8 @@ class OpcionesService:
         except Exception:
             pass
 
+        debug_agente["motivo"] = "lista_mostrada"
+        debug_agente["opciones_count"] = len(opciones_actuales) if opciones_actuales else 0
         return {
             "listo_estado1": True,
             "estado2_completo": False,
@@ -146,6 +158,7 @@ class OpcionesService:
             "texto_lista": texto_lista,
             "opciones_actuales": opciones_actuales,
             "payload_whatsapp_list": None,
+            "debug": debug_agente,
         }
 
     def submit(
