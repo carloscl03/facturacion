@@ -53,15 +53,15 @@ class ClasificadorService:
         except Exception:
             registro = None
 
-        if not registro:
-            return self._respuesta_casual()
-
-        # Estado y operación siempre leídos de Redis cuando existe el registro.
-        estado = obtener_estado(registro)
-
-        ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
-        operacion = operacion_desde_registro(registro)
-        opciones_completo = opciones_completas(registro)
+        if registro:
+            estado = obtener_estado(registro)
+            ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
+            operacion = operacion_desde_registro(registro)
+            opciones_completo = opciones_completas(registro)
+        else:
+            ultima_pregunta = ""
+            operacion = None
+            opciones_completo = False
 
         prompt = build_prompt_router(
             mensaje, ultima_pregunta, estado, operacion, opciones_completo=opciones_completo
@@ -91,8 +91,8 @@ class ClasificadorService:
 
         # --- Orquestación: candados en orden (estado siempre el leído de Redis) ---
 
-        # 1. Casual solo sin registro; con registro nunca devolver casual.
-        if intencion == "casual" or destino == "casual":
+        # 1. Con registro nunca devolver casual; sin registro sí se puede devolver casual.
+        if registro and (intencion == "casual" or destino == "casual"):
             destino = "extraccion"
             intencion = "actualizar"
 
@@ -110,8 +110,8 @@ class ClasificadorService:
             destino = "generar-resumen"
             intencion = "resumen"
 
-        # 4. Confirmación 3→4: mensaje de confirmar + estado 3 → el clasificador hace el cambio en Redis.
-        if siguiente_estado and estado == 3:
+        # 4. Confirmación 3→4: mensaje de confirmar + estado 3 → el clasificador hace el cambio en Redis (solo si hay registro).
+        if registro and siguiente_estado and estado == 3:
             destino = "confirmar-registro"
             intencion = "opciones"
             try:
