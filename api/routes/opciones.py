@@ -13,6 +13,7 @@ from repositories.base import CacheRepository
 from repositories.informacion_repository import InformacionRepository
 from repositories.parametros_repository import ParametrosRepository
 from services.ai_service import AIService
+from services.helpers.opciones_domain import siguiente_campo_pendiente
 from services.opciones_service import OpcionesService
 
 router = APIRouter()
@@ -88,6 +89,15 @@ async def opciones(
         valor_final = mensaje
     else:
         valor_final = b.mensaje
+
+    # Si el nodo envía mensaje pero no action ni campo: inferir submit desde Redis (campo pendiente).
+    if action_final == "get" and valor_final is not None and campo_final is None and wa_id and id_from:
+        registro = cache.consultar(wa_id, id_from)
+        if registro and int(registro.get("estado") or 0) >= 4:
+            campo_inferido = siguiente_campo_pendiente(registro, parametros is not None)
+            if campo_inferido:
+                action_final = "submit"
+                campo_final = campo_inferido
 
     # Debug para el nodo: qué recibió la API (diagnóstico).
     debug_request = {
