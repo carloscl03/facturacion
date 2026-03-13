@@ -13,8 +13,11 @@ from repositories.base import CacheRepository
 from repositories.informacion_repository import InformacionRepository
 from repositories.parametros_repository import ParametrosRepository
 from services.ai_service import AIService
-from services.helpers.opciones_domain import siguiente_campo_pendiente
+from services.helpers.opciones_domain import normalizar_opciones_actuales, siguiente_campo_pendiente
 from services.opciones_service import OpcionesService
+
+# Clave Redis: si ya hay lista cargada, el mensaje es selección; si no, es primer mensaje (solo cargar lista).
+OPCIONES_ACTUALES_KEY = "opciones_actuales"
 
 router = APIRouter()
 
@@ -42,19 +45,13 @@ async def opciones(
 ):
     """
     Query:
-      - wa_id, id_from (cache).
-      - mensaje: texto libre del usuario (se usa como valor cuando no se envía en el body).
+      - wa_id, id_from (cache y id de tablas para sucursales/métodos).
+      - mensaje: texto libre (se usa como selección solo a partir del segundo mensaje).
       - action, campo, valor: opcionales; si vienen en query tienen prioridad sobre el body.
 
-    id_from se usa también como id de tablas para sucursales/métodos.
-
-    Modo GET (action=get):
-      - Devuelve mensaje (lista o instrucción) y persiste opciones_actuales en Redis.
-
-    Modo SUBMIT (action=submit):
-      - campo + valor/mensaje (valor = id o mensaje con el nombre de la opción).
-      - Origen del valor: query 'valor' → body valor → query 'mensaje' → body mensaje.
-      - Matchea por nombre (exacto, substring, IA) y devuelve mensaje.
+    Flujo: Primer mensaje se ignora (solo se cargan opciones con wa_id e id_from). Segundo mensaje
+    es la selección del usuario; se matchea con opciones_actuales y se guarda. Modo GET devuelve
+    lista; modo SUBMIT (o inferido) guarda la elección y devuelve siguiente lista o mensaje.
     """
     # DEBUG: traza de entrada a /opciones
     print(
@@ -90,14 +87,17 @@ async def opciones(
     else:
         valor_final = b.mensaje
 
-    # Si el nodo envía mensaje pero no action ni campo: inferir submit desde Redis (campo pendiente).
+    # Primer mensaje se ignora: solo sirve para cargar la lista (get_next con wa_id e id_from).
+    # Si ya hay opciones_actuales en Redis, el mensaje es la selección del usuario → submit.
     if action_final == "get" and valor_final is not None and campo_final is None and wa_id and id_from:
         registro = cache.consultar(wa_id, id_from)
         if registro and int(registro.get("estado") or 0) >= 4:
             campo_inferido = siguiente_campo_pendiente(registro, parametros is not None)
-            if campo_inferido:
+            opciones_ya_cargadas = len(normalizar_opciones_actuales(registro.get(OPCIONES_ACTUALES_KEY))) > 0
+            if campo_inferido and opciones_ya_cargadas:
                 action_final = "submit"
                 campo_final = campo_inferido
+            # Si no hay opciones_actuales: primer mensaje → no inferir submit; se hará get_next y se ignorará valor_final
 
     # Debug para el nodo: qué recibió la API (diagnóstico).
     debug_request = {
@@ -109,6 +109,9 @@ async def opciones(
         "wa_id": wa_id,
         "id_from": id_from,
     }
+    if action_final == "get" and valor_final is not None and campo_final is None:
+        debug_request["primer_mensaje_ignorado"] = True
+        debug_request["motivo"] = "Sin opciones_actuales en Redis; se devuelve lista (get_next). El siguiente mensaje será la selección."
 
     def _respuesta_con_debug(resp: dict) -> dict:
         agente = resp.pop("debug", None) or {}
