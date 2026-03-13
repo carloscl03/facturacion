@@ -4,12 +4,13 @@ Solo actúa cuando el registro está confirmado (estado >= 4).
 El cambio de estado 3 → 4 se hace en el Clasificador con la confirmación del usuario; este agente
 nunca escribe estado 4, solo lo exige para mostrar listas y guardar elecciones.
 Opciones se presentan como lista de texto; el usuario responde con el nombre y se guarda el id.
-Se guarda en Redis opciones_actuales (id + nombre) para matchear el mensaje.
-Orden: sucursal → centro_costo → forma_pago → medio_pago (alineado con test_opciones.py).
+Reconocimiento: primero match exacto (normalizado); si no hay match, se usa IA para identificar la opción.
+Se guarda en Redis según el tipo: id_sucursal, id_centro_costo, id_metodo_pago (y nombre en sucursal, centro_costo, forma_pago). Orden: sucursal → centro_costo → forma_pago → medio_pago.
 """
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from repositories.base import CacheRepository
 from repositories.informacion_repository import InformacionRepository
@@ -30,16 +31,32 @@ def _coincide_nombre(mensaje: str, nombre: str) -> bool:
     return _normalizar_texto(mensaje) == _normalizar_texto(nombre)
 
 
+def _build_prompt_resolver_opcion(mensaje: str, opciones: list[dict]) -> str:
+    """Prompt: opciones_actuales + mensaje → la IA devuelve el id de la opción elegida."""
+    lista_txt = json.dumps([{"id": o.get("id"), "nombre": o.get("nombre") or o.get("title")} for o in opciones], ensure_ascii=False)
+    return f"""Tienes una lista de opciones y el mensaje del usuario. Devuelve el "id" de la opción a la que se refiere el usuario.
+
+Lista de opciones:
+{lista_txt}
+
+Mensaje del usuario: "{mensaje}"
+
+Identifica la opción (por nombre, sinónimo, parte del nombre o typo leve). Si no corresponde a ninguna, devuelve null.
+Responde SOLO un JSON válido: {{ "id": <id de la opción o null> }}"""
+
+
 class OpcionesService:
     def __init__(
         self,
         cache: CacheRepository,
         informacion: InformacionRepository,
         parametros: ParametrosRepository | None = None,
+        ai: Any = None,
     ) -> None:
         self._cache = cache
         self._informacion = informacion
         self._parametros = parametros
+        self._ai = ai
 
     def get_next(
         self,
@@ -143,10 +160,14 @@ class OpcionesService:
                     valor_nombre = nom
                     break
             else:
-                try:
-                    valor_id = int(valor)
-                except (TypeError, ValueError):
-                    return {"success": False, "mensaje": f"No se reconoce la opción '{valor}'. Escriba exactamente el nombre de la lista."}
+                # Sin match exacto: intentar reconocimiento por IA
+                valor_id, valor_nombre = self._resolver_opcion_ia(valor, opciones_actuales)
+                if valor_id is None:
+                    try:
+                        valor_id = int(valor)
+                        valor_nombre = next((op.get("nombre") or op.get("title") for op in opciones_actuales if op.get("id") == valor_id), None)
+                    except (TypeError, ValueError):
+                        return {"success": False, "mensaje": f"No se reconoce la opción '{valor}'. Escriba el nombre de la lista o un texto que lo identifique."}
 
         datos = {}
         id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_from
@@ -172,7 +193,8 @@ class OpcionesService:
             v = (str(valor_id) or str(valor) or "").strip()
             if not v:
                 return {"success": False, "mensaje": "Valor de forma de pago vacío."}
-            datos["forma_pago"] = v
+            datos["id_metodo_pago"] = valor_id
+            datos["forma_pago"] = valor_nombre or v
         elif campo == "medio_pago":
             v = (str(valor_id) or str(valor) or "").strip().lower()
             if v not in ("contado", "credito"):
@@ -204,6 +226,23 @@ class OpcionesService:
             "opciones_actuales": opciones_actuales_next if opciones_actuales_next else None,
             "mensaje_siguiente": mensaje_siguiente,
         }
+
+    def _resolver_opcion_ia(self, mensaje: str, opciones: list[dict]) -> tuple:
+        """Recibe opciones_actuales y mensaje; la IA devuelve el id. Retorna (id, nombre) o (None, None)."""
+        if not self._ai or not opciones or not (mensaje or "").strip():
+            return (None, None)
+        try:
+            prompt = _build_prompt_resolver_opcion(mensaje, opciones)
+            out = self._ai.completar_json(prompt)
+            id_val = out.get("id")
+            if id_val is None or (isinstance(id_val, str) and id_val.lower() in ("null", "")):
+                return (None, None)
+            if isinstance(id_val, str) and id_val.isdigit():
+                id_val = int(id_val)
+            nombre_final = next((o.get("nombre") or o.get("title") for o in opciones if o.get("id") == id_val), None)
+            return (id_val, nombre_final)
+        except Exception:
+            return (None, None)
 
     def _siguiente_campo_pendiente(self, registro: dict) -> str | None:
         if not registro.get("id_sucursal"):
