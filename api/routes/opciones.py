@@ -199,29 +199,53 @@ async def opciones(
 
     def _enviar_mensaje_oficial(
         id_empresa: int, phone: str, id_plataforma: int, mensaje: str
-    ) -> tuple[bool, str | None]:
-        """Envía el mensaje de finalizar por ws_send_whatsapp_oficial. Retorna (éxito, error)."""
+    ) -> tuple[bool, str | None, dict]:
+        """Envía el mensaje de finalizar por ws_send_whatsapp_oficial. Retorna (éxito, error, debug_oficial)."""
+        url = settings.URL_SEND_WHATSAPP_OFICIAL
+        payload = {
+            "id_empresa": id_empresa,
+            "phone": phone,
+            "id_plataforma": id_plataforma,
+            "mensaje": mensaje,
+        }
+        debug_oficial = {
+            "url_llamada": url,
+            "payload_enviado": payload,
+            "status_code": None,
+            "response_body_preview": None,
+            "donde_arreglar": None,
+        }
         try:
-            payload = {
-                "id_empresa": id_empresa,
-                "phone": phone,
-                "id_plataforma": id_plataforma,
-                "mensaje": mensaje,
-            }
             r = requests.post(
-                settings.URL_SEND_WHATSAPP_OFICIAL,
+                url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
                 timeout=30,
             )
+            debug_oficial["status_code"] = r.status_code
+            if r.text:
+                preview = r.text[:500] if len(r.text) <= 500 else r.text[:500] + "..."
+                debug_oficial["response_body_preview"] = preview
+            if r.status_code == 400:
+                debug_oficial["donde_arreglar"] = (
+                    "400 Bad Request: revisar response_body_preview para ver qué campo falta o está mal. "
+                    "Comprobar que la API espere id_empresa, phone, id_plataforma (y mensaje si aplica) con esos nombres."
+                )
+            elif r.status_code == 404:
+                debug_oficial["donde_arreglar"] = "404: URL no existe o credenciales no encontradas para id_empresa. Revisar response_body_preview."
+            elif r.status_code >= 500:
+                debug_oficial["donde_arreglar"] = "Error 5xx del servidor de envío; revisar logs del backend ws_send_whatsapp_oficial."
             if r.status_code != 200:
-                return False, f"HTTP {r.status_code}"
+                return False, f"HTTP {r.status_code}", debug_oficial
             data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
             if not data.get("success", True):
-                return False, data.get("error") or data.get("message") or "API error"
-            return True, None
+                err = data.get("error") or data.get("message") or "API error"
+                debug_oficial["donde_arreglar"] = f"API success=false: {err}. Revisar response_body_preview."
+                return False, err, debug_oficial
+            return True, None, debug_oficial
         except requests.RequestException as e:
-            return False, str(e)
+            debug_oficial["donde_arreglar"] = f"Error de conexión: {e}. Comprobar que la URL sea accesible: {url}"
+            return False, str(e), debug_oficial
 
     service = OpcionesService(cache, informacion, parametros, ai=ai)
     if action_final == "submit":
@@ -252,10 +276,11 @@ async def opciones(
                 out["whatsapp_list_debug"]["id_empresa_usado_en_envio"] = payload_list["id_empresa"]
         if out.get("estado2_completo") and (out.get("mensaje") or "").strip() == MENSAJE_FINALIZAR:
             id_empresa_envio = id_empresa_wa_final if id_empresa_wa_final is not None else id_from
-            enviado_of, error_of = _enviar_mensaje_oficial(id_empresa_envio, wa_id, id_plataforma_final, MENSAJE_FINALIZAR)
+            enviado_of, error_of, debug_of = _enviar_mensaje_oficial(id_empresa_envio, wa_id, id_plataforma_final, MENSAJE_FINALIZAR)
             out["whatsapp_oficial_enviado"] = enviado_of
             if error_of:
                 out["whatsapp_oficial_error"] = error_of
+            out["whatsapp_oficial_debug"] = debug_of
         return _respuesta_con_debug(out)
 
     print(
@@ -277,8 +302,9 @@ async def opciones(
             out["whatsapp_list_debug"]["id_empresa_usado_en_envio"] = payload_list["id_empresa"]
     if out.get("estado2_completo") and (out.get("mensaje") or "").strip() == MENSAJE_FINALIZAR:
         id_empresa_envio = id_empresa_wa_final if id_empresa_wa_final is not None else id_from
-        enviado_of, error_of = _enviar_mensaje_oficial(id_empresa_envio, wa_id, id_plataforma_final, MENSAJE_FINALIZAR)
+        enviado_of, error_of, debug_of = _enviar_mensaje_oficial(id_empresa_envio, wa_id, id_plataforma_final, MENSAJE_FINALIZAR)
         out["whatsapp_oficial_enviado"] = enviado_of
         if error_of:
             out["whatsapp_oficial_error"] = error_of
+        out["whatsapp_oficial_debug"] = debug_of
     return _respuesta_con_debug(out)
