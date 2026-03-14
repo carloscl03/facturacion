@@ -102,11 +102,13 @@ class OpcionesService:
         wa_id: str,
         id_from: int,
         id_plataforma: int = 6,
+        id_empresa_tablas: int | None = None,
     ) -> dict:
         """
         Devuelve la siguiente lista de opciones en texto y payload para ws_send_whatsapp_list.
         Persiste en Redis opciones_actuales = [{id, nombre}, ...] para matchear después.
-        id_plataforma se incluye en payload_whatsapp_list (requerido por la API de lista WhatsApp).
+        id_plataforma: requerido por la API de lista WhatsApp.
+        id_empresa_tablas: opcional; si se envía, se usa para jalar sucursales y métodos de pago (como en test_opciones).
         """
         registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         debug_agente = {"modo": "get_next", "tiene_registro": registro is not None}
@@ -159,8 +161,8 @@ class OpcionesService:
                 "debug": debug_agente,
             }
 
-        # Para tablas externas (sucursales / métodos de pago) también se usa id_from como id_empresa.
-        opciones_raw = self._obtener_lista_opciones(campo, wa_id, id_from)
+        id_tablas = id_empresa_tablas if id_empresa_tablas is not None else id_from
+        opciones_raw = self._obtener_lista_opciones(campo, wa_id, id_tablas)
         opciones_actuales = lista_para_redis(opciones_raw)
         titulo = self._titulo_campo(campo)
         mensaje = f"{titulo}\n" + self._formatear_texto_lista(opciones_actuales) if opciones_actuales else "No hay opciones disponibles."
@@ -197,6 +199,7 @@ class OpcionesService:
         campo: str,
         valor,
         id_plataforma: int = 6,
+        id_empresa_tablas: int | None = None,
     ) -> dict:
         """
         valor puede ser el id (número) o el mensaje del usuario (nombre de la opción).
@@ -348,7 +351,7 @@ class OpcionesService:
             datos["medio_pago"] = v
 
         siguiente = self._siguiente_campo_despues_de(registro, datos)
-        id_tablas_next = id_from
+        id_tablas_next = id_empresa_tablas if id_empresa_tablas is not None else id_from
         opciones_actuales_next = []
         if siguiente:
             opciones_raw = self._obtener_lista_opciones(siguiente, wa_id, id_tablas_next)
@@ -468,6 +471,39 @@ class OpcionesService:
             return "Medio de pago (contado o crédito):"
         return "Opciones:"
 
+    def _textos_lista_whatsapp(self, campo: str) -> tuple[str, str, str, str]:
+        """Body, header, footer, button para payload lista WhatsApp (igual que test_opciones.py)."""
+        if campo == "sucursal":
+            return (
+                "Sucursales disponibles: ",
+                "Sucursales",
+                "Selecciona una sucursal",
+                "Ver sucursales",
+            )
+        if campo == "centro_costo":
+            return (
+                "Centros de costo disponibles: ",
+                "Centros de costo",
+                "Selecciona un centro de costo",
+                "Ver centros de costo",
+            )
+        if campo == "forma_pago":
+            return (
+                "Métodos de pago disponibles: ",
+                "Métodos de pago",
+                "Selecciona un método de pago",
+                "Ver métodos de pago",
+            )
+        if campo == "medio_pago":
+            return (
+                "Medio de pago disponibles: ",
+                "Medio de pago",
+                "Selecciona contado o crédito",
+                "Ver medio de pago",
+            )
+        titulo = self._titulo_campo(campo).rstrip(":")
+        return (f"{titulo} disponibles: ", titulo, f"Selecciona una opción de {titulo.lower()}", f"Ver {titulo.lower()}")
+
     def _formatear_texto_lista(self, opciones: list[dict]) -> str:
         if not opciones:
             return "No hay opciones disponibles."
@@ -498,23 +534,22 @@ class OpcionesService:
         opciones_actuales: list[dict],
     ) -> dict | None:
         """
-        Arma el payload para ws_send_whatsapp_list.php (id_plataforma requerido por la API).
-        Si campo es None o no hay opciones, retorna None.
+        Arma el payload para ws_send_whatsapp_list.php (mismo formato que test_opciones.py).
+        id_empresa = id_whatsapp (credenciales envío); id_plataforma requerido por la API.
         """
         if not campo or not opciones_actuales:
             return None
-        titulo = self._titulo_campo(campo)
+        body_text, header_text, footer_text, button_text = self._textos_lista_whatsapp(campo)
         filas = self._opciones_a_filas(opciones_actuales)
         if not filas:
-            filas = [{"id": "0", "title": f"Sin {titulo.lower()}", "description": ""}]
-        body = f"{titulo}\nSelecciona una opción."
+            filas = [{"id": "0", "title": f"Sin opciones", "description": ""}]
         return {
             "id_empresa": id_empresa,
             "id_plataforma": id_plataforma,
             "phone": phone,
-            "body_text": body,
-            "button_text": f"Ver {titulo.rstrip(':')}",
-            "header_text": titulo.rstrip(':'),
-            "footer_text": f"Selecciona una opción de {titulo.lower().rstrip(':')}",
-            "sections": [{"title": titulo.rstrip(':'), "rows": filas}],
+            "body_text": body_text,
+            "button_text": button_text,
+            "header_text": header_text,
+            "footer_text": footer_text,
+            "sections": [{"title": header_text, "rows": filas}],
         }
