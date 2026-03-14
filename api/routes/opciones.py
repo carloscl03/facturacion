@@ -21,6 +21,8 @@ from services.opciones_service import OpcionesService
 
 # Clave Redis: si ya hay lista cargada, el mensaje es selección; si no, es primer mensaje (solo cargar lista).
 OPCIONES_ACTUALES_KEY = "opciones_actuales"
+# Mensaje de finalizar que se envía por ws_send_whatsapp_oficial
+MENSAJE_FINALIZAR = "Diga 'finalizar registro' para continuar."
 
 router = APIRouter()
 
@@ -195,6 +197,32 @@ async def opciones(
             debug_whatsapp["donde_arreglar"] = f"Error de conexión/timeout: {e}. Comprobar que la URL sea accesible desde este servidor: {url}"
             return False, str(e), debug_whatsapp
 
+    def _enviar_mensaje_oficial(
+        id_empresa: int, phone: str, id_plataforma: int, mensaje: str
+    ) -> tuple[bool, str | None]:
+        """Envía el mensaje de finalizar por ws_send_whatsapp_oficial. Retorna (éxito, error)."""
+        try:
+            payload = {
+                "id_empresa": id_empresa,
+                "phone": phone,
+                "id_plataforma": id_plataforma,
+                "mensaje": mensaje,
+            }
+            r = requests.post(
+                settings.URL_SEND_WHATSAPP_OFICIAL,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            )
+            if r.status_code != 200:
+                return False, f"HTTP {r.status_code}"
+            data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            if not data.get("success", True):
+                return False, data.get("error") or data.get("message") or "API error"
+            return True, None
+        except requests.RequestException as e:
+            return False, str(e)
+
     service = OpcionesService(cache, informacion, parametros, ai=ai)
     if action_final == "submit":
         print(
@@ -222,6 +250,12 @@ async def opciones(
             out["whatsapp_list_debug"] = debug_wa
             if id_empresa_wa_final is not None:
                 out["whatsapp_list_debug"]["id_empresa_usado_en_envio"] = payload_list["id_empresa"]
+        if out.get("estado2_completo") and (out.get("mensaje") or "").strip() == MENSAJE_FINALIZAR:
+            id_empresa_envio = id_empresa_wa_final if id_empresa_wa_final is not None else id_from
+            enviado_of, error_of = _enviar_mensaje_oficial(id_empresa_envio, wa_id, id_plataforma_final, MENSAJE_FINALIZAR)
+            out["whatsapp_oficial_enviado"] = enviado_of
+            if error_of:
+                out["whatsapp_oficial_error"] = error_of
         return _respuesta_con_debug(out)
 
     print(
@@ -241,4 +275,10 @@ async def opciones(
         out["whatsapp_list_debug"] = debug_wa
         if id_empresa_wa_final is not None:
             out["whatsapp_list_debug"]["id_empresa_usado_en_envio"] = payload_list["id_empresa"]
+    if out.get("estado2_completo") and (out.get("mensaje") or "").strip() == MENSAJE_FINALIZAR:
+        id_empresa_envio = id_empresa_wa_final if id_empresa_wa_final is not None else id_from
+        enviado_of, error_of = _enviar_mensaje_oficial(id_empresa_envio, wa_id, id_plataforma_final, MENSAJE_FINALIZAR)
+        out["whatsapp_oficial_enviado"] = enviado_of
+        if error_of:
+            out["whatsapp_oficial_error"] = error_of
     return _respuesta_con_debug(out)
