@@ -1,14 +1,17 @@
 """
 Estado 2: opciones (sucursal → centro de costo → método de pago).
 Solo aplica con estado >= 4. Opciones se devuelven en mensaje; el usuario responde con el nombre y se matchea por opciones_actuales en Redis.
-Se trabaja solo con id_from tanto para Redis como para las APIs de información.
+Cuando hay payload_whatsapp_list, se envía a ws_send_whatsapp_list para mostrar la lista en WhatsApp.
 """
 from __future__ import annotations
+
+import requests
 
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
 
 from api.deps import get_ai_service, get_cache_repo, get_informacion_repo, get_parametros_repo
+from config import settings
 from repositories.base import CacheRepository
 from repositories.informacion_repository import InformacionRepository
 from repositories.parametros_repository import ParametrosRepository
@@ -124,6 +127,24 @@ async def opciones(
         resp["debug"] = {"request": debug_request, "agente": agente}
         return resp
 
+    def _enviar_lista_whatsapp(payload_list: dict) -> tuple[bool, str | None]:
+        """Envía payload_whatsapp_list a ws_send_whatsapp_list. Retorna (éxito, mensaje_error)."""
+        try:
+            r = requests.post(
+                settings.URL_SEND_WHATSAPP_LIST,
+                json=payload_list,
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            )
+            if r.status_code != 200:
+                return False, f"HTTP {r.status_code}"
+            data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            if not data.get("success", True):
+                return False, (data.get("error") or data.get("message") or "API error")
+            return True, None
+        except requests.RequestException as e:
+            return False, str(e)
+
     service = OpcionesService(cache, informacion, parametros, ai=ai)
     if action_final == "submit":
         print(
@@ -139,10 +160,25 @@ async def opciones(
                 "mensaje": "Se requiere valor (id o texto con el nombre de la opción) ya sea en el body, en el query param 'valor' o en el query param 'mensaje'.",
                 "debug": {"etapa": "falta_valor"},
             })
-        return _respuesta_con_debug(service.submit(wa_id, id_from, campo_final, valor_final, id_plataforma_final))
+        out = service.submit(wa_id, id_from, campo_final, valor_final, id_plataforma_final)
+        payload_list = out.get("payload_whatsapp_list")
+        if payload_list:
+            enviado, error = _enviar_lista_whatsapp(payload_list)
+            out["whatsapp_list_enviado"] = enviado
+            if error:
+                out["whatsapp_list_error"] = error
+        return _respuesta_con_debug(out)
+
     print(
         "[/opciones] MODO get_next:",
         {"action_final": action_final},
         flush=True,
     )
-    return _respuesta_con_debug(service.get_next(wa_id, id_from, id_plataforma_final))
+    out = service.get_next(wa_id, id_from, id_plataforma_final)
+    payload_list = out.get("payload_whatsapp_list")
+    if payload_list:
+        enviado, error = _enviar_lista_whatsapp(payload_list)
+        out["whatsapp_list_enviado"] = enviado
+        if error:
+            out["whatsapp_list_error"] = error
+    return _respuesta_con_debug(out)
