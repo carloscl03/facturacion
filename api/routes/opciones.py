@@ -208,6 +208,7 @@ async def opciones(
             "id_plataforma": id_plataforma,
             "tipo": "texto",
             "mensaje": mensaje,
+            "texto": mensaje,
         }
         debug_oficial = {
             "url_llamada": url,
