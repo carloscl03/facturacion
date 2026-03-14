@@ -101,12 +101,13 @@ def extraer_filas_metodos(respuesta: dict) -> list[dict]:
     return filas
 
 
-def build_payload_whatsapp(id_whatsapp: int, phone: str, filas: list[dict]) -> dict:
-    """Payload para ws_send_whatsapp_list.php; id_whatsapp se envía como id_empresa."""
+def build_payload_whatsapp(id_whatsapp: int, phone: str, filas: list[dict], id_plataforma: int = 6) -> dict:
+    """Payload para ws_send_whatsapp_list.php; id_whatsapp se envía como id_empresa; id_plataforma requerido por la API."""
     if not filas:
         filas = [{"id": "0", "title": "Sin métodos de pago", "description": ""}]
     return {
         "id_empresa": id_whatsapp,
+        "id_plataforma": id_plataforma,
         "phone": phone,
         "body_text": "Métodos de pago disponibles: ",
         "button_text": "Ver métodos de pago",

@@ -17,8 +17,9 @@ from config import settings
 
 def login_maravia(username: str, password: str, url_login: str | None = None) -> str | None:
     """
-    Obtiene token JWT para la API Maravia. Payload: codOpe=LOGIN, username, password.
-    Misma lógica que test_pdf_sunat.login().
+    Obtiene token JWT para la API Maravia.
+    POST con codOpe=LOGIN, username, password.
+    Respuesta: { "success": true, "usuario": {...}, "token": "eyJ..." } — token en raíz o en data.
     """
     url = url_login or settings.URL_LOGIN
     payload = {"codOpe": "LOGIN", "username": username, "password": password}
@@ -27,7 +28,10 @@ def login_maravia(username: str, password: str, url_login: str | None = None) ->
         if r.status_code != 200:
             return None
         data = r.json()
-        return data.get("token") or (data.get("data") or {}).get("token")
+        token = data.get("token") or (data.get("data") or {}).get("token")
+        if token and isinstance(token, str):
+            return token.strip()
+        return None
     except Exception:
         return None
 
@@ -69,8 +73,17 @@ class SunatClient:
         self._token = (token or "").strip() or obtener_token_sunat()
 
     def crear_venta(self, payload: Dict[str, Any]) -> SunatResult:
+        if not (self._token or "").strip():
+            return SunatResult(
+                success=False,
+                error_mensaje=(
+                    "No se proporcionó token de autenticación. "
+                    "Configure MARAVIA_USER y MARAVIA_PASSWORD en el entorno; el token se obtiene por login en "
+                    "https://api.maravia.pe/servicio/ws_login.php (codOpe=LOGIN, username, password)."
+                ),
+            )
         headers = {
-            "Authorization": f"Bearer {self._token}",
+            "Authorization": f"Bearer {self._token.strip()}",
             "Content-Type": "application/json",
         }
         try:

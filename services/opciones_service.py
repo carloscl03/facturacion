@@ -25,6 +25,15 @@ from services.helpers.opciones_domain import (
 # Clave en Redis para el diccionario temporal de opciones mostradas (matchear mensaje → id)
 OPCIONES_ACTUALES_KEY = "opciones_actuales"
 
+# Límite WhatsApp list message: row title 24 caracteres (como test_opciones)
+MAX_ROW_TITLE = 24
+
+
+def _truncar(s: str, max_len: int) -> str:
+    if not s or max_len <= 0:
+        return (s or "")[:max_len] if max_len > 0 else ""
+    return s[:max_len] if len(s) <= max_len else s[: max_len - 1].rstrip() + "…"
+
 
 def _normalizar_texto(s: str) -> str:
     return (s or "").strip().lower()
@@ -92,10 +101,12 @@ class OpcionesService:
         self,
         wa_id: str,
         id_from: int,
+        id_plataforma: int = 6,
     ) -> dict:
         """
-        Devuelve la siguiente lista de opciones en texto (no API WhatsApp).
+        Devuelve la siguiente lista de opciones en texto y payload para ws_send_whatsapp_list.
         Persiste en Redis opciones_actuales = [{id, nombre}, ...] para matchear después.
+        id_plataforma se incluye en payload_whatsapp_list (requerido por la API de lista WhatsApp).
         """
         registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         debug_agente = {"modo": "get_next", "tiene_registro": registro is not None}
@@ -162,12 +173,19 @@ class OpcionesService:
         debug_agente["motivo"] = "lista_mostrada"
         debug_agente["opciones_count"] = len(opciones_actuales) if opciones_actuales else 0
         debug_agente["lista_devuelta_origen"] = "api_y_guardada_en_redis"
+        payload_list = self._build_payload_whatsapp_list(
+            id_empresa=id_from,
+            phone=wa_id,
+            id_plataforma=id_plataforma,
+            campo=campo,
+            opciones_actuales=opciones_actuales,
+        )
         return {
             "listo_estado1": True,
             "estado2_completo": False,
             "campo_pendiente": campo,
             "opciones_actuales": opciones_actuales,
-            "payload_whatsapp_list": None,
+            "payload_whatsapp_list": payload_list,
             "mensaje": mensaje,
             "debug": debug_agente,
         }
@@ -178,6 +196,7 @@ class OpcionesService:
         id_from: int,
         campo: str,
         valor,
+        id_plataforma: int = 6,
     ) -> dict:
         """
         valor puede ser el id (número) o el mensaje del usuario (nombre de la opción).
@@ -349,13 +368,20 @@ class OpcionesService:
         titulo_siguiente = self._titulo_campo(siguiente) if siguiente else None
         texto_siguiente = (f"{titulo_siguiente}\n" + self._formatear_texto_lista(opciones_actuales_next)) if opciones_actuales_next else None
         mensaje = "Diga 'finalizar registro' para continuar." if siguiente is None else (texto_siguiente or None)
+        payload_list = self._build_payload_whatsapp_list(
+            id_empresa=id_from,
+            phone=wa_id,
+            id_plataforma=id_plataforma,
+            campo=siguiente,
+            opciones_actuales=opciones_actuales_next,
+        ) if siguiente and opciones_actuales_next else None
         resp = {
             "success": True,
             "listo_estado1": True,
             "estado2_completo": siguiente is None,
             "campo_pendiente": siguiente,
             "opciones_actuales": opciones_actuales_next if opciones_actuales_next else None,
-            "payload_whatsapp_list": None,
+            "payload_whatsapp_list": payload_list,
             "mensaje": mensaje,
             "campo_guardado": campo,
             "id_detectada": valor_id,
@@ -447,3 +473,48 @@ class OpcionesService:
             return "No hay opciones disponibles."
         lineas = ["• " + (op.get("nombre") or str(op.get("id")) or "") for op in opciones]
         return "\n".join(lineas)
+
+    def _opciones_a_filas(self, opciones: list[dict]) -> list[dict]:
+        """Convierte opciones_actuales [{id, nombre}] en filas para lista WhatsApp (title ≤ MAX_ROW_TITLE)."""
+        if not opciones:
+            return []
+        filas = []
+        for op in opciones:
+            oid = op.get("id")
+            nombre = (op.get("nombre") or op.get("title") or str(oid) or "").strip()
+            filas.append({
+                "id": str(oid) if oid is not None else "0",
+                "title": _truncar(nombre, MAX_ROW_TITLE),
+                "description": "",
+            })
+        return filas
+
+    def _build_payload_whatsapp_list(
+        self,
+        id_empresa: int,
+        phone: str,
+        id_plataforma: int,
+        campo: str | None,
+        opciones_actuales: list[dict],
+    ) -> dict | None:
+        """
+        Arma el payload para ws_send_whatsapp_list.php (id_plataforma requerido por la API).
+        Si campo es None o no hay opciones, retorna None.
+        """
+        if not campo or not opciones_actuales:
+            return None
+        titulo = self._titulo_campo(campo)
+        filas = self._opciones_a_filas(opciones_actuales)
+        if not filas:
+            filas = [{"id": "0", "title": f"Sin {titulo.lower()}", "description": ""}]
+        body = f"{titulo}\nSelecciona una opción."
+        return {
+            "id_empresa": id_empresa,
+            "id_plataforma": id_plataforma,
+            "phone": phone,
+            "body_text": body,
+            "button_text": f"Ver {titulo.rstrip(':')}",
+            "header_text": titulo.rstrip(':'),
+            "footer_text": f"Selecciona una opción de {titulo.lower().rstrip(':')}",
+            "sections": [{"title": titulo.rstrip(':'), "rows": filas}],
+        }

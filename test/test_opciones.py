@@ -150,12 +150,13 @@ def extraer_filas_metodos_pago(respuesta: dict) -> list[dict]:
     return filas
 
 
-def build_payload_whatsapp(id_empresa: int, phone: str, section_title: str, rows: list[dict], body: str, header: str, footer: str, button: str) -> dict:
-    """Payload genérico para ws_send_whatsapp_list.php."""
+def build_payload_whatsapp(id_empresa: int, phone: str, section_title: str, rows: list[dict], body: str, header: str, footer: str, button: str, id_plataforma: int = 6) -> dict:
+    """Payload genérico para ws_send_whatsapp_list.php (id_plataforma requerido por la API)."""
     if not rows:
         rows = [{"id": "0", "title": f"Sin {section_title.lower()}", "description": ""}]
     return {
         "id_empresa": id_empresa,
+        "id_plataforma": id_plataforma,
         "phone": phone,
         "body_text": body,
         "button_text": button,

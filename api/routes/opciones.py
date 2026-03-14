@@ -27,6 +27,7 @@ class OpcionesBody(BaseModel):
     campo: str | None = None
     valor: str | int | None = None
     mensaje: str | None = None
+    id_plataforma: int | None = None
 
 
 @router.post("/opciones")
@@ -37,6 +38,7 @@ async def opciones(
     action: str | None = None,
     campo: str | None = None,
     valor: str | int | None = None,
+    id_plataforma: int | None = None,
     body: OpcionesBody | None = Body(None),
     cache: CacheRepository = Depends(get_cache_repo),
     informacion: InformacionRepository = Depends(get_informacion_repo),
@@ -46,6 +48,7 @@ async def opciones(
     """
     Query:
       - wa_id, id_from (cache y id de tablas para sucursales/métodos).
+      - id_plataforma: opcional; para payload_whatsapp_list (default 6). Query o body.
       - mensaje: texto libre (se usa como selección solo a partir del segundo mensaje).
       - action, campo, valor: opcionales; si vienen en query tienen prioridad sobre el body.
 
@@ -53,22 +56,24 @@ async def opciones(
     es la selección del usuario; se matchea con opciones_actuales y se guarda. Modo GET devuelve
     lista; modo SUBMIT (o inferido) guarda la elección y devuelve siguiente lista o mensaje.
     """
+    b = body or OpcionesBody()
+    id_plataforma_final: int = id_plataforma if id_plataforma is not None else (b.id_plataforma if b.id_plataforma is not None else 6)
+
     # DEBUG: traza de entrada a /opciones
     print(
         "[/opciones] IN:",
         {
             "wa_id": wa_id,
             "id_from": id_from,
+            "id_plataforma": id_plataforma_final,
             "mensaje": mensaje,
             "q_action": action,
             "q_campo": campo,
             "q_valor": valor,
-            "body": body.dict() if body else None,
+            "body": body.model_dump() if body else None,
         },
         flush=True,
     )
-
-    b = body or OpcionesBody()
 
     # Prioridad de origen:
     # 1) Query param (action/campo/valor) si vienen.
@@ -108,6 +113,7 @@ async def opciones(
         "body_mensaje": b.mensaje,
         "wa_id": wa_id,
         "id_from": id_from,
+        "id_plataforma": id_plataforma_final,
     }
     if action_final == "get" and valor_final is not None and campo_final is None:
         debug_request["primer_mensaje_ignorado"] = True
@@ -133,10 +139,10 @@ async def opciones(
                 "mensaje": "Se requiere valor (id o texto con el nombre de la opción) ya sea en el body, en el query param 'valor' o en el query param 'mensaje'.",
                 "debug": {"etapa": "falta_valor"},
             })
-        return _respuesta_con_debug(service.submit(wa_id, id_from, campo_final, valor_final))
+        return _respuesta_con_debug(service.submit(wa_id, id_from, campo_final, valor_final, id_plataforma_final))
     print(
         "[/opciones] MODO get_next:",
         {"action_final": action_final},
         flush=True,
     )
-    return _respuesta_con_debug(service.get_next(wa_id, id_from))
+    return _respuesta_con_debug(service.get_next(wa_id, id_from, id_plataforma_final))
