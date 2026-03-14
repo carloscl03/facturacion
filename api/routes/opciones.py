@@ -31,7 +31,8 @@ class OpcionesBody(BaseModel):
     valor: str | int | None = None
     mensaje: str | None = None
     id_plataforma: int | None = None
-    id_empresa_whatsapp: int | None = None
+    id_empresa: int | None = None  # solo para enviar la lista a WhatsApp
+    id_empresa_whatsapp: int | None = None  # alias de id_empresa
 
 
 @router.post("/opciones")
@@ -43,7 +44,7 @@ async def opciones(
     campo: str | None = None,
     valor: str | int | None = None,
     id_plataforma: int | None = None,
-    id_empresa_whatsapp: int | None = None,
+    id_empresa: int | None = None,
     body: OpcionesBody | None = Body(None),
     cache: CacheRepository = Depends(get_cache_repo),
     informacion: InformacionRepository = Depends(get_informacion_repo),
@@ -51,13 +52,11 @@ async def opciones(
     ai: AIService = Depends(get_ai_service),
 ):
     """
-    Query:
-      - wa_id, id_from (cache y id de tablas para sucursales/métodos).
-      - id_empresa_whatsapp: opcional; id de empresa con credenciales WhatsApp para enviar la lista.
-        Si no se envía, se usa id_from. Si el envío falla con "No se encontraron credenciales", pasar el id que sí tenga credenciales (ej. 1).
-      - id_plataforma: opcional; para payload_whatsapp_list (default 6). Query o body.
-      - mensaje: texto libre (se usa como selección solo a partir del segundo mensaje).
-      - action, campo, valor: opcionales; si vienen en query tienen prioridad sobre el body.
+    Entrada: mensaje, id_from, id_empresa, id_plataforma (y wa_id).
+      - id_from: cache, Redis y tablas (sucursales, métodos de pago, etc.).
+      - id_empresa: solo para enviar la lista a WhatsApp (credenciales). Si no se envía, se usa ID_EMPRESA_WHATSAPP en .env o id_from.
+      - id_plataforma: para payload_whatsapp_list (default 6).
+      - mensaje, action, campo, valor: opcionales; action/campo/valor en query tienen prioridad sobre body.
 
     Flujo: Primer mensaje se ignora (solo se cargan opciones con wa_id e id_from). Segundo mensaje
     es la selección del usuario; se matchea con opciones_actuales y se guarda. Modo GET devuelve
@@ -65,7 +64,11 @@ async def opciones(
     """
     b = body or OpcionesBody()
     id_plataforma_final: int = id_plataforma if id_plataforma is not None else (b.id_plataforma if b.id_plataforma is not None else 6)
-    id_empresa_wa_final: int | None = id_empresa_whatsapp if id_empresa_whatsapp is not None else (b.id_empresa_whatsapp if b.id_empresa_whatsapp is not None else None)
+    # id_empresa: solo para enviar mensaje a WhatsApp. Origen: query id_empresa > body id_empresa > body id_empresa_whatsapp > env ID_EMPRESA_WHATSAPP > None (se usa id_from)
+    id_empresa_wa_final: int | None = (
+        id_empresa if id_empresa is not None
+        else (b.id_empresa if b.id_empresa is not None else (b.id_empresa_whatsapp if b.id_empresa_whatsapp is not None else settings.ID_EMPRESA_WHATSAPP))
+    )
 
     # DEBUG: traza de entrada a /opciones
     print(
@@ -73,7 +76,7 @@ async def opciones(
         {
             "wa_id": wa_id,
             "id_from": id_from,
-            "id_empresa_whatsapp": id_empresa_wa_final,
+            "id_empresa": id_empresa_wa_final,
             "id_plataforma": id_plataforma_final,
             "mensaje": mensaje,
             "q_action": action,
@@ -122,7 +125,7 @@ async def opciones(
         "body_mensaje": b.mensaje,
         "wa_id": wa_id,
         "id_from": id_from,
-        "id_empresa_whatsapp": id_empresa_wa_final,
+        "id_empresa": id_empresa_wa_final,
         "id_plataforma": id_plataforma_final,
     }
     if action_final == "get" and valor_final is not None and campo_final is None:
@@ -164,8 +167,8 @@ async def opciones(
                     if "credenciales" in body_lower and "whatsapp" in body_lower:
                         debug_whatsapp["donde_arreglar"] = (
                             "404: No hay credenciales de WhatsApp para el id_empresa enviado. "
-                            "Pasar id_empresa_whatsapp (query o body) con el id de la empresa que sí tenga credenciales (ej. 1). "
-                            "id_from sigue usándose para cache y tablas; id_empresa_whatsapp solo para enviar la lista."
+                            "Pasar id_empresa (query o body) con el id de la empresa que sí tenga credenciales (ej. 1). "
+                            "id_from se usa para cache y tablas; id_empresa solo para enviar la lista a WhatsApp."
                         )
                     else:
                         debug_whatsapp["donde_arreglar"] = (
