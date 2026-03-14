@@ -206,6 +206,7 @@ async def opciones(
             "id_empresa": id_empresa,
             "phone": phone,
             "id_plataforma": id_plataforma,
+            "tipo": "texto",
             "mensaje": mensaje,
         }
         debug_oficial = {
