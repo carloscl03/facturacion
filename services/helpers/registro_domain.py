@@ -26,15 +26,13 @@ def opciones_completas(registro: Dict[str, Any] | None) -> bool:
     True si las opciones de estado 2 están completas:
     - id_sucursal
     - forma_pago no vacía
-    - medio_pago en {"contado", "credito"}
+    medio_pago (contado/crédito) se pregunta en analizar, no en opciones.
     """
     if not registro:
         return False
     has_suc = bool(registro.get("id_sucursal"))
     has_fp = bool((registro.get("forma_pago") or "").strip())
-    mp = (registro.get("medio_pago") or "").strip().lower()
-    has_mp = mp in ("contado", "credito")
-    return has_suc and has_fp and has_mp
+    return has_suc and has_fp
 
 
 def operacion_normalizada(origen: str | None) -> str | None:
@@ -79,6 +77,7 @@ def calcular_estado(datos: Dict[str, Any]) -> int:
     - entidad
     - tipo_documento
     - moneda
+    - medio_pago (contado/credito); si credito, también dias_credito y nro_cuotas.
 
     Equivalente a la lógica usada en ExtraccionService._calcular_estado.
     """
@@ -98,11 +97,20 @@ def calcular_estado(datos: Dict[str, Any]) -> int:
     tiene_documento = bool(datos.get("tipo_documento"))
     tiene_moneda = bool(datos.get("moneda"))
 
+    medio = (datos.get("medio_pago") or "").strip().lower()
+    tiene_medio_pago = medio in ("contado", "credito")
+    tiene_credito_completo = True
+    if medio == "credito":
+        dc = datos.get("dias_credito")
+        nc = datos.get("nro_cuotas")
+        tiene_credito_completo = dc is not None and nc is not None and str(dc).strip() != "" and str(nc).strip() != ""
+
     obligatorios = [
         tiene_monto or tiene_productos,
         tiene_entidad,
         tiene_documento,
         tiene_moneda,
+        tiene_medio_pago and (tiene_credito_completo if medio == "credito" else True),
     ]
     if all(obligatorios):
         return 3

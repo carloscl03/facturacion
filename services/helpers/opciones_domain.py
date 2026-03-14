@@ -3,14 +3,15 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Tuple
 
 
-CAMPOS_ESTADO2: Tuple[str, str, str, str] = ("sucursal", "centro_costo", "forma_pago", "medio_pago")
+CAMPOS_ESTADO2: Tuple[str, ...] = ("sucursal", "centro_costo", "forma_pago")
 
 
 def siguiente_campo_pendiente(registro: Dict[str, Any] | None, tiene_parametros: bool) -> str | None:
     """
     Determina el siguiente campo de opciones pendiente para Estado 2.
 
-    Respeta el orden: sucursal → centro_costo → forma_pago → medio_pago.
+    Respeta el orden: sucursal → centro_costo → forma_pago.
+    medio_pago (contado/crédito) se pregunta en analizar/extracción, no aquí.
     El flag tiene_parametros indica si hay repositorio de parámetros disponible
     para centros de costo.
     """
@@ -22,8 +23,6 @@ def siguiente_campo_pendiente(registro: Dict[str, Any] | None, tiene_parametros:
         return "centro_costo"
     if not (registro.get("forma_pago") or "").strip():
         return "forma_pago"
-    if (registro.get("medio_pago") or "").strip().lower() not in ("contado", "credito"):
-        return "medio_pago"
     return None
 
 

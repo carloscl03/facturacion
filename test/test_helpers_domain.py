@@ -50,7 +50,7 @@ def test_obtener_estado_y_opciones_completas():
 
     reg = {}
     assert opciones_completas(reg) is False
-    reg = {"id_sucursal": 1, "forma_pago": "yape", "medio_pago": "contado"}
+    reg = {"id_sucursal": 1, "forma_pago": "yape"}
     assert opciones_completas(reg) is True
 
 
@@ -69,11 +69,24 @@ def test_calcular_estado_con_campos_obligatorios():
         "entidad_nombre": "Cliente",
         "tipo_documento": "factura",
         "moneda": "PEN",
+        "medio_pago": "contado",
     }
     assert calcular_estado(datos) == 3
 
     datos["monto_total"] = 0
     assert calcular_estado(datos) == 2
+
+    # Sin medio_pago no llega a estado 3
+    datos["monto_total"] = 100
+    datos.pop("medio_pago", None)
+    assert calcular_estado(datos) == 2
+
+    # Con crédito exige dias_credito y nro_cuotas para estado 3
+    datos["medio_pago"] = "credito"
+    assert calcular_estado(datos) == 2
+    datos["dias_credito"] = 30
+    datos["nro_cuotas"] = 3
+    assert calcular_estado(datos) == 3
 
 
 def test_siguiente_campo_pendiente_respeta_orden_y_parametros():
@@ -84,7 +97,7 @@ def test_siguiente_campo_pendiente_respeta_orden_y_parametros():
     assert siguiente_campo_pendiente(reg, tiene_parametros=True) == "centro_costo"
     assert siguiente_campo_pendiente(reg, tiene_parametros=False) == "forma_pago"
 
-    reg = {"id_sucursal": 1, "id_centro_costo": 2, "forma_pago": "yape", "medio_pago": "contado"}
+    reg = {"id_sucursal": 1, "id_centro_costo": 2, "forma_pago": "yape"}
     assert siguiente_campo_pendiente(reg, tiene_parametros=True) is None
 
 

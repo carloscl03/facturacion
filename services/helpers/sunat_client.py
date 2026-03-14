@@ -36,16 +36,17 @@ def login_maravia(username: str, password: str, url_login: str | None = None) ->
         return None
 
 
-def obtener_token_sunat() -> str:
+def obtener_token_sunat() -> tuple[str, str | None]:
     """
-    Token para Authorization en CREAR_VENTA. Siempre se obtiene por login;
-    el token no es fijo (expira), no se usa TOKEN_SUNAT de env.
-    Requiere MARAVIA_USER y MARAVIA_PASSWORD en config.
+    Token para Authorization en CREAR_VENTA. Se obtiene por LOGIN (codOpe=LOGIN).
+    Retorna (token, error). Si error no es None, el token está vacío y error describe el fallo.
     """
-    if not settings.MARAVIA_USER or not settings.MARAVIA_PASSWORD:
-        return ""
+    if not (settings.MARAVIA_USER or "").strip() or not (settings.MARAVIA_PASSWORD or "").strip():
+        return "", "Faltan MARAVIA_USER y/o MARAVIA_PASSWORD en el entorno (.env). El token se obtiene por LOGIN en ws_login.php."
     token = login_maravia(settings.MARAVIA_USER, settings.MARAVIA_PASSWORD)
-    return token or ""
+    if not token:
+        return "", "LOGIN en ws_login.php falló o no devolvió token. Revisar credenciales y URL (MARAVIA_URL_LOGIN)."
+    return token, None
 
 
 @dataclass
@@ -62,7 +63,7 @@ class SunatResult:
 
 
 class SunatClient:
-    """Abstrae la comunicación con el endpoint de ventas SUNAT."""
+    """Abstrae la comunicación con el endpoint de ventas SUNAT. El token se obtiene por LOGIN al usarlo."""
 
     def __init__(
         self,
@@ -70,20 +71,29 @@ class SunatClient:
         token: str | None = None,
     ) -> None:
         self._url = url or settings.URL_VENTA_SUNAT
-        self._token = (token or "").strip() or obtener_token_sunat()
+        self._token = (token or "").strip()
+
+    def _asegurar_token(self) -> tuple[str | None, str | None]:
+        """Obtiene token por LOGIN si no hay uno. Retorna (token, error); si token es None, error describe el fallo."""
+        if (self._token or "").strip():
+            return self._token.strip(), None
+        token, error = obtener_token_sunat()
+        if token:
+            self._token = token
+            return token, None
+        return None, error
 
     def crear_venta(self, payload: Dict[str, Any]) -> SunatResult:
-        if not (self._token or "").strip():
-            return SunatResult(
-                success=False,
-                error_mensaje=(
-                    "No se proporcionó token de autenticación. "
-                    "Configure MARAVIA_USER y MARAVIA_PASSWORD en el entorno; el token se obtiene por login en "
-                    "https://api.maravia.pe/servicio/ws_login.php (codOpe=LOGIN, username, password)."
-                ),
+        token, error_msg = self._asegurar_token()
+        if not token:
+            mensaje = (
+                error_msg
+                if error_msg
+                else "No se obtuvo token. Configure MARAVIA_USER y MARAVIA_PASSWORD; el token se obtiene por LOGIN en ws_login.php (codOpe=LOGIN)."
             )
+            return SunatResult(success=False, error_mensaje=mensaje)
         headers = {
-            "Authorization": f"Bearer {self._token.strip()}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
         try:

@@ -5,7 +5,7 @@ El cambio de estado 3 → 4 se hace en el Clasificador con la confirmación del 
 nunca escribe estado 4, solo lo exige para mostrar listas y guardar elecciones.
 Opciones se presentan como lista de texto; el usuario responde con el nombre y se guarda el id.
 Reconocimiento: primero match exacto (normalizado); si no hay match, se usa IA para identificar la opción.
-Se guarda en Redis según el tipo: id_sucursal, id_centro_costo, id_metodo_pago (y nombre en sucursal, centro_costo, forma_pago). Orden: sucursal → centro_costo → forma_pago → medio_pago.
+Se guarda en Redis según el tipo: id_sucursal, id_centro_costo, id_metodo_pago (y nombre en sucursal, centro_costo, forma_pago). Orden: sucursal → centro_costo → forma_pago. medio_pago (contado/crédito) se pregunta en analizar/extracción.
 """
 from __future__ import annotations
 
@@ -117,7 +117,6 @@ class OpcionesService:
                 "id_sucursal": registro.get("id_sucursal"),
                 "id_centro_costo": registro.get("id_centro_costo"),
                 "forma_pago": (registro.get("forma_pago") or "").strip() or None,
-                "medio_pago": (registro.get("medio_pago") or "").strip() or None,
             }
             debug_agente["opciones_actuales_de_redis"] = {
                 "recuperado": len(opciones_en_redis) > 0,
@@ -336,16 +335,6 @@ class OpcionesService:
                 return {"success": False, "mensaje": "Valor de forma de pago vacío."}
             datos["id_metodo_pago"] = valor_id
             datos["forma_pago"] = valor_nombre or v
-        elif campo == "medio_pago":
-            v = (str(valor_id) or str(valor) or "").strip().lower()
-            if v not in ("contado", "credito"):
-                print(
-                    "[OpcionesService.submit] Medio de pago inválido",
-                    {"v": v, "valor_id": valor_id, "valor": valor},
-                    flush=True,
-                )
-                return {"success": False, "mensaje": "Valor debe ser contado o crédito."}
-            datos["medio_pago"] = v
 
         siguiente = self._siguiente_campo_despues_de(registro, datos)
         id_tablas_next = id_from
@@ -441,8 +430,6 @@ class OpcionesService:
             return self._parametros.obtener_centros_costo(wa_id)
         if campo == "forma_pago":
             return self._informacion.obtener_metodos_pago(id_tablas)
-        if campo == "medio_pago":
-            return [{"id": "contado", "nombre": "Contado"}, {"id": "credito", "nombre": "Crédito"}]
         return []
 
     def _lista_para_redis(self, campo: str, raw: list) -> list[dict]:
@@ -464,8 +451,6 @@ class OpcionesService:
             return "Centros de costo:"
         if campo == "forma_pago":
             return "Métodos de pago:"
-        if campo == "medio_pago":
-            return "Medio de pago (contado o crédito):"
         return "Opciones:"
 
     def _textos_whatsapp_list(self, campo: str) -> tuple[str, str, str, str, str]:
@@ -496,14 +481,6 @@ class OpcionesService:
                 "Selecciona un método de pago",
                 "Ver métodos de pago",
                 "Métodos de pago",
-            )
-        if campo == "medio_pago":
-            return (
-                "Medio de pago (contado o crédito): ",
-                "Medio de pago",
-                "Selecciona contado o crédito",
-                "Ver medio de pago",
-                "Medio de pago",
             )
         return (
             "Opciones disponibles: ",

@@ -54,6 +54,6 @@ def get_identificador_service(
 
 
 def get_sunat_client() -> SunatClient:
-    """Cliente SUNAT con token obtenido por login (MARAVIA_USER / MARAVIA_PASSWORD)."""
-    token = obtener_token_sunat()
-    return SunatClient(token=token)
+    """Cliente SUNAT; el token se obtiene por LOGIN al llamar crear_venta (MARAVIA_USER / MARAVIA_PASSWORD)."""
+    token, _ = obtener_token_sunat()
+    return SunatClient(token=token or None)

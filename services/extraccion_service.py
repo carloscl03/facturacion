@@ -229,6 +229,28 @@ class ExtraccionService:
                 viejo = estado_actual.get(campo_viejo)
             return viejo if viejo not in [None, "", 0, "null"] else default
 
+        medio_pago = obtener("medio_pago", "tipo_operacion", None)
+        if medio_pago and str(medio_pago).strip().lower() not in ("contado", "credito"):
+            medio_pago = None
+        elif medio_pago:
+            medio_pago = str(medio_pago).strip().lower()
+
+        dias_credito_raw = propuesta.get("dias_credito") or estado_actual.get("dias_credito")
+        dias_credito = None
+        if dias_credito_raw is not None and str(dias_credito_raw).strip() != "":
+            try:
+                dias_credito = int(float(dias_credito_raw))
+            except (TypeError, ValueError):
+                pass
+
+        nro_cuotas_raw = propuesta.get("nro_cuotas") or estado_actual.get("nro_cuotas")
+        nro_cuotas = None
+        if nro_cuotas_raw is not None and str(nro_cuotas_raw).strip() != "":
+            try:
+                nro_cuotas = int(float(nro_cuotas_raw))
+            except (TypeError, ValueError):
+                pass
+
         return {
             "operacion": contexto_previo if contexto_previo else obtener("operacion", "cod_ope", None),
             "entidad_nombre": obtener("entidad_nombre", default=""),
@@ -236,6 +258,9 @@ class ExtraccionService:
             "tipo_documento": obtener("tipo_documento", default=None),
             "numero_documento": obtener("numero_documento", default=None),
             "moneda": obtener("moneda", default=None),
+            "medio_pago": medio_pago,
+            "dias_credito": dias_credito,
+            "nro_cuotas": nro_cuotas,
             "monto_total": float(propuesta.get("monto_total") or estado_actual.get("monto_total") or 0),
             "monto_sin_igv": float(propuesta.get("monto_sin_igv") or estado_actual.get("monto_sin_igv") or estado_actual.get("monto_base") or 0),
             "igv": float(propuesta.get("igv") or estado_actual.get("igv") or estado_actual.get("monto_impuesto") or 0),
