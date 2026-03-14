@@ -209,6 +209,8 @@ async def opciones(
             "tipo": "texto",
             "mensaje": mensaje,
             "texto": mensaje,
+            "message": mensaje,
+            "body": mensaje,
         }
         debug_oficial = {
             "url_llamada": url,
