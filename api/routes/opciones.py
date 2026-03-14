@@ -31,6 +31,7 @@ class OpcionesBody(BaseModel):
     valor: str | int | None = None
     mensaje: str | None = None
     id_plataforma: int | None = None
+    id_empresa_whatsapp: int | None = None
 
 
 @router.post("/opciones")
@@ -42,6 +43,7 @@ async def opciones(
     campo: str | None = None,
     valor: str | int | None = None,
     id_plataforma: int | None = None,
+    id_empresa_whatsapp: int | None = None,
     body: OpcionesBody | None = Body(None),
     cache: CacheRepository = Depends(get_cache_repo),
     informacion: InformacionRepository = Depends(get_informacion_repo),
@@ -51,6 +53,8 @@ async def opciones(
     """
     Query:
       - wa_id, id_from (cache y id de tablas para sucursales/métodos).
+      - id_empresa_whatsapp: opcional; id de empresa con credenciales WhatsApp para enviar la lista.
+        Si no se envía, se usa id_from. Si el envío falla con "No se encontraron credenciales", pasar el id que sí tenga credenciales (ej. 1).
       - id_plataforma: opcional; para payload_whatsapp_list (default 6). Query o body.
       - mensaje: texto libre (se usa como selección solo a partir del segundo mensaje).
       - action, campo, valor: opcionales; si vienen en query tienen prioridad sobre el body.
@@ -61,6 +65,7 @@ async def opciones(
     """
     b = body or OpcionesBody()
     id_plataforma_final: int = id_plataforma if id_plataforma is not None else (b.id_plataforma if b.id_plataforma is not None else 6)
+    id_empresa_wa_final: int | None = id_empresa_whatsapp if id_empresa_whatsapp is not None else (b.id_empresa_whatsapp if b.id_empresa_whatsapp is not None else None)
 
     # DEBUG: traza de entrada a /opciones
     print(
@@ -68,6 +73,7 @@ async def opciones(
         {
             "wa_id": wa_id,
             "id_from": id_from,
+            "id_empresa_whatsapp": id_empresa_wa_final,
             "id_plataforma": id_plataforma_final,
             "mensaje": mensaje,
             "q_action": action,
@@ -116,6 +122,7 @@ async def opciones(
         "body_mensaje": b.mensaje,
         "wa_id": wa_id,
         "id_from": id_from,
+        "id_empresa_whatsapp": id_empresa_wa_final,
         "id_plataforma": id_plataforma_final,
     }
     if action_final == "get" and valor_final is not None and campo_final is None:
@@ -152,12 +159,20 @@ async def opciones(
                 if r.text:
                     preview = r.text[:500] if len(r.text) <= 500 else r.text[:500] + "..."
                     debug_whatsapp["response_body_preview"] = preview
+                body_lower = (r.text or "").lower()
                 if r.status_code == 404:
-                    debug_whatsapp["donde_arreglar"] = (
-                        "404 Not Found: la URL del servicio de lista WhatsApp no existe. "
-                        "Comprobar URL_SEND_WHATSAPP_LIST en config/settings.py o variable de entorno. "
-                        f"URL usada: {url}"
-                    )
+                    if "credenciales" in body_lower and "whatsapp" in body_lower:
+                        debug_whatsapp["donde_arreglar"] = (
+                            "404: No hay credenciales de WhatsApp para el id_empresa enviado. "
+                            "Pasar id_empresa_whatsapp (query o body) con el id de la empresa que sí tenga credenciales (ej. 1). "
+                            "id_from sigue usándose para cache y tablas; id_empresa_whatsapp solo para enviar la lista."
+                        )
+                    else:
+                        debug_whatsapp["donde_arreglar"] = (
+                            "404 Not Found: la URL del servicio de lista WhatsApp no existe. "
+                            "Comprobar URL_SEND_WHATSAPP_LIST en config/settings.py o variable de entorno. "
+                            f"URL usada: {url}"
+                        )
                 elif r.status_code >= 500:
                     debug_whatsapp["donde_arreglar"] = "Error del servidor (5xx): fallo en el backend de envío; revisar logs del servicio ws_send_whatsapp_list."
                 elif r.status_code == 400:
@@ -195,11 +210,15 @@ async def opciones(
         out = service.submit(wa_id, id_from, campo_final, valor_final, id_plataforma_final)
         payload_list = out.get("payload_whatsapp_list")
         if payload_list:
+            if id_empresa_wa_final is not None:
+                payload_list = {**payload_list, "id_empresa": id_empresa_wa_final}
             enviado, error, debug_wa = _enviar_lista_whatsapp(payload_list)
             out["whatsapp_list_enviado"] = enviado
             if error:
                 out["whatsapp_list_error"] = error
             out["whatsapp_list_debug"] = debug_wa
+            if id_empresa_wa_final is not None:
+                out["whatsapp_list_debug"]["id_empresa_usado_en_envio"] = payload_list["id_empresa"]
         return _respuesta_con_debug(out)
 
     print(
@@ -210,9 +229,13 @@ async def opciones(
     out = service.get_next(wa_id, id_from, id_plataforma_final)
     payload_list = out.get("payload_whatsapp_list")
     if payload_list:
+        if id_empresa_wa_final is not None:
+            payload_list = {**payload_list, "id_empresa": id_empresa_wa_final}
         enviado, error, debug_wa = _enviar_lista_whatsapp(payload_list)
         out["whatsapp_list_enviado"] = enviado
         if error:
             out["whatsapp_list_error"] = error
         out["whatsapp_list_debug"] = debug_wa
+        if id_empresa_wa_final is not None:
+            out["whatsapp_list_debug"]["id_empresa_usado_en_envio"] = payload_list["id_empresa"]
     return _respuesta_con_debug(out)
