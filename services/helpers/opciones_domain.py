@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Tuple
 
+from services.helpers.registro_domain import operacion_desde_registro
+
 
 CAMPOS_ESTADO2: Tuple[str, ...] = ("sucursal", "centro_costo", "forma_pago")
 
@@ -10,16 +12,17 @@ def siguiente_campo_pendiente(registro: Dict[str, Any] | None, tiene_parametros:
     """
     Determina el siguiente campo de opciones pendiente para Estado 2.
 
-    Respeta el orden: sucursal → centro_costo → forma_pago.
+    Orden: sucursal → (centro_costo solo si es compra) → forma_pago.
+    En venta no se pide centro de costo; en compra sí (si hay parámetros).
     medio_pago (contado/crédito) se pregunta en analizar/extracción, no aquí.
-    El flag tiene_parametros indica si hay repositorio de parámetros disponible
-    para centros de costo.
     """
     if not registro:
         return "sucursal"
     if not registro.get("id_sucursal"):
         return "sucursal"
-    if tiene_parametros and not registro.get("id_centro_costo"):
+    operacion = operacion_desde_registro(registro)
+    # Centro de costo solo para compra; en venta se omite.
+    if operacion != "venta" and tiene_parametros and not registro.get("id_centro_costo"):
         return "centro_costo"
     if not (registro.get("forma_pago") or "").strip():
         return "forma_pago"

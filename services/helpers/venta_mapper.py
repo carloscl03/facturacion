@@ -89,7 +89,7 @@ def construir_sintesis_actual(reg: Dict[str, Any]) -> str:
 
     medio = str(reg.get("medio_pago") or "").strip().lower()
     if medio in ("contado", "credito"):
-        lineas.append(f"💳 *Pago:* {medio.capitalize()}")
+        lineas.append(f"💳 *Medio de pago:* {medio.capitalize()}")
 
     moneda_str = str(reg.get("moneda") or "").strip()
     if moneda_str:

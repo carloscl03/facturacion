@@ -1,11 +1,11 @@
 """
-Agente Estado 2: opciones (sucursal → centro de costo → método de pago).
+Agente Estado 2: opciones (sucursal → [centro de costo solo compra] → método de pago).
 Solo actúa cuando el registro está confirmado (estado >= 4).
 El cambio de estado 3 → 4 se hace en el Clasificador con la confirmación del usuario; este agente
 nunca escribe estado 4, solo lo exige para mostrar listas y guardar elecciones.
 Opciones se presentan como lista de texto; el usuario responde con el nombre y se guarda el id.
-Reconocimiento: primero match exacto (normalizado); si no hay match, se usa IA para identificar la opción.
-Se guarda en Redis según el tipo: id_sucursal, id_centro_costo, id_metodo_pago (y nombre en sucursal, centro_costo, forma_pago). Orden: sucursal → centro_costo → forma_pago. medio_pago (contado/crédito) se pregunta en analizar/extracción.
+En venta no se pide centro de costo (sucursal → forma_pago). En compra: sucursal → centro_costo → forma_pago.
+Se guarda en Redis: id_sucursal, id_centro_costo (solo compra), id_metodo_pago. medio_pago (contado/crédito) se pregunta en analizar/extracción.
 """
 from __future__ import annotations
 
@@ -138,7 +138,7 @@ class OpcionesService:
             debug_agente["motivo"] = "estado_menor_4"
             return {
                 "listo_estado1": False,
-                "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir sucursal, centro de costo y método de pago.",
+                "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir sucursal y método de pago (y centro de costo si es compra).",
                 "campo_pendiente": None,
                 "payload_whatsapp_list": None,
                 "debug": debug_agente,

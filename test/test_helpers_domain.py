@@ -93,9 +93,14 @@ def test_siguiente_campo_pendiente_respeta_orden_y_parametros():
     reg = {}
     assert siguiente_campo_pendiente(reg, tiene_parametros=True) == "sucursal"
 
+    # Sin operación o compra: tras sucursal sigue centro_costo (si hay parámetros)
     reg = {"id_sucursal": 1}
     assert siguiente_campo_pendiente(reg, tiene_parametros=True) == "centro_costo"
     assert siguiente_campo_pendiente(reg, tiene_parametros=False) == "forma_pago"
+
+    # Venta: no se pide centro de costo; tras sucursal sigue forma_pago
+    reg = {"id_sucursal": 1, "operacion": "venta"}
+    assert siguiente_campo_pendiente(reg, tiene_parametros=True) == "forma_pago"
 
     reg = {"id_sucursal": 1, "id_centro_costo": 2, "forma_pago": "yape"}
     assert siguiente_campo_pendiente(reg, tiene_parametros=True) is None

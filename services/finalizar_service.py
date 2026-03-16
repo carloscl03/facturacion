@@ -6,7 +6,8 @@ y emisión de comprobante SUNAT delegando la lógica de dominio a helpers.
 """
 from __future__ import annotations
 
-# Límite SUNAT: boleta solo para ventas en PEN con monto < este valor (soles)
+# Límite SUNAT (PEN): si monto < 700 → identificación por documento (DNI/RUC) opcional, se considera nota de venta.
+# Si monto >= 700 → documento obligatorio; boleta no permitida (usar factura).
 MONTO_MAX_BOLETA_PEN = 700
 
 from repositories.base import CacheRepository
@@ -148,9 +149,17 @@ class FinalizarService:
                 f"Boleta no permitida para montos >= S/ {MONTO_MAX_BOLETA_PEN}. Use Factura."
             )
         if operacion == "venta" and not params["id_cliente"]:
-            tiene_datos = str(reg.get("entidad_nombre") or "").strip() and params["entidad_numero"]
-            if not tiene_datos:
-                errores.append("Cliente (nombre y documento) para facturar")
+            monto_pen = float(params.get("monto_total") or 0)
+            id_moneda_pen = params.get("id_moneda") == 1
+            # Con monto >= 700 PEN: se requiere nombre y documento. Con monto < 700 PEN: documento opcional (nota de venta), basta el nombre.
+            if id_moneda_pen and monto_pen >= MONTO_MAX_BOLETA_PEN:
+                tiene_datos = str(reg.get("entidad_nombre") or "").strip() and params.get("entidad_numero")
+                if not tiene_datos:
+                    errores.append("Cliente (nombre y documento) para facturar")
+            else:
+                tiene_datos = str(reg.get("entidad_nombre") or "").strip()
+                if not tiene_datos:
+                    errores.append("Cliente (nombre) para el comprobante")
         if operacion == "compra" and not reg.get("entidad_id"):
             errores.append("Proveedor (debe estar seleccionado para registrar la compra)")
         return errores
