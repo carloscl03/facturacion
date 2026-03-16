@@ -246,7 +246,9 @@ def construir_payload_venta(
     a partir del registro y de los parámetros ya traducidos.
     """
     detalle_items = construir_detalle_desde_registro(reg, monto_total, monto_base, monto_igv)
-    serie, numero = _serie_numero_comprobante(reg)
+    # No enviar serie/numero a CREAR_VENTA: la API asigna el siguiente comprobante y obtiene
+    # el documento del cliente desde id_cliente. Enviar serie/numero puede hacer que el backend
+    # use ese valor como documento del cliente en el XML a SUNAT (error "El DNI B005-00000008 no es válido").
     payload = {
         "codOpe": "CREAR_VENTA",
         "id_usuario": int(id_usuario),
@@ -262,8 +264,8 @@ def construir_payload_venta(
         "id_caja_banco": int(reg.get("id_caja_banco", 4)),
         "tipo_facturacion": "facturacion_electronica",
         "id_tipo_comprobante": int(id_tipo_comprobante) if id_tipo_comprobante is not None else None,
-        "serie": serie,
-        "numero": numero,
+        "serie": None,
+        "numero": None,
         "observaciones": str(reg.get("observaciones") or "").strip() or None,
         "detalle_items": detalle_items,
     }
