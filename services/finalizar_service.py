@@ -6,6 +6,9 @@ y emisión de comprobante SUNAT delegando la lógica de dominio a helpers.
 """
 from __future__ import annotations
 
+# Límite SUNAT: boleta solo para ventas en PEN con monto < este valor (soles)
+MONTO_MAX_BOLETA_PEN = 700
+
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
 from services.helpers.sunat_client import SunatClient
@@ -144,6 +147,16 @@ class FinalizarService:
             errores.append("Tipo de documento (Factura/Boleta)")
         if not params["id_moneda"]:
             errores.append("Moneda (PEN/USD)")
+        # Regla SUNAT: boleta solo para montos < 700 soles (PEN)
+        if (
+            operacion == "venta"
+            and params.get("id_tipo_comprobante") == 2  # boleta
+            and params.get("id_moneda") == 1  # PEN
+            and float(params.get("monto_total") or 0) >= MONTO_MAX_BOLETA_PEN
+        ):
+            errores.append(
+                f"Boleta no permitida para montos >= S/ {MONTO_MAX_BOLETA_PEN}. Use Factura."
+            )
         if operacion == "venta" and not params["id_cliente"]:
             tiene_datos = str(reg.get("entidad_nombre") or "").strip() and params["entidad_numero"]
             if not tiene_datos:

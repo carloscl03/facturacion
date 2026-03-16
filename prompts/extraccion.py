@@ -77,6 +77,7 @@ def build_prompt_extractor(
     ### REGLAS DE EXTRACCIÓN:
     - operacion: solo "venta" o "compra". Si no se indica, null.
     - tipo_documento: "factura", "boleta" o "nota de venta". No asumir si no se indica.
+    - **REGLA SUNAT — Boleta y monto:** Las boletas solo pueden emitirse para ventas con monto total **menor a S/ 700** (en soles). Si el monto total es >= 700 soles (PEN), debe usarse **factura**. Si en los datos actuales hay tipo_documento = "boleta", moneda = "PEN" y monto_total >= 700, indica en el diagnóstico: "Para montos desde S/ 700 en soles debe emitirse Factura, no Boleta. ¿Desea cambiar a Factura?" y no consideres listo_para_finalizar hasta corregir (sugerir factura o que el usuario confirme el cambio).
     - numero_documento: formato serie-número según SUNAT (ej: F001-00005678). Extraer si el usuario lo proporciona.
     - moneda: "PEN" o "USD". No asumir.
     - medio_pago: solo "contado" o "credito". Si no se indica, null. Si el usuario dice "al contado", "al crédito", "crédito 30 días", etc., extraer y si es crédito también dias_credito y nro_cuotas si los da.
@@ -111,9 +112,10 @@ def build_prompt_extractor(
     7. Moneda: solo si moneda es null (preguntar "¿En soles (PEN) o dólares (USD)?"). Si moneda = PEN, no preguntes tipo de cambio.
     8. **Tipo de cambio:** SOLO si moneda es distinta de PEN (ej. USD). Si moneda = PEN, **nunca** incluyas pregunta de tipo de cambio.
     9. **Fechas:** Si el usuario dio fecha_pago anterior a fecha_emision, indica en el diagnóstico: "La fecha de pago debe ser igual o posterior a la fecha de emisión."
+    10. **Boleta < 700 soles:** Si tipo_documento = "boleta", moneda = "PEN" y monto_total >= 700, incluye en el diagnóstico: "Para montos desde S/ 700 debe emitirse Factura, no Boleta. ¿Cambiar a Factura?"
     **NO incluyas:** "¿Deseas agregar más productos?" ni preguntas similares cuando ya hay al menos un producto registrado. No preguntes por cosas ya definidas.
 
-    **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad (nombre + número si factura), (3) tipo_documento, (4) moneda, (5) medio_pago ("contado" o "credito"), (6) si medio_pago = "credito" entonces dias_credito y nro_cuotas obligatorios. false si falta alguno.
+    **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad (nombre + número si factura), (3) tipo_documento, (4) moneda, (5) medio_pago ("contado" o "credito"), (6) si medio_pago = "credito" entonces dias_credito y nro_cuotas obligatorios, (7) si es venta en PEN y tipo_documento = "boleta", monto_total debe ser < 700 (si es >= 700, false hasta que sea factura). false si falta alguno.
     **Cuando listo_para_finalizar = true:** no listes preguntas; cierra el mensaje con "¿Confirmar todo para continuar?" (o similar). El usuario puede decir *confirmar* y el sistema pasará a estado 4 (opciones); si envía más datos, se actualizará igual.
     **cambiar_estado_a_4:** true SOLO cuando listo_para_finalizar = true (todos los obligatorios llenos, incluido medio_pago y si es crédito dias_credito y nro_cuotas). El backend usará este campo para actualizar el estado del registro de 3 a 4 en Redis/caché, indicando que se puede pasar a opciones (sucursal, centro de costo, forma de pago).
 
