@@ -135,8 +135,11 @@ class SunatClient:
                 numero=sunat_data.get("numero"),
             )
 
+        # Preferir mensaje detallado de SUNAT (sunat_data.sunat_error_mensaje) para saber el motivo del rechazo
         error = (
-            res_json.get("message")
+            (sunat_data.get("sunat_error_mensaje") or "").strip()
+            or (res_json.get("details") or "").strip()
+            or res_json.get("message")
             or res_json.get("error")
             or "No se pudo generar el PDF."
         )
