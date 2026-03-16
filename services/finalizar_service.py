@@ -169,9 +169,16 @@ class FinalizarService:
             if resp_cli.get("success") and resp_cli.get("cliente_id"):
                 id_cliente = resp_cli["cliente_id"]
             else:
+                msg = (
+                    resp_cli.get("message")
+                    or resp_cli.get("error")
+                    or resp_cli.get("msg")
+                    or resp_cli.get("detail")
+                    or "Error desconocido"
+                )
                 return {
                     "status": "error",
-                    "mensaje": f"❌ No se pudo registrar el cliente: {resp_cli.get('message', 'Error desconocido')}.",
+                    "mensaje": f"❌ No se pudo registrar el cliente: {msg}.",
                 }
 
         if id_cliente and (reg.get("entidad_nombre") or reg.get("entidad_numero")):

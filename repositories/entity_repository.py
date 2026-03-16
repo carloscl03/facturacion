@@ -64,7 +64,17 @@ class EntityRepository:
 
         try:
             r = requests.post(self._url_cliente, json=payload, timeout=15)
-            return r.json()
+            try:
+                data = r.json()
+            except Exception:
+                data = {"success": False, "message": r.text or f"Respuesta no JSON (status {r.status_code})"}
+            if not data.get("success") and "message" not in data:
+                data["message"] = (
+                    data.get("error") or data.get("msg") or data.get("detail")
+                    or r.text
+                    or f"Error HTTP {r.status_code}"
+                )
+            return data
         except Exception as e:
             return {"success": False, "message": str(e)}
 
