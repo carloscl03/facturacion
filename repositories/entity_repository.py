@@ -70,10 +70,13 @@ class EntityRepository:
                 data = {"success": False, "message": r.text or f"Respuesta no JSON (status {r.status_code})"}
             if not data.get("success") and "message" not in data:
                 data["message"] = (
-                    data.get("error") or data.get("msg") or data.get("detail")
-                    or r.text
+                    data.get("error") or data.get("msg") or data.get("detail") or data.get("mensaje")
+                    or (r.text and r.text[:200])
                     or f"Error HTTP {r.status_code}"
                 )
+            # Normalizar cliente_id por si viene en data.data o como id
+            if data.get("success") and "cliente_id" not in data:
+                data["cliente_id"] = (data.get("data") or {}).get("cliente_id") or data.get("data", {}).get("id") or data.get("id")
             return data
         except Exception as e:
             return {"success": False, "message": str(e)}

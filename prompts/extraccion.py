@@ -87,6 +87,14 @@ def build_prompt_extractor(
     - IGV 18% incluido en monto_total. Desglosar monto_sin_igv e igv.
     - entidad_numero: DNI tiene 8 dígitos, RUC tiene 11 dígitos. El tipo se infiere por la longitud.
 
+    ### REGLA ESTRICTA — IDENTIFICACIÓN CON RUC/DNI:
+    **Cuando el mensaje contenga un RUC (11 dígitos) o un DNI (8 dígitos):**
+    1. Debes poner **requiere_identificacion.activo = true** y **termino** = exactamente ese número (solo dígitos, sin espacios). tipo_ope = "venta" o "compra" según la operación actual.
+    2. En **propuesta_cache** guarda **entidad_numero** con ese número para que el backend lo use.
+    3. **No inventes ni copies** el nombre de la empresa o persona en entidad_nombre cuando solo tengas el RUC/DNI: el backend llamará al servicio de identificación (BUSCAR_CLIENTE / BUSCAR_PROVEEDOR) y rellenará el **nombre exacto** y el **id** (cliente_id o proveedor_id → entidad_id). Si el usuario escribió un nombre junto al documento, puedes ponerlo en entidad_nombre como referencia, pero el backend lo sobrescribirá con el nombre oficial si la identificación tiene éxito.
+    4. Si no hay RUC ni DNI (8 u 11 dígitos) en el mensaje, requiere_identificacion.activo = false y termino = "".
+    Resumen: RUC o DNI detectado → activo=true, termino=número; el backend obtiene nombre exacto e id (cliente/proveedor) y los persiste.
+
     ### MENSAJE DE ENTENDIMIENTO (preámbulo):
     Frase corta que muestre que entendiste. Ej: "¡Dale! Ya anoté lo principal.", "Anotado: es una compra."
     Si el usuario solo indica compra o venta sin más datos: guarda la operación, muestra 🛒 *COMPRA* o 📤 *VENTA* en la síntesis y sigue con "Me faltan algunos datos para completar:" + listado de preguntas por lo que falta. **No pidas confirmación de que es compra/venta.** La única confirmación que se pide es "¿Confirmar todo para continuar?" cuando todos los campos obligatorios estén llenos (antes de pasar a opciones).
@@ -118,11 +126,11 @@ def build_prompt_extractor(
     **Cuando listo_para_finalizar = true:** no listes preguntas; cierra el mensaje con "¿Confirmar todo para continuar?" (o similar). El usuario puede decir *confirmar* y el sistema pasará a estado 4 (opciones); si envía más datos, se actualizará igual.
     **cambiar_estado_a_4:** true SOLO cuando listo_para_finalizar = true (todos los obligatorios llenos, incluido medio_pago y si es crédito dias_credito y nro_cuotas). El backend usará este campo para actualizar el estado del registro de 3 a 4 en Redis/caché, indicando que se puede pasar a opciones (sucursal y forma de pago; centro de costo solo en compra).
 
-    ### IDENTIFICACIÓN (id reconocida en Redis):
-    - activo: true si el mensaje contiene RUC (11 dígitos), DNI (8 dígitos) o nombre/razón social buscable.
-    - termino: texto a buscar. Vacío si activo = false.
-    - tipo_ope: "venta" o "compra" según contexto.
-    Cuando el backend resuelve la identificación (cliente/proveedor), el **id identificado** (entidad_id, cliente_id o proveedor_id) se persiste en Redis/caché para este registro (clave wa_id + id_from), de modo que quede reconocido en el estado del registro.
+    ### IDENTIFICACIÓN (obligatoria cuando hay RUC/DNI):
+    - **activo:** true **solo y siempre** que el mensaje contenga un RUC (exactamente 11 dígitos) o un DNI (exactamente 8 dígitos). No uses activo=true para búsquedas por nombre sin documento.
+    - **termino:** el número a buscar: los 8 o 11 dígitos (RUC o DNI) sin espacios. Vacío si activo = false.
+    - **tipo_ope:** "venta" o "compra" según la operación del registro.
+    Cuando activo=true y termino tiene valor, el backend **llama obligatoriamente** al servicio de identificación (API de clientes o proveedores). Si encuentra el documento, rellena **entidad_nombre** (nombre exacto de la empresa o persona), **entidad_numero** y **entidad_id** (id de cliente o proveedor) en Redis. Usa siempre ese nombre e id para no tener que registrar de nuevo al finalizar.
 
     ### ultima_pregunta_keyword:
     Genera una keyword combo que indique el campo principal que se preguntó o el estado:

@@ -80,7 +80,7 @@ class ExtraccionService:
                 payload_db.pop("operacion", None)
         payload_db.pop("cod_ope", None)  # no guardar cod_ope; solo operacion
 
-        # --- Identificación inline ---
+        # --- Identificación inline (estricta cuando hay RUC/DNI) ---
         req_id = output_ia.get("requiere_identificacion") or {}
         requiere_identificacion = {
             "activo": bool(req_id.get("activo")),
@@ -88,24 +88,35 @@ class ExtraccionService:
             "tipo_ope": req_id.get("tipo_ope") or contexto_previo,
             "mensaje": (req_id.get("mensaje") or "").strip(),
         }
+        # Forzar identificación si hay entidad_numero de 8 o 11 dígitos y aún no tenemos entidad_id
+        num_doc = (payload_db.get("entidad_numero") or estado_actual.get("entidad_numero") or "").strip()
+        num_solo_digitos = "".join(c for c in str(num_doc) if c.isdigit())
+        if len(num_solo_digitos) in (8, 11) and not (payload_db.get("entidad_id") or estado_actual.get("entidad_id")):
+            requiere_identificacion["activo"] = True
+            if not requiere_identificacion["termino"]:
+                requiere_identificacion["termino"] = num_solo_digitos
+            requiere_identificacion["tipo_ope"] = requiere_identificacion["tipo_ope"] or payload_db.get("operacion") or "venta"
         if requiere_identificacion["activo"] and not requiere_identificacion["termino"]:
             requiere_identificacion["activo"] = False
 
         salida_identificador = None
         if requiere_identificacion["activo"] and self._identificador:
-            tipo_busqueda = requiere_identificacion["tipo_ope"] or payload_db.get("operacion") or "venta"
+            tipo_raw = requiere_identificacion["tipo_ope"] or payload_db.get("operacion") or "venta"
+            tipo_busqueda = "ventas" if (tipo_raw or "").lower().strip() == "venta" else "compras" if (tipo_raw or "").lower().strip() == "compra" else tipo_raw
             salida_identificador = self._identificador.buscar(
                 tipo_busqueda, requiere_identificacion["termino"], id_from,
             )
             if salida_identificador and salida_identificador.get("identificado"):
                 campos_entidad = salida_identificador.get("campos_entidad") or {}
+                # Siempre usar nombre exacto e id del servicio de identificación
                 if campos_entidad.get("entidad_nombre"):
                     payload_db["entidad_nombre"] = campos_entidad["entidad_nombre"]
                 doc = campos_entidad.get("entidad_numero_documento") or campos_entidad.get("entidad_numero")
                 if doc:
                     payload_db["entidad_numero"] = doc
                 maestro = (
-                    campos_entidad.get("entidad_id_maestro")
+                    campos_entidad.get("entidad_id")
+                    or campos_entidad.get("entidad_id_maestro")
                     or campos_entidad.get("cliente_id")
                     or campos_entidad.get("proveedor_id")
                 )

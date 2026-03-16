@@ -166,16 +166,29 @@ class FinalizarService:
 
         if not id_cliente and str(reg.get("entidad_nombre") or "").strip() and str(reg.get("entidad_numero") or "").strip():
             resp_cli = self._entities.registrar_cliente(reg, id_from)
-            if resp_cli.get("success") and resp_cli.get("cliente_id"):
-                id_cliente = resp_cli["cliente_id"]
+            id_cliente = resp_cli.get("cliente_id") or (resp_cli.get("data") or {}).get("cliente_id") or resp_cli.get("id")
+            if resp_cli.get("success") and id_cliente:
+                id_cliente = int(id_cliente) if id_cliente else None
             else:
+                id_cliente = None
+            if not id_cliente:
                 msg = (
                     resp_cli.get("message")
+                    or resp_cli.get("mensaje")
                     or resp_cli.get("error")
                     or resp_cli.get("msg")
                     or resp_cli.get("detail")
                     or "Error desconocido"
                 )
+                # Si sigue siendo genérico, añadir pista con status o respuesta
+                if msg == "Error desconocido" and resp_cli:
+                    extra = []
+                    if resp_cli.get("success") is True:
+                        extra.append("API devolvió success=true pero sin cliente_id")
+                    if isinstance(resp_cli.get("data"), dict):
+                        extra.append(str(resp_cli.get("data"))[:150])
+                    if extra:
+                        msg = f"{msg} ({'; '.join(extra)})"
                 return {
                     "status": "error",
                     "mensaje": f"❌ No se pudo registrar el cliente: {msg}.",
