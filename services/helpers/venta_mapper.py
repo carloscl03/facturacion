@@ -46,6 +46,20 @@ def _serie_numero_comprobante(reg: Dict[str, Any]) -> Tuple[Any, Any]:
     return (serie, numero)
 
 
+def _id_medio_pago_desde_reg(reg: Dict[str, Any]) -> int:
+    """Lee id forma de pago desde Redis: id_medio_pago, id_metodo_pago (p. ej. int o string 'plin') o forma_pago."""
+    v = reg.get("id_medio_pago") or reg.get("id_metodo_pago")
+    if isinstance(v, int):
+        return v
+    if v is not None and str(v).strip():
+        try:
+            return int(float(str(v).strip()))
+        except (TypeError, ValueError):
+            return FORMA_PAGO_MAP.get(str(v).strip().lower(), 1)
+    forma = str(reg.get("forma_pago") or "").strip().lower()
+    return FORMA_PAGO_MAP.get(forma, 1)
+
+
 def nro_documento_comprobante(reg: Dict[str, Any]) -> str | None:
     """
     Devuelve el número del comprobante (serie-número) para uso en venta o compra.
@@ -248,13 +262,12 @@ def construir_payload_venta(
     con entidad_numero; la API recibe id_cliente y asigna el número de comprobante.
     """
     detalle_items = construir_detalle_desde_registro(reg, monto_total, monto_base, monto_igv)
-    # Documento del cliente (RUC/DNI): enviar entidad_numero para que la API use este valor en el XML a SUNAT y no confunda con el número de comprobante.
+    # Documento del cliente desde Redis: entidad_numero (RUC/DNI). NUNCA usar numero_documento del reg (es comprobante, ej. B005-00000008).
     entidad_numero = str(reg.get("entidad_numero") or reg.get("entidad_numero_documento") or "").strip()
-    # Solo dígitos (8 = DNI, 11 = RUC); no enviar si está vacío o no parece documento
     entidad_numero_clean = "".join(c for c in entidad_numero if c.isdigit()) if entidad_numero else ""
     if len(entidad_numero_clean) not in (8, 11):
         entidad_numero_clean = ""
-    # No enviar serie/numero de comprobante: la API asigna el siguiente. El cliente se identifica por id_cliente + entidad_numero.
+    # No enviar serie/numero del comprobante: la API asigna el siguiente. Cliente = id_cliente + entidad_numero (nunca numero_documento).
     payload = {
         "codOpe": "CREAR_VENTA",
         "id_usuario": int(id_usuario),
@@ -262,7 +275,7 @@ def construir_payload_venta(
         "id_sucursal": int(reg.get("id_sucursal") or 14),
         "id_moneda": int(id_moneda) if id_moneda is not None else None,
         "id_forma_pago": int(id_forma_pago) if id_forma_pago is not None else 9,
-        "id_medio_pago": int(reg.get("id_medio_pago") or 1),
+        "id_medio_pago": _id_medio_pago_desde_reg(reg),
         "tipo_venta": tipo_venta or "Contado",
         "fecha_emision": fecha_emision,
         "fecha_pago": fecha_pago,
