@@ -11,6 +11,7 @@ MONTO_MAX_BOLETA_PEN = 700
 
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
+from services.helpers.compra_mapper import construir_payload_compra
 from services.helpers.sunat_client import SunatClient
 from services.helpers.venta_mapper import (
     construir_payload_venta,
@@ -108,18 +109,7 @@ class FinalizarService:
         try:
             if operacion == "venta":
                 return self._finalizar_venta(wa_id, registro, id_from, params)
-
-            self._marcar_completado(wa_id, id_from)
-            return {
-                "status": "finalizado",
-                "mensaje": (
-                    f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
-                    f"🏢 *Proveedor:* {registro.get('entidad_nombre')}\n"
-                    f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']}\n"
-                    f"📝 *Estado:* Guardado en el historial de compras."
-                ),
-                "debug": {**debug, "paso": "compra_ok"},
-            }
+            return self._finalizar_compra(wa_id, registro, id_from, params, debug)
         except Exception as e:
             return {
                 "status": "error",
@@ -161,6 +151,8 @@ class FinalizarService:
             tiene_datos = str(reg.get("entidad_nombre") or "").strip() and params["entidad_numero"]
             if not tiene_datos:
                 errores.append("Cliente (nombre y documento) para facturar")
+        if operacion == "compra" and not reg.get("entidad_id"):
+            errores.append("Proveedor (debe estar seleccionado para registrar la compra)")
         return errores
 
     # ------------------------------------------------------------------ #
@@ -217,6 +209,37 @@ class FinalizarService:
         error_sunat = f"❌ Error SUNAT: {resultado.error_mensaje}"
         mensaje = f"{sintesis}\n\n{error_sunat}" if sintesis else error_sunat
         return {"status": "error", "mensaje": mensaje, "sintesis_actual": sintesis}
+
+    # ------------------------------------------------------------------ #
+    # Flujo de compra (API ws_compra.php)
+    # ------------------------------------------------------------------ #
+
+    def _finalizar_compra(self, wa_id: str, reg: dict, id_from: int, params: dict, debug: dict) -> dict:
+        """Construye payload, llama a la API de compras y devuelve resultado."""
+        payload = construir_payload_compra(reg, params, id_from)
+        resultado = self._entities.registrar_compra(payload)
+
+        if resultado.get("success") is True:
+            self._marcar_completado(wa_id, id_from)
+            id_compra = resultado.get("id_compra", "")
+            return {
+                "status": "finalizado",
+                "mensaje": (
+                    f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
+                    f"🏢 *Proveedor:* {reg.get('entidad_nombre')}\n"
+                    f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']}\n"
+                    f"📝 *ID compra:* {id_compra}\n"
+                    f"Estado guardado en el historial de compras."
+                ),
+                "debug": {**debug, "paso": "compra_ok", "id_compra": id_compra},
+            }
+
+        sintesis = construir_sintesis_actual(reg)
+        error_msg = resultado.get("error") or resultado.get("message", "Error al registrar compra")
+        if resultado.get("details"):
+            error_msg = f"{error_msg}\nDetalles: {resultado['details']}"
+        mensaje = f"{sintesis}\n\n❌ {error_msg}" if sintesis else f"❌ {error_msg}"
+        return {"status": "error", "mensaje": mensaje, "sintesis_actual": sintesis, "debug": {**debug, "paso": "compra_error"}}
 
     # ------------------------------------------------------------------ #
     # Cache

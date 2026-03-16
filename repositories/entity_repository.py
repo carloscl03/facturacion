@@ -2,11 +2,12 @@ import requests
 
 
 class EntityRepository:
-    """Acceso a la API de clientes y proveedores."""
+    """Acceso a la API de clientes, proveedores y compras."""
 
-    def __init__(self, url_cliente: str, url_proveedor: str) -> None:
+    def __init__(self, url_cliente: str, url_proveedor: str, url_compra: str = "") -> None:
         self._url_cliente = url_cliente
         self._url_proveedor = url_proveedor
+        self._url_compra = url_compra
 
     # ------------------------------------------------------------------ #
     # BÚSQUEDA
@@ -96,5 +97,29 @@ class EntityRepository:
         try:
             r = requests.post(self._url_cliente, json=payload, timeout=15)
             return r.json()
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    # ------------------------------------------------------------------ #
+    # COMPRAS
+    # ------------------------------------------------------------------ #
+
+    def registrar_compra(self, payload: dict) -> dict:
+        """
+        Envía el payload REGISTRAR_COMPRA a ws_compra.php.
+        Espera JSON con success, message, id_compra o error/details.
+        """
+        if not self._url_compra:
+            return {"success": False, "message": "URL de compras no configurada"}
+        try:
+            r = requests.post(
+                self._url_compra,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            )
+            if "application/json" in (r.headers.get("content-type") or ""):
+                return r.json()
+            return {"success": False, "message": r.text, "status_code": r.status_code}
         except Exception as e:
             return {"success": False, "message": str(e)}

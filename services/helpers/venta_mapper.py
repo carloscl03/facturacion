@@ -147,6 +147,7 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
 
     fecha_emision = fecha_ddmmyyyy_a_api(reg.get("fecha_emision")) or "2026-03-03"
     fecha_pago = fecha_ddmmyyyy_a_api(reg.get("fecha_pago")) or fecha_emision
+    fecha_vencimiento = fecha_ddmmyyyy_a_api(reg.get("fecha_vencimiento")) or fecha_pago
 
     return operacion, {
         "id_tipo_comprobante": id_tipo_comprobante,
@@ -162,6 +163,7 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
         "id_cliente": id_cliente,
         "fecha_emision": fecha_emision,
         "fecha_pago": fecha_pago,
+        "fecha_vencimiento": fecha_vencimiento,
     }
 
 

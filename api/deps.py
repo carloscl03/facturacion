@@ -31,7 +31,7 @@ def get_cache_repo() -> CacheRepository:
 
 
 def get_entity_repo() -> EntityRepository:
-    return EntityRepository(settings.URL_CLIENTE, settings.URL_PROVEEDOR)
+    return EntityRepository(settings.URL_CLIENTE, settings.URL_PROVEEDOR, settings.URL_COMPRA)
 
 
 def get_informacion_repo() -> InformacionRepository:
