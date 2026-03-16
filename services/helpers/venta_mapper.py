@@ -258,16 +258,11 @@ def construir_payload_venta(
     """
     Construye el payload completo CREAR_VENTA para la API externa
     a partir del registro y de los parámetros ya traducidos.
-    No se usa numero_documento (comprobante) para la API: el cliente se registra/identifica
-    con entidad_numero; la API recibe id_cliente y asigna el número de comprobante.
+    La API solo recibe id_cliente (obtiene RUC/DNI por id). No se envía numero_documento del registro (es el comprobante); serie/numero van en None y la API asigna el comprobante.
     """
     detalle_items = construir_detalle_desde_registro(reg, monto_total, monto_base, monto_igv)
-    # Documento del cliente desde Redis: entidad_numero (RUC/DNI). NUNCA usar numero_documento del reg (es comprobante, ej. B005-00000008).
-    entidad_numero = str(reg.get("entidad_numero") or reg.get("entidad_numero_documento") or "").strip()
-    entidad_numero_clean = "".join(c for c in entidad_numero if c.isdigit()) if entidad_numero else ""
-    if len(entidad_numero_clean) not in (8, 11):
-        entidad_numero_clean = ""
-    # No enviar serie/numero del comprobante: la API asigna el siguiente. Cliente = id_cliente + entidad_numero (nunca numero_documento).
+    # La API solo pide id_cliente; el RUC/DNI lo obtiene por id. No enviar numero_documento del reg (es comprobante B005-00000008).
+    # No enviar serie/numero: la API asigna el siguiente comprobante.
     payload = {
         "codOpe": "CREAR_VENTA",
         "id_usuario": int(id_usuario),
@@ -288,8 +283,6 @@ def construir_payload_venta(
         "observaciones": str(reg.get("observaciones") or "").strip() or None,
         "detalle_items": detalle_items,
     }
-    if entidad_numero_clean:
-        payload["entidad_numero"] = entidad_numero_clean
     if payload["observaciones"] is None:
         payload.pop("observaciones", None)
     return payload

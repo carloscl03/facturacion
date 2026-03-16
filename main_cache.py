@@ -881,11 +881,7 @@ async def finalizar_operacion(wa_id: str, id_empresa: int):
                         "id_tipo_producto": 2
                     })
 
-            # Documento del cliente: entidad_numero (RUC/DNI). No enviar numero_documento del reg (es comprobante B005-00000008).
-            entidad_numero = str(reg.get("entidad_numero") or reg.get("entidad_numero_documento") or "").strip()
-            entidad_numero_clean = "".join(c for c in entidad_numero if c.isdigit()) if entidad_numero else ""
-            if len(entidad_numero_clean) not in (8, 11):
-                entidad_numero_clean = ""
+            # La API solo pide id_cliente (obtiene RUC/DNI por id). No enviar numero_documento del reg (es comprobante).
             payload_venta = {
                 "codOpe": "CREAR_VENTA",
                 "id_usuario": reg.get("id_usuario", 3),
@@ -901,8 +897,6 @@ async def finalizar_operacion(wa_id: str, id_empresa: int):
                 "numero": None,
                 "detalle_items": detalle_items
             }
-            if entidad_numero_clean:
-                payload_venta["entidad_numero"] = entidad_numero_clean
 
             headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
             res_sunat = requests.post(URL_VENTA_SUNAT, json=payload_venta, headers=headers)
