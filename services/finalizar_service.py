@@ -10,6 +10,9 @@ from __future__ import annotations
 # Si monto >= 700 → documento obligatorio. No es restricción estricta sobre tipo de comprobante.
 MONTO_LIMITE_DOC_OPCIONAL_PEN = 700
 
+# Usuario con el que se registran ventas y compras (temporal; informado por Maravia).
+ID_USUARIO_REGISTRO = 3
+
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
 from services.helpers.compra_mapper import construir_payload_compra
@@ -187,6 +190,7 @@ class FinalizarService:
             params["moneda_simbolo"], params["id_moneda"],
             params["id_forma_pago"], params["tipo_venta"],
             params["fecha_emision"], params["fecha_pago"],
+            id_usuario=ID_USUARIO_REGISTRO,
         )
 
         resultado = self._sunat.crear_venta(payload)
@@ -215,7 +219,7 @@ class FinalizarService:
 
     def _finalizar_compra(self, wa_id: str, reg: dict, id_from: int, params: dict, debug: dict) -> dict:
         """Construye payload, llama a la API de compras y devuelve resultado."""
-        payload = construir_payload_compra(reg, params, id_from)
+        payload = construir_payload_compra(reg, params, id_from, id_usuario=ID_USUARIO_REGISTRO)
         resultado = self._entities.registrar_compra(payload)
 
         if resultado.get("success") is True:

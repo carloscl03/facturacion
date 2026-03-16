@@ -89,6 +89,7 @@ def construir_payload_compra(
     reg: Dict[str, Any],
     params: Dict[str, Any],
     id_from: int,
+    id_usuario: int = 3,
 ) -> Dict[str, Any]:
     """
     Construye el payload completo REGISTRAR_COMPRA para ws_compra.php
@@ -111,7 +112,7 @@ def construir_payload_compra(
     payload: Dict[str, Any] = {
         "codOpe": "REGISTRAR_COMPRA",
         "empresa_id": id_from,
-        "usuario_id": int(reg.get("id_usuario") or reg.get("usuario_id") or 1),
+        "usuario_id": id_usuario,
         "id_proveedor": reg.get("entidad_id"),
         "id_tipo_comprobante": params["id_tipo_comprobante"],
         "fecha_emision": params["fecha_emision"],

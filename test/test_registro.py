@@ -13,8 +13,8 @@ def registrar_compra():
 
     payload = {
         "codOpe": "REGISTRAR_COMPRA",
-        "empresa_id": 1,
-        "usuario_id": 1,
+        "empresa_id": 2,
+        "usuario_id": 3,
         "id_proveedor": 5,
         "id_tipo_comprobante": 1,
         "fecha_emision": "2025-10-31",

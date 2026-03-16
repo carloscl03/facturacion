@@ -42,7 +42,11 @@ def obtener_token_sunat() -> tuple[str, str | None]:
     Retorna (token, error). Si error no es None, el token está vacío y error describe el fallo.
     """
     if not (settings.MARAVIA_USER or "").strip() or not (settings.MARAVIA_PASSWORD or "").strip():
-        return "", "Faltan MARAVIA_USER y/o MARAVIA_PASSWORD en el entorno (.env). El token se obtiene por LOGIN en ws_login.php."
+        return "", (
+            "Faltan MARAVIA_USER y/o MARAVIA_PASSWORD en el entorno (.env). "
+            "El token se obtiene automáticamente llamando a la API de login (ws_login.php) con esas credenciales; "
+            "añada ambas variables a su archivo .env (puede copiar .env.example y rellenar sus credenciales Maravia)."
+        )
     token = login_maravia(settings.MARAVIA_USER, settings.MARAVIA_PASSWORD)
     if not token:
         return "", "LOGIN en ws_login.php falló o no devolvió token. Revisar credenciales y URL (MARAVIA_URL_LOGIN)."

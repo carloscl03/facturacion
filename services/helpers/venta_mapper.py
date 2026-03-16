@@ -181,6 +181,7 @@ def construir_payload_venta(
     tipo_venta,
     fecha_emision: str,
     fecha_pago: str,
+    id_usuario: int = 3,
 ) -> Dict[str, Any]:
     """
     Construye el payload completo CREAR_VENTA para la API externa
@@ -189,7 +190,7 @@ def construir_payload_venta(
     detalle_items = construir_detalle_desde_registro(reg, monto_total, monto_base, monto_igv)
     payload = {
         "codOpe": "CREAR_VENTA",
-        "id_usuario": reg.get("id_usuario", 3),
+        "id_usuario": id_usuario,
         "id_cliente": id_cliente,
         "id_sucursal": reg.get("id_sucursal") or 14,
         "id_moneda": id_moneda,
