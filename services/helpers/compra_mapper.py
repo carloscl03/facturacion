@@ -10,6 +10,7 @@ import json
 from typing import Any, Dict, List
 
 from services.helpers.productos import normalizar_productos_raw
+from services.helpers.venta_mapper import nro_documento_comprobante
 
 
 def construir_detalles_compra(
@@ -105,9 +106,8 @@ def construir_payload_compra(
     tipo_compra = (params.get("tipo_venta") or "Contado").strip()
     dias_credito = int(reg.get("dias_credito", 30))
     cuotas = int(reg.get("cuotas", 1))
-    nro_documento = str(reg.get("numero_documento") or reg.get("nro_documento") or "").strip()
-    if not nro_documento and reg.get("serie") and reg.get("numero"):
-        nro_documento = f"{reg.get('serie')}-{reg.get('numero')}"
+    # Número del comprobante (factura/boleta del proveedor): solo serie-número, nunca RUC/DNI del proveedor
+    nro_documento = nro_documento_comprobante(reg) or "S/N"
 
     id_proveedor = reg.get("entidad_id")
     if id_proveedor is not None:

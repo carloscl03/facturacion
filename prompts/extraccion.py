@@ -65,7 +65,7 @@ def build_prompt_extractor(
     - Entidad: "cliente", "razon_social", "proveedor" → entidad_nombre; "ruc", "dni", "documento" → **entidad_numero** (obligatorio mapear para que el backend tenga el número). Si el JSON tiene "ruc" o "dni", además de guardarlo en entidad_numero debes poner **requiere_identificacion.activo = true** y **termino** = ese número.
     - Operación: "tipo_operacion", "cod_ope", "operacion" → operacion ("venta"/"compra").
     - Comprobante: "tipo_comprobante", "comprobante" → tipo_documento ("factura"/"boleta"/"nota de venta").
-    - Número: "serie", "numero", "numero_documento" → numero_documento (ej: "F001-00005678").
+    - Número del comprobante (serie-número): "serie", "numero", "numero_documento" → **numero_documento** (ej: "B005-00000008", "F001-00005678"). Este campo es SOLO para el comprobante (boleta/factura); NUNCA pongas aquí el DNI ni el RUC del cliente (eso va en entidad_numero).
     - Montos: "total", "monto_total" → monto_total; "subtotal", "base" → monto_sin_igv; "igv" → igv.
     - Productos: "productos", "items", "detalle" → productos (JSON array).
     - Moneda: "moneda" ("PEN"/"soles" → "PEN"; "USD"/"dolares" → "USD").
@@ -78,7 +78,7 @@ def build_prompt_extractor(
     - operacion: solo "venta" o "compra". Si no se indica, null.
     - tipo_documento: "factura", "boleta" o "nota de venta". No asumir si no se indica.
     - **REGLA 700 (PEN) — solo afecta si pides documento:** Para ventas en soles (PEN): si el monto total es **menor a S/ 700**, la identificación por documento (DNI o RUC) es **opcional** (puede ser nota de venta; no preguntes por DNI/RUC si el usuario no lo da). Si el monto es **>= S/ 700**, el documento del cliente (DNI/RUC) es **obligatorio**. Esta regla solo define cuándo pedir o no documento; no sugieras ni preguntes cambiar de boleta a factura ni impongas tipo de comprobante por el monto.
-    - numero_documento: formato serie-número según SUNAT (ej: F001-00005678). Extraer si el usuario lo proporciona.
+    - numero_documento: formato serie-número del **comprobante** según SUNAT (ej: B005-00000008, F001-00005678). Solo si el usuario da el número de boleta/factura a emitir. No confundir con el documento del cliente: el DNI/RUC del cliente va siempre en entidad_numero.
     - moneda: "PEN" o "USD". No asumir.
     - medio_pago (medio de pago): solo "contado" o "credito". Este campo es "medio de pago" (contado/crédito); no confundir con forma de pago (transferencia, tarjeta, etc.). Si no se indica, null. Si el usuario dice "al contado", "al crédito", "crédito 30 días", etc., extraer a medio_pago y si es crédito también dias_credito y nro_cuotas si los da.
     - dias_credito: entero (ej. 15, 30, 60). Obligatorio si medio_pago = "credito". Ventas: típico 15 a 90 días.
@@ -154,7 +154,7 @@ def build_prompt_extractor(
             "entidad_nombre": "...",
             "entidad_numero": "DNI 8 dig o RUC 11 dig o null",
             "tipo_documento": "factura/boleta/nota de venta o null",
-            "numero_documento": "F001-00005678 o null",
+            "numero_documento": "serie-número del comprobante (ej. B005-00000008) o null — NUNCA el DNI/RUC del cliente",
             "moneda": "PEN o USD o null",
             "medio_pago": "contado o credito o null",
             "dias_credito": integer o null (obligatorio si medio_pago=credito),

@@ -145,6 +145,12 @@ class SunatClient:
             or res_json.get("error")
             or "No se pudo generar el PDF."
         )
+        # Si SUNAT dice "El DNI X no es válido" y X parece número de comprobante (ej. B005-00000008), aclarar
+        if error and "DNI" in error and "-" in error:
+            error = (
+                error.rstrip(".")
+                + ". (El número de comprobante no debe enviarse como documento del cliente; el documento del cliente es el DNI/RUC, 8 u 11 dígitos.)"
+            )
         # Debug: respuesta de la API para ver status, códigos y mensaje detallado de SUNAT
         error_debug = {
             "status_code": res.status_code,

@@ -7,6 +7,59 @@ from services.helpers.productos import construir_detalle_desde_registro
 from services.helpers.registro_domain import operacion_desde_registro
 
 
+def _serie_numero_comprobante(reg: Dict[str, Any]) -> Tuple[Any, Any]:
+    """
+    Obtiene serie y número del comprobante desde el registro (Redis).
+    El extractor guarda solo numero_documento (ej: "B005-00000008"); no guarda "serie" ni "numero".
+    La API CREAR_VENTA espera serie (ej: "B005") y numero (solo dígitos del comprobante, nunca
+    el documento del cliente). Así evitamos enviar "B005-00000008" como numero y que SUNAT lo
+    interprete como DNI.
+    Devuelve (serie, numero); numero es int si es numérico, o str de dígitos; serie es str o None.
+    """
+    serie = reg.get("serie")
+    numero = reg.get("numero")
+    num_doc = str(reg.get("numero_documento") or "").strip()
+    # Si numero parece serie-numero completo (ej. B005-00000008), no usarlo como numero del comprobante
+    if numero is not None and str(numero).strip():
+        num_str = str(numero).strip()
+        if "-" in num_str or (len(num_str) > 9 and not num_str.isdigit()):
+            numero = None  # Evitar enviar "B005-00000008" como numero
+    if serie is not None and str(serie).strip() and numero is not None:
+        # Asegurar que numero sea solo dígitos
+        if isinstance(numero, str) and numero.isdigit():
+            try:
+                numero = int(numero)
+            except ValueError:
+                pass
+        return (str(serie).strip(), numero)
+    if num_doc and "-" in num_doc:
+        parts = num_doc.split("-", 1)
+        serie_out = parts[0].strip() if parts[0].strip() else None
+        num_part = (parts[1].strip() if len(parts) > 1 else "").strip()
+        num_digitos = "".join(c for c in num_part if c.isdigit()) if num_part else ""
+        if serie_out and num_digitos:
+            try:
+                numero_out = int(num_digitos)
+            except ValueError:
+                numero_out = num_digitos or None
+            return (serie_out, numero_out)
+    return (serie, numero)
+
+
+def nro_documento_comprobante(reg: Dict[str, Any]) -> str | None:
+    """
+    Devuelve el número del comprobante (serie-número) para uso en venta o compra.
+    Solo valores que parecen comprobante (contienen "-"); nunca el documento de la entidad (DNI/RUC).
+    """
+    serie, numero = _serie_numero_comprobante(reg)
+    if serie is not None and numero is not None:
+        return f"{serie}-{numero}"
+    num_doc = str(reg.get("numero_documento") or reg.get("nro_documento") or "").strip()
+    if num_doc and "-" in num_doc:
+        return num_doc
+    return None
+
+
 TIPO_DOCUMENTO_MAP = {
     "factura": 1,
     "boleta": 2,
@@ -193,6 +246,7 @@ def construir_payload_venta(
     a partir del registro y de los parámetros ya traducidos.
     """
     detalle_items = construir_detalle_desde_registro(reg, monto_total, monto_base, monto_igv)
+    serie, numero = _serie_numero_comprobante(reg)
     payload = {
         "codOpe": "CREAR_VENTA",
         "id_usuario": int(id_usuario),
@@ -208,8 +262,8 @@ def construir_payload_venta(
         "id_caja_banco": int(reg.get("id_caja_banco", 4)),
         "tipo_facturacion": "facturacion_electronica",
         "id_tipo_comprobante": int(id_tipo_comprobante) if id_tipo_comprobante is not None else None,
-        "serie": reg.get("serie"),
-        "numero": reg.get("numero"),
+        "serie": serie,
+        "numero": numero,
         "observaciones": str(reg.get("observaciones") or "").strip() or None,
         "detalle_items": detalle_items,
     }
