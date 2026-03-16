@@ -248,7 +248,13 @@ def construir_payload_venta(
     con entidad_numero; la API recibe id_cliente y asigna el número de comprobante.
     """
     detalle_items = construir_detalle_desde_registro(reg, monto_total, monto_base, monto_igv)
-    # No enviar serie/numero: la API asigna el siguiente comprobante. El cliente va por id_cliente (entidad_numero → identificador → entidad_id).
+    # Documento del cliente (RUC/DNI): enviar entidad_numero para que la API use este valor en el XML a SUNAT y no confunda con el número de comprobante.
+    entidad_numero = str(reg.get("entidad_numero") or reg.get("entidad_numero_documento") or "").strip()
+    # Solo dígitos (8 = DNI, 11 = RUC); no enviar si está vacío o no parece documento
+    entidad_numero_clean = "".join(c for c in entidad_numero if c.isdigit()) if entidad_numero else ""
+    if len(entidad_numero_clean) not in (8, 11):
+        entidad_numero_clean = ""
+    # No enviar serie/numero de comprobante: la API asigna el siguiente. El cliente se identifica por id_cliente + entidad_numero.
     payload = {
         "codOpe": "CREAR_VENTA",
         "id_usuario": int(id_usuario),
@@ -269,6 +275,8 @@ def construir_payload_venta(
         "observaciones": str(reg.get("observaciones") or "").strip() or None,
         "detalle_items": detalle_items,
     }
+    if entidad_numero_clean:
+        payload["entidad_numero"] = entidad_numero_clean
     if payload["observaciones"] is None:
         payload.pop("observaciones", None)
     return payload
