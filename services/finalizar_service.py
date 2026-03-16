@@ -231,7 +231,10 @@ class FinalizarService:
         sintesis = construir_sintesis_actual(reg)
         error_sunat = f"❌ Error SUNAT: {resultado.error_mensaje}"
         mensaje = f"{sintesis}\n\n{error_sunat}" if sintesis else error_sunat
-        return {"status": "error", "mensaje": mensaje, "sintesis_actual": sintesis}
+        out = {"status": "error", "mensaje": mensaje, "sintesis_actual": sintesis}
+        if getattr(resultado, "error_debug", None):
+            out["debug"] = resultado.error_debug
+        return out
 
     # ------------------------------------------------------------------ #
     # Flujo de compra (API ws_compra.php)

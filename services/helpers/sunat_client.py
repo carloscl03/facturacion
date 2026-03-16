@@ -60,6 +60,7 @@ class SunatResult:
     serie: Optional[str] = None
     numero: Optional[str] = None
     error_mensaje: Optional[str] = None
+    error_debug: Optional[Dict[str, Any]] = None  # Respuesta cruda de la API en caso de error (para diagnóstico)
 
     @property
     def serie_numero(self) -> str:
@@ -111,6 +112,7 @@ class SunatClient:
             return SunatResult(
                 success=False,
                 error_mensaje=f"Respuesta no JSON (status {res.status_code}).",
+                error_debug={"status_code": res.status_code, "raw": res.text[:500] if res.text else None},
             )
 
         sunat_obj = res_json.get("sunat") or {}
@@ -143,4 +145,13 @@ class SunatClient:
             or res_json.get("error")
             or "No se pudo generar el PDF."
         )
-        return SunatResult(success=False, error_mensaje=error)
+        # Debug: respuesta de la API para ver status, códigos y mensaje detallado de SUNAT
+        error_debug = {
+            "status_code": res.status_code,
+            "success": res_json.get("success"),
+            "message": res_json.get("message"),
+            "error": res_json.get("error"),
+            "details": res_json.get("details"),
+            "sunat": res_json.get("sunat"),
+        }
+        return SunatResult(success=False, error_mensaje=error, error_debug=error_debug)
