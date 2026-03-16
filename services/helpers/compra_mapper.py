@@ -109,17 +109,25 @@ def construir_payload_compra(
     if not nro_documento and reg.get("serie") and reg.get("numero"):
         nro_documento = f"{reg.get('serie')}-{reg.get('numero')}"
 
+    id_proveedor = reg.get("entidad_id")
+    if id_proveedor is not None:
+        id_proveedor = int(id_proveedor)
+    id_forma_pago = params.get("id_forma_pago")
+    if id_forma_pago is not None:
+        id_forma_pago = int(id_forma_pago)
+    else:
+        id_forma_pago = 1
     payload: Dict[str, Any] = {
         "codOpe": "REGISTRAR_COMPRA",
-        "empresa_id": id_from,
-        "usuario_id": id_usuario,
-        "id_proveedor": reg.get("entidad_id"),
-        "id_tipo_comprobante": params["id_tipo_comprobante"],
+        "empresa_id": int(id_from),
+        "usuario_id": int(id_usuario),
+        "id_proveedor": id_proveedor,
+        "id_tipo_comprobante": int(params["id_tipo_comprobante"]) if params.get("id_tipo_comprobante") is not None else 1,
         "fecha_emision": params["fecha_emision"],
         "nro_documento": nro_documento or "S/N",
-        "id_medio_pago": reg.get("id_medio_pago", 1),
-        "id_forma_pago": params["id_forma_pago"],
-        "id_moneda": params["id_moneda"],
+        "id_medio_pago": int(reg.get("id_medio_pago") or 1),
+        "id_forma_pago": id_forma_pago,
+        "id_moneda": int(params["id_moneda"]) if params.get("id_moneda") is not None else 1,
         "id_sucursal": int(reg.get("id_sucursal") or 1),
         "tipo_compra": tipo_compra,
         "dias_credito": dias_credito,

@@ -144,6 +144,11 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
     id_tipo_doc_entidad = 6 if len(entidad_numero) == 11 else 1
 
     id_cliente = reg.get("entidad_id")
+    if id_cliente is not None and id_cliente != "":
+        try:
+            id_cliente = int(id_cliente)
+        except (TypeError, ValueError):
+            id_cliente = None
 
     fecha_emision = fecha_ddmmyyyy_a_api(reg.get("fecha_emision")) or "2026-03-03"
     fecha_pago = fecha_ddmmyyyy_a_api(reg.get("fecha_pago")) or fecha_emision
@@ -190,19 +195,19 @@ def construir_payload_venta(
     detalle_items = construir_detalle_desde_registro(reg, monto_total, monto_base, monto_igv)
     payload = {
         "codOpe": "CREAR_VENTA",
-        "id_usuario": id_usuario,
-        "id_cliente": id_cliente,
-        "id_sucursal": reg.get("id_sucursal") or 14,
-        "id_moneda": id_moneda,
-        "id_forma_pago": id_forma_pago,
-        "id_medio_pago": reg.get("id_medio_pago"),
+        "id_usuario": int(id_usuario),
+        "id_cliente": int(id_cliente) if id_cliente is not None else None,
+        "id_sucursal": int(reg.get("id_sucursal") or 14),
+        "id_moneda": int(id_moneda) if id_moneda is not None else None,
+        "id_forma_pago": int(id_forma_pago) if id_forma_pago is not None else 9,
+        "id_medio_pago": int(reg.get("id_medio_pago") or 1),
         "tipo_venta": tipo_venta or "Contado",
         "fecha_emision": fecha_emision,
         "fecha_pago": fecha_pago,
-        "id_tipo_afectacion": reg.get("id_tipo_afectacion", 1),
-        "id_caja_banco": reg.get("id_caja_banco", 4),
+        "id_tipo_afectacion": int(reg.get("id_tipo_afectacion", 1)),
+        "id_caja_banco": int(reg.get("id_caja_banco", 4)),
         "tipo_facturacion": "facturacion_electronica",
-        "id_tipo_comprobante": id_tipo_comprobante,
+        "id_tipo_comprobante": int(id_tipo_comprobante) if id_tipo_comprobante is not None else None,
         "serie": reg.get("serie"),
         "numero": reg.get("numero"),
         "observaciones": str(reg.get("observaciones") or "").strip() or None,
