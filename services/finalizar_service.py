@@ -6,9 +6,9 @@ y emisión de comprobante SUNAT delegando la lógica de dominio a helpers.
 """
 from __future__ import annotations
 
-# Límite SUNAT (PEN): si monto < 700 → identificación por documento (DNI/RUC) opcional, se considera nota de venta.
-# Si monto >= 700 → documento obligatorio; boleta no permitida (usar factura).
-MONTO_MAX_BOLETA_PEN = 700
+# Límite 700 PEN: si monto < 700 → identificación por documento (DNI/RUC) opcional (nota de venta).
+# Si monto >= 700 → documento obligatorio. No es restricción estricta sobre tipo de comprobante.
+MONTO_LIMITE_DOC_OPCIONAL_PEN = 700
 
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
@@ -138,21 +138,11 @@ class FinalizarService:
             errores.append("Tipo de documento (Factura/Boleta)")
         if not params["id_moneda"]:
             errores.append("Moneda (PEN/USD)")
-        # Regla SUNAT: boleta solo para montos < 700 soles (PEN)
-        if (
-            operacion == "venta"
-            and params.get("id_tipo_comprobante") == 2  # boleta
-            and params.get("id_moneda") == 1  # PEN
-            and float(params.get("monto_total") or 0) >= MONTO_MAX_BOLETA_PEN
-        ):
-            errores.append(
-                f"Boleta no permitida para montos >= S/ {MONTO_MAX_BOLETA_PEN}. Use Factura."
-            )
+        # Regla 700 PEN solo afecta si exigimos documento: >= 700 → nombre + documento; < 700 → solo nombre (documento opcional).
         if operacion == "venta" and not params["id_cliente"]:
             monto_pen = float(params.get("monto_total") or 0)
             id_moneda_pen = params.get("id_moneda") == 1
-            # Con monto >= 700 PEN: se requiere nombre y documento. Con monto < 700 PEN: documento opcional (nota de venta), basta el nombre.
-            if id_moneda_pen and monto_pen >= MONTO_MAX_BOLETA_PEN:
+            if id_moneda_pen and monto_pen >= MONTO_LIMITE_DOC_OPCIONAL_PEN:
                 tiene_datos = str(reg.get("entidad_nombre") or "").strip() and params.get("entidad_numero")
                 if not tiene_datos:
                     errores.append("Cliente (nombre y documento) para facturar")
