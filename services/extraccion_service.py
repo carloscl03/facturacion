@@ -89,7 +89,13 @@ class ExtraccionService:
             "mensaje": (req_id.get("mensaje") or "").strip(),
         }
         # Forzar identificación si hay entidad_numero de 8 o 11 dígitos y aún no tenemos entidad_id
-        num_doc = (payload_db.get("entidad_numero") or estado_actual.get("entidad_numero") or "").strip()
+        # Incluir payload_base por si el número vino en propuesta como "ruc"/"dni" y ya se normalizó ahí
+        num_doc = (
+            payload_db.get("entidad_numero")
+            or payload_base.get("entidad_numero")
+            or estado_actual.get("entidad_numero")
+            or ""
+        ).strip()
         num_solo_digitos = "".join(c for c in str(num_doc) if c.isdigit())
         if len(num_solo_digitos) in (8, 11) and not (payload_db.get("entidad_id") or estado_actual.get("entidad_id")):
             requiere_identificacion["activo"] = True
@@ -262,10 +268,17 @@ class ExtraccionService:
             except (TypeError, ValueError):
                 pass
 
+        entidad_numero = obtener("entidad_numero", "entidad_numero_documento", "")
+        if not (entidad_numero and str(entidad_numero).strip()):
+            for key in ("ruc", "dni", "documento"):
+                v = propuesta.get(key)
+                if v is not None and str(v).strip():
+                    entidad_numero = str(v).strip()
+                    break
         return {
             "operacion": contexto_previo if contexto_previo else obtener("operacion", "cod_ope", None),
             "entidad_nombre": obtener("entidad_nombre", default=""),
-            "entidad_numero": obtener("entidad_numero", "entidad_numero_documento", ""),
+            "entidad_numero": entidad_numero or "",
             "tipo_documento": obtener("tipo_documento", default=None),
             "numero_documento": obtener("numero_documento", default=None),
             "moneda": obtener("moneda", default=None),

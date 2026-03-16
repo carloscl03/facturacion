@@ -62,7 +62,7 @@ def build_prompt_extractor(
     Si el mensaje contiene un JSON (objeto o array), trátalo como documento con muchos datos.
     Presta especial atención a las etiquetas/claves del JSON para llenar la mayor cantidad de campos.
     Mapeo de claves del JSON a campos de propuesta_cache:
-    - Entidad: "cliente", "razon_social", "proveedor" → entidad_nombre; "ruc", "dni", "documento" → entidad_numero.
+    - Entidad: "cliente", "razon_social", "proveedor" → entidad_nombre; "ruc", "dni", "documento" → **entidad_numero** (obligatorio mapear para que el backend tenga el número). Si el JSON tiene "ruc" o "dni", además de guardarlo en entidad_numero debes poner **requiere_identificacion.activo = true** y **termino** = ese número.
     - Operación: "tipo_operacion", "cod_ope", "operacion" → operacion ("venta"/"compra").
     - Comprobante: "tipo_comprobante", "comprobante" → tipo_documento ("factura"/"boleta"/"nota de venta").
     - Número: "serie", "numero", "numero_documento" → numero_documento (ej: "F001-00005678").
@@ -88,12 +88,12 @@ def build_prompt_extractor(
     - entidad_numero: DNI tiene 8 dígitos, RUC tiene 11 dígitos. El tipo se infiere por la longitud.
 
     ### REGLA ESTRICTA — IDENTIFICACIÓN CON RUC/DNI:
-    **Cuando el mensaje contenga un RUC (11 dígitos) o un DNI (8 dígitos):**
-    1. Debes poner **requiere_identificacion.activo = true** y **termino** = exactamente ese número (solo dígitos, sin espacios). tipo_ope = "venta" o "compra" según la operación actual.
-    2. En **propuesta_cache** guarda **entidad_numero** con ese número para que el backend lo use.
-    3. **No inventes ni copies** el nombre de la empresa o persona en entidad_nombre cuando solo tengas el RUC/DNI: el backend llamará al servicio de identificación (BUSCAR_CLIENTE / BUSCAR_PROVEEDOR) y rellenará el **nombre exacto** y el **id** (cliente_id o proveedor_id → entidad_id). Si el usuario escribió un nombre junto al documento, puedes ponerlo en entidad_nombre como referencia, pero el backend lo sobrescribirá con el nombre oficial si la identificación tiene éxito.
-    4. Si no hay RUC ni DNI (8 u 11 dígitos) en el mensaje, requiere_identificacion.activo = false y termino = "".
-    Resumen: RUC o DNI detectado → activo=true, termino=número; el backend obtiene nombre exacto e id (cliente/proveedor) y los persiste.
+    **Cuando detectes un RUC (11 dígitos) o un DNI (8 dígitos), venga de texto libre O de un JSON:**
+    1. Siempre pon **requiere_identificacion.activo = true** y **termino** = ese número (solo dígitos). tipo_ope = "venta" o "compra" según la operación.
+    2. En **propuesta_cache** guarda **entidad_numero** con ese número (y si el JSON trae "ruc" o "dni", mapea a entidad_numero).
+    3. **Aunque el JSON también traiga razón social o nombre** (ej: "cliente", "razon_social"), debes igualmente activar requiere_identificacion cuando haya RUC o DNI: el backend debe llamar al servicio de identificación para obtener el **nombre exacto** y el **id** (cliente_id/proveedor_id). No omitas la identificación por tener ya un nombre en el JSON.
+    4. Si no hay ningún número de 8 ni 11 dígitos, requiere_identificacion.activo = false y termino = "".
+    Resumen: Cualquier RUC o DNI detectado (texto o JSON) → activo=true, termino=número; el backend obtiene nombre oficial e id y los persiste.
 
     ### MENSAJE DE ENTENDIMIENTO (preámbulo):
     Frase corta que muestre que entendiste. Ej: "¡Dale! Ya anoté lo principal.", "Anotado: es una compra."
