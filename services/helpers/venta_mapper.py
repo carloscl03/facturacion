@@ -202,7 +202,8 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
         try:
             id_forma_pago = int(forma_pago_str)
         except (TypeError, ValueError):
-            id_forma_pago = FORMA_PAGO_MAP.get(forma_pago_str, 9)
+            # Sin default: si no está en el mapa (ej. "bbva"), dejamos None para no violar FK en BD.
+            id_forma_pago = FORMA_PAGO_MAP.get(forma_pago_str)
 
     monto_total = float(reg.get("monto_total") or 0)
     monto_base = float(reg.get("monto_sin_igv") or 0)

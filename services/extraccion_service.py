@@ -163,6 +163,24 @@ class ExtraccionService:
         # --- Persistir ---
         db_res = self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
 
+        # --- Debug para el informador: resumen de estado en lenguaje útil ---
+        _debug_extraccion = {
+            "estado": estado,
+            "listo_para_finalizar": listo_para_finalizar,
+            "resumen": (resumen_visual or "").strip() or None,
+            "que_falta": (diagnostico or "").strip() or None,
+            "identificacion_no_encontrado": None,
+            "aviso_fechas": None,
+        }
+        if salida_identificador and not salida_identificador.get("identificado"):
+            _debug_extraccion["identificacion_no_encontrado"] = (
+                (salida_identificador.get("mensaje") or "").strip() or "El documento indicado no se encontró en el sistema."
+            )
+        if diagnostico_fechas:
+            _debug_extraccion["aviso_fechas"] = diagnostico_fechas
+        if getattr(self._repo, "guardar_debug", None):
+            self._repo.guardar_debug(wa_id, id_from, "extraccion", _debug_extraccion)
+
         # La transición 3 → 4 la hace exclusivamente el flujo confirmar-registro (clasificador devuelve siguiente_estado y el orquestador llama a confirmar-registro).
 
         out: dict = {

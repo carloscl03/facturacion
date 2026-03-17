@@ -34,3 +34,15 @@ class CacheRepository(ABC):
         if es_nuevo:
             return self.insertar(wa_id, id_from, datos)
         return self.actualizar(wa_id, id_from, datos)
+
+    def guardar_debug(self, wa_id: str, id_from: int, seccion: str, datos: dict) -> None:
+        """Opcional: guarda un resumen de estado/debug por sección (extraccion, registro) para el informador."""
+        pass
+
+    def consultar_debug(self, wa_id: str, id_from: int) -> dict:
+        """Opcional: retorna el resumen de debug acumulado (por sección) o dict vacío."""
+        return {}
+
+    def limpiar_debug(self, wa_id: str, id_from: int) -> None:
+        """Opcional: borra el debug de este usuario (p. ej. al eliminar el registro)."""
+        pass

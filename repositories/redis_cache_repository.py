@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from redis import Redis
 
 from repositories.base import CacheRepository
+
+
+def _debug_key(wa_id: str, id_from: int) -> str:
+    return f"debug:{wa_id}:{id_from}"
 
 
 class RedisCacheRepository(CacheRepository):
@@ -45,6 +50,38 @@ class RedisCacheRepository(CacheRepository):
             return {"success": True}
         except Exception:
             return {"success": False}
+
+    def guardar_debug(self, wa_id: str, id_from: int, seccion: str, datos: dict) -> None:
+        key = _debug_key(wa_id, id_from)
+        try:
+            raw = self._r.get(key)
+            debug = json.loads(raw.decode() if isinstance(raw, bytes) else raw) if raw else {}
+        except (json.JSONDecodeError, TypeError):
+            debug = {}
+        debug[seccion] = {
+            **datos,
+            "_actualizado": datetime.now(timezone.utc).isoformat(),
+        }
+        self._r.set(key, json.dumps(debug, ensure_ascii=False), ex=self._ttl)
+        return None
+
+    def consultar_debug(self, wa_id: str, id_from: int) -> dict:
+        key = _debug_key(wa_id, id_from)
+        try:
+            raw = self._r.get(key)
+            if not raw:
+                return {}
+            data = raw.decode() if isinstance(raw, bytes) else raw
+            return json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def limpiar_debug(self, wa_id: str, id_from: int) -> None:
+        try:
+            self._r.delete(_debug_key(wa_id, id_from))
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def _serializar(datos: dict) -> dict[str, str]:

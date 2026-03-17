@@ -31,6 +31,12 @@ class ConfirmarRegistroService:
     def ejecutar(self, wa_id: str, id_from: int) -> dict:
         registro = self._repo.consultar(wa_id, id_from) if wa_id and id_from else None
         if not registro:
+            _debug_registro = {
+                "confirmado": False,
+                "motivo": "No hay ningún registro activo. Debe iniciar una operación (compra o venta) antes de confirmar.",
+            }
+            if getattr(self._repo, "guardar_debug", None):
+                self._repo.guardar_debug(wa_id, id_from, "registro", _debug_registro)
             return {
                 "success": False,
                 "mensaje": "No hay registro activo.",
@@ -39,6 +45,13 @@ class ConfirmarRegistroService:
         estado = int(registro.get("estado") or 0)
         datos_completos = _datos_obligatorios_completos(registro)
         if estado != 3 and not datos_completos:
+            _debug_registro = {
+                "confirmado": False,
+                "motivo": "Aún no se puede confirmar: faltan datos obligatorios (cliente o proveedor, comprobante, moneda, monto o productos). Complete todo lo que se le indica y luego confirme.",
+                "estado_actual": estado,
+            }
+            if getattr(self._repo, "guardar_debug", None):
+                self._repo.guardar_debug(wa_id, id_from, "registro", _debug_registro)
             return {
                 "success": False,
                 "mensaje": "Solo se puede confirmar el registro cuando los obligatorios están completos (estado 3).",
@@ -49,11 +62,25 @@ class ConfirmarRegistroService:
             payload = {**registro, "estado": 4}
             self._repo.actualizar(wa_id, id_from, payload)
         except Exception as e:
+            _debug_registro = {
+                "confirmado": False,
+                "motivo": "Error al guardar: no se pudo actualizar el registro.",
+                "estado_actual": 3,
+            }
+            if getattr(self._repo, "guardar_debug", None):
+                self._repo.guardar_debug(wa_id, id_from, "registro", _debug_registro)
             return {
                 "success": False,
                 "mensaje": str(e),
                 "estado": 3,
             }
+        _debug_registro = {
+            "confirmado": True,
+            "siguiente_paso": "opciones",
+            "mensaje": "Registro confirmado. El siguiente paso es elegir sucursal, forma de pago y medio de pago.",
+        }
+        if getattr(self._repo, "guardar_debug", None):
+            self._repo.guardar_debug(wa_id, id_from, "registro", _debug_registro)
         return {
             "success": True,
             "estado": 4,

@@ -119,11 +119,13 @@ def construir_payload_compra(
     id_proveedor = reg.get("entidad_id")
     if id_proveedor is not None:
         id_proveedor = int(id_proveedor)
+    # id_forma_pago / id_medio_pago: solo enviar si tenemos valor conocido; si no, null para no violar FK.
     id_forma_pago = params.get("id_forma_pago")
-    if id_forma_pago is not None:
-        id_forma_pago = int(id_forma_pago)
-    else:
-        id_forma_pago = 1
+    id_forma_pago = int(id_forma_pago) if id_forma_pago is not None else None
+    id_medio_pago_raw = reg.get("id_medio_pago")
+    id_medio_pago = int(id_medio_pago_raw) if id_medio_pago_raw is not None else None
+    id_sucursal_raw = reg.get("id_sucursal")
+    id_sucursal = int(id_sucursal_raw) if id_sucursal_raw is not None else None
     payload: Dict[str, Any] = {
         "codOpe": "REGISTRAR_COMPRA",
         "empresa_id": int(id_from),
@@ -131,10 +133,10 @@ def construir_payload_compra(
         "id_proveedor": id_proveedor,
         "id_tipo_comprobante": int(params["id_tipo_comprobante"]) if params.get("id_tipo_comprobante") is not None else 1,
         "fecha_emision": params["fecha_emision"],
-        "id_medio_pago": int(reg.get("id_medio_pago") or 1),
+        "id_medio_pago": id_medio_pago,
         "id_forma_pago": id_forma_pago,
         "id_moneda": int(params["id_moneda"]) if params.get("id_moneda") is not None else 1,
-        "id_sucursal": int(reg.get("id_sucursal") or 1),
+        "id_sucursal": id_sucursal,
         "tipo_compra": tipo_compra,
         "dias_credito": dias_credito,
         "cuotas": cuotas,
@@ -142,17 +144,21 @@ def construir_payload_compra(
         "fecha_pago": params["fecha_pago"],
         "fecha_vencimiento": params.get("fecha_vencimiento") or params["fecha_pago"],
         "enlace_documento": str(reg.get("enlace_documento") or "").strip() or None,
-        "id_tipo_afectacion": int(reg.get("id_tipo_afectacion", 1)),
+        "id_tipo_afectacion": int(reg["id_tipo_afectacion"]) if reg.get("id_tipo_afectacion") is not None else None,
         "observacion": str(reg.get("observacion") or "").strip() or None,
-        "id_caja_banco": int(reg.get("id_caja_banco") or 1),
-        "id_centro_costo": int(reg.get("id_centro_costo") or 1),
-        "id_tipo_compra_gasto": int(reg.get("id_tipo_compra_gasto") or 1),
+        "id_caja_banco": int(reg["id_caja_banco"]) if reg.get("id_caja_banco") is not None else None,
+        "id_centro_costo": int(reg["id_centro_costo"]) if reg.get("id_centro_costo") is not None else None,
+        "id_tipo_compra_gasto": int(reg["id_tipo_compra_gasto"]) if reg.get("id_tipo_compra_gasto") is not None else None,
         "detalles": detalles,
     }
     if payload["enlace_documento"] is None:
         payload.pop("enlace_documento", None)
     if payload["observacion"] is None:
         payload.pop("observacion", None)
+    # Quitar opcionales null para que el PHP los trate como no enviados (acepta null en bind)
+    for key in ("id_forma_pago", "id_medio_pago", "id_sucursal", "id_tipo_afectacion", "id_caja_banco", "id_centro_costo", "id_tipo_compra_gasto"):
+        if payload.get(key) is None:
+            payload.pop(key, None)
     if nro_documento is not None:
         payload["nro_documento"] = nro_documento
     return payload
