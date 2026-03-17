@@ -299,11 +299,9 @@ def construir_payload_venta_n8n(
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Construye payload para ws_venta.php (N8N) usando codOpe=REGISTRAR_VENTA_N8N.
-    Acepta 'detalle_items' o 'detalles'. En N8N, para obtener PDF: generacion_comprobante=1.
-
-    Nota: el SP sp_registrar_venta consume campos como id_catalogo, id_tipo_producto, id_unidad, concepto, valor_*;
-    por eso completamos defaults en cada ítem.
+    Construye payload para ws_venta.php: codOpe=REGISTRAR_VENTA_N8N (sin token).
+    generacion_comprobante=1 para obtener pdf_url y sunat_estado en la respuesta.
+    Envía detalle_items (la API acepta detalle_items o detalles).
     """
     detalle_base = construir_detalle_desde_registro(reg, params["monto_total"], params["monto_base"], params["monto_igv"])
     detalle_items: list[Dict[str, Any]] = []

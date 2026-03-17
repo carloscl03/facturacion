@@ -187,7 +187,8 @@ class FinalizarService:
         return errores
 
     # ------------------------------------------------------------------ #
-    # Flujo de venta (SUNAT)
+    # Flujo de venta (SUNAT) — ws_venta.php REGISTRAR_VENTA_N8N (sin token)
+    # generacion_comprobante=1; respuesta: pdf_url, sunat_estado en raíz.
     # ------------------------------------------------------------------ #
 
     def _finalizar_venta(self, wa_id: str, reg: dict, id_from: int, params: dict) -> dict:
@@ -267,11 +268,12 @@ class FinalizarService:
         return out
 
     # ------------------------------------------------------------------ #
-    # Flujo de compra (API ws_compra.php)
+    # Flujo de compra — ws_compra.php REGISTRAR_COMPRA
+    # Payload: codOpe, empresa_id, usuario_id, id_proveedor, fecha_emision, detalles; nro_documento SERIE-NUMERO opcional.
     # ------------------------------------------------------------------ #
 
     def _finalizar_compra(self, wa_id: str, reg: dict, id_from: int, params: dict, debug: dict) -> dict:
-        """Construye payload, llama a la API de compras y devuelve resultado."""
+        """Construye payload REGISTRAR_COMPRA para ws_compra.php y devuelve resultado."""
         payload = construir_payload_compra(reg, params, id_from, id_usuario=ID_USUARIO_REGISTRO)
         resultado = self._entities.registrar_compra(payload)
 

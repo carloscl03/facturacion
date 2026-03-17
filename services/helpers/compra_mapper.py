@@ -1,8 +1,8 @@
 """
-Mapper para el payload de registro de compras (API ws_compra.php).
+Mapper para el payload de registro de compras (ws_compra.php).
 
-Construye el JSON REGISTRAR_COMPRA a partir del registro de caché y parámetros
-traducidos, alineado con la estructura probada en test_registro.py.
+Construye el JSON REGISTRAR_COMPRA: codOpe, empresa_id, usuario_id, id_proveedor,
+fecha_emision, nro_documento (SERIE-NUMERO opcional), detalles.
 """
 from __future__ import annotations
 
@@ -32,10 +32,11 @@ def construir_detalles_compra(
         mt = float(monto_total)
         mb = float(monto_base or mt / 1.18)
         mi = float(monto_igv or mt - mb)
+        # id_inventario/id_catalogo solo si vienen en el registro (null si no).
         return [
             {
-                "id_inventario": None,
-                "id_catalogo": reg.get("id_catalogo", 10),
+                "id_inventario": reg.get("id_inventario"),
+                "id_catalogo": reg.get("id_catalogo"),
                 "id_tipo_producto": reg.get("id_tipo_producto", 1),
                 "cantidad": 1,
                 "id_unidad": id_unidad,
@@ -64,8 +65,8 @@ def construir_detalles_compra(
         concepto = str(p.get("nombre") or p.get("concepto") or "Item").strip() or "Producto"
         detalles.append(
             {
-                "id_inventario": p.get("id_inventario"),
-                "id_catalogo": p.get("id_catalogo", reg.get("id_catalogo", 10)),
+                "id_inventario": p.get("id_inventario") or reg.get("id_inventario"),
+                "id_catalogo": p.get("id_catalogo") or reg.get("id_catalogo"),
                 "id_tipo_producto": p.get("id_tipo_producto", reg.get("id_tipo_producto", 1)),
                 "cantidad": qty,
                 "id_unidad": p.get("id_unidad", id_unidad),
