@@ -1,0 +1,320 @@
+<?php
+/**
+ * API REST para N8N - Servicio de Compras
+ *
+ * Este servicio permite registrar compras a través de la integración con N8N.
+ *
+ * Endpoint: /servicio/n8n/ws_compra.php
+ * Método: POST
+ *
+ * Operaciones disponibles:
+ * - REGISTRAR_COMPRA: (POST) Registra una nueva compra con sus detalles
+ *
+ * Ejemplo de uso:
+ * POST (JSON body): {
+ *   "codOpe": "REGISTRAR_COMPRA",
+ *   "empresa_id": 1,
+ *   "usuario_id": 1,
+ *   "id_proveedor": 5,
+ *   "id_tipo_comprobante": 1,
+ *   "fecha_emision": "2025-10-31",
+ *   "nro_documento": "F001-00001",
+ *   "id_medio_pago": 1,
+ *   "id_forma_pago": 1,
+ *   "id_moneda": 1,
+ *   "id_sucursal": 1,
+ *   "tipo_compra": "Contado",
+ *   "observacion": "Compra de productos",
+ *   "detalles": [
+ *     {
+ *       "id_inventario": null,
+ *       "id_catalogo": 10,
+ *       "id_tipo_producto": 1,
+ *       "cantidad": 5,
+ *       "id_unidad": 1,
+ *       "precio_unitario": 100.00,
+ *       "concepto": "Producto X",
+ *       "valor_subtotal_item": 500.00,
+ *       "porcentaje_descuento": 0,
+ *       "valor_descuento": 0,
+ *       "valor_isc": 0,
+ *       "valor_igv": 90.00,
+ *       "valor_icbper": 0,
+ *       "valor_total_item": 590.00,
+ *       "anticipo": 0,
+ *       "otros_cargos": 0,
+ *       "otros_tributos": 0
+ *     }
+ *   ]
+ * }
+ *
+ * NOTA IMPORTANTE:
+ * - El servicio acepta "nro_documento" en formato "SERIE-NUMERO" (ej: "F001-00001")
+ * - Internamente se divide en "serie" y "numero" antes de llamar al stored procedure
+ * - Esto permite compatibilidad con integraciones N8N existentes
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+header('Access-Control-Allow-Credentials: true');
+header('Access-Control-Max-Age: 86400');
+
+// Manejar preflight OPTIONS request
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+require_once '../conexion.php';
+
+// Validar método HTTP
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => 'Método no permitido. Use POST']);
+    exit;
+}
+
+// Obtener parámetros
+$data = json_decode(file_get_contents('php://input'), true);
+
+// Convertir valores vacíos, "0" o 0 a null para campos opcionales de foreign key
+$camposOpcionales = [
+    'id_tipo_comprobante',
+    'id_forma_pago',
+    'id_medio_pago',
+    'id_sucursal',
+    'id_tipo_afectacion',
+    'id_caja_banco',
+    'id_centro_costo',
+    'id_tipo_compra_gasto',
+    'cuotas',
+    'dias_credito'
+];
+
+foreach ($camposOpcionales as $campo) {
+    if (!isset($data[$campo]) ||
+        $data[$campo] === null ||
+        $data[$campo] === 'null' ||
+        $data[$campo] === '' ||
+        $data[$campo] === '0' ||
+        $data[$campo] === 0) {
+        $data[$campo] = null;
+    }
+}
+
+if ($data === null) {
+    http_response_code(400);
+    echo json_encode(['error' => 'JSON inválido o vacío']);
+    exit;
+}
+
+$codOpe = $data['codOpe'] ?? '';
+$empresa_id = $data['empresa_id'] ?? '';
+$usuario_id = $data['usuario_id'] ?? '';
+
+if (empty($codOpe)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Código de operación requerido']);
+    exit;
+}
+
+if (empty($empresa_id)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'ID de empresa requerido']);
+    exit;
+}
+
+if (empty($usuario_id)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'ID de usuario requerido']);
+    exit;
+}
+
+try {
+    // Usar la clase Conexion directamente
+    $conexion = new Conexion();
+    $pdo = $conexion->conectar();
+
+    if (!$pdo) {
+        http_response_code(500);
+        echo json_encode(['error' => 'No se pudo conectar a la base de datos']);
+        exit;
+    }
+
+    switch ($codOpe) {
+        case 'REGISTRAR_COMPRA':
+            registrarCompra($pdo, $data, $empresa_id, $usuario_id);
+            break;
+
+        default:
+            http_response_code(400);
+            echo json_encode(['error' => 'Operación no válida']);
+            break;
+    }
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode([
+        'error' => 'Error en el servidor',
+        'details' => $e->getMessage(),
+        'trace' => $e->getTraceAsString()
+    ]);
+}
+
+/**
+ * Registra una nueva compra con sus detalles
+ */
+function registrarCompra($pdo, $data, $empresa_id, $usuario_id) {
+    try {
+        // Validar campos requeridos
+        $camposRequeridos = [
+            'id_proveedor',
+            'fecha_emision',
+            'id_moneda',
+            'tipo_compra'
+        ];
+
+        foreach ($camposRequeridos as $campo) {
+            if (!isset($data[$campo]) || $data[$campo] === '') {
+                http_response_code(400);
+                echo json_encode(['error' => "Campo requerido: $campo"]);
+                return;
+            }
+        }
+
+        // Validar que haya al menos un detalle
+        if (!isset($data['detalles']) || !is_array($data['detalles']) || count($data['detalles']) === 0) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Debe incluir al menos un detalle de compra']);
+            return;
+        }
+
+        error_log("📦 N8N - Registrando compra con stored procedure");
+        error_log("📦 Proveedor: {$data['id_proveedor']}, Moneda: {$data['id_moneda']}, Items: " . count($data['detalles']));
+
+        // Preparar JSON de detalle para el stored procedure
+        $detalle_items_json = json_encode($data['detalles']);
+
+        // Llamar a la función PostgreSQL sp_registrar_compra
+        $sql = "SELECT * FROM sp_registrar_compra(
+            :p_id_tipo_comprobante,
+            :p_serie,
+            :p_numero,
+            :p_id_moneda,
+            :p_id_forma_pago,
+            :p_id_medio_pago,
+            :p_id_sucursal,
+            :p_id_empresa,
+            :p_id_usuario,
+            :p_id_proveedor,
+            :p_tipo_compra,
+            :p_dias_credito,
+            :p_cuotas,
+            :p_porcentaje_detraccion,
+            :p_fecha_pago,
+            :p_fecha_emision,
+            :p_enlace_documento,
+            :p_fecha_vencimiento,
+            :p_id_tipo_afectacion,
+            :p_observacion,
+            :p_id_caja_banco,
+            :p_id_centro_costo,
+            :p_id_tipo_compra_gasto,
+            :p_detalle_items::jsonb
+        )";
+
+        $stmt = $pdo->prepare($sql);
+
+        // Bind parámetros
+        $id_tipo_comprobante = $data['id_tipo_comprobante'] ?? null;
+
+        // Dividir nro_documento en serie y número
+        $serie = null;
+        $numero = null;
+        if (isset($data['nro_documento']) && !empty($data['nro_documento'])) {
+            $partes = explode('-', $data['nro_documento']);
+            if (count($partes) === 2) {
+                $serie = $partes[0];
+                $numero = $partes[1];
+            } else {
+                http_response_code(400);
+                echo json_encode(['error' => 'Formato de nro_documento inválido. Debe ser SERIE-NUMERO, ej: F001-00001']);
+                return;
+            }
+        }
+
+        $id_forma_pago = $data['id_forma_pago'] ?? null;
+        $id_medio_pago = $data['id_medio_pago'] ?? null;
+        $id_sucursal = $data['id_sucursal'] ?? null;
+        $dias_credito = $data['dias_credito'] ?? null;
+        $cuotas = $data['cuotas'] ?? null;
+        $porcentaje_detraccion = $data['porcentaje_detraccion'] ?? 0;
+        $fecha_pago = $data['fecha_pago'] ?? null;
+        $enlace_documento = $data['enlace_documento'] ?? null;
+        $fecha_vencimiento = $data['fecha_vencimiento'] ?? null;
+        $id_tipo_afectacion = $data['id_tipo_afectacion'] ?? null;
+        $observacion = $data['observacion'] ?? null;
+        $id_caja_banco = $data['id_caja_banco'] ?? null;
+        $id_centro_costo = $data['id_centro_costo'] ?? null;
+        $id_tipo_compra_gasto = $data['id_tipo_compra_gasto'] ?? null;
+
+        $stmt->bindParam(':p_id_tipo_comprobante', $id_tipo_comprobante, $id_tipo_comprobante === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_serie', $serie, PDO::PARAM_STR);
+        $stmt->bindParam(':p_numero', $numero, $numero === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_moneda', $data['id_moneda'], PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_forma_pago', $id_forma_pago, $id_forma_pago === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_medio_pago', $id_medio_pago, $id_medio_pago === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_sucursal', $id_sucursal, $id_sucursal === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_empresa', $empresa_id, PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_usuario', $usuario_id, PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_proveedor', $data['id_proveedor'], PDO::PARAM_INT);
+        $stmt->bindParam(':p_tipo_compra', $data['tipo_compra'], PDO::PARAM_STR);
+        $stmt->bindParam(':p_dias_credito', $dias_credito, $dias_credito === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_cuotas', $cuotas, $cuotas === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_porcentaje_detraccion', $porcentaje_detraccion, PDO::PARAM_STR);
+        $stmt->bindParam(':p_fecha_pago', $fecha_pago, PDO::PARAM_STR);
+        $stmt->bindParam(':p_fecha_emision', $data['fecha_emision'], PDO::PARAM_STR);
+        $stmt->bindParam(':p_enlace_documento', $enlace_documento, PDO::PARAM_STR);
+        $stmt->bindParam(':p_fecha_vencimiento', $fecha_vencimiento, $fecha_vencimiento === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        $stmt->bindParam(':p_id_tipo_afectacion', $id_tipo_afectacion, $id_tipo_afectacion === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_observacion', $observacion, PDO::PARAM_STR);
+        $stmt->bindParam(':p_id_caja_banco', $id_caja_banco, $id_caja_banco === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_centro_costo', $id_centro_costo, $id_centro_costo === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_tipo_compra_gasto', $id_tipo_compra_gasto, $id_tipo_compra_gasto === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_detalle_items', $detalle_items_json, PDO::PARAM_STR);
+
+        // Ejecutar función PostgreSQL
+        $stmt->execute();
+
+        // Obtener resultados (PostgreSQL retorna directamente los OUT params)
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $compra_id = $result['p_compra_id'];
+        $resultado = $result['p_resultado'];
+
+        if (strpos($resultado, 'SUCCESS') === 0) {
+            error_log("✅ N8N - Compra creada exitosamente - ID: {$compra_id}");
+            http_response_code(201);
+            echo json_encode([
+                'success' => true,
+                'message' => 'Compra registrada exitosamente',
+                'id_compra' => $compra_id,
+                'resultado' => $resultado
+            ]);
+        } else {
+            error_log("❌ N8N - Error del SP: {$resultado}");
+            throw new Exception($resultado);
+        }
+
+    } catch (Exception $e) {
+        error_log("❌ N8N - Error al registrar compra: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode([
+            'error' => 'Error al registrar compra',
+            'details' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+    }
+}
+?>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Dict, Tuple
 
 from services.helpers.fechas import fecha_ddmmyyyy_a_api
@@ -217,7 +218,9 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
         except (TypeError, ValueError):
             id_cliente = None
 
-    fecha_emision = fecha_ddmmyyyy_a_api(reg.get("fecha_emision")) or "2026-03-03"
+    hoy = date.today().isoformat()
+    # SUNAT: fecha de emisión debe ser hoy o hasta 3 días previos; preferimos hoy si no está definida.
+    fecha_emision = fecha_ddmmyyyy_a_api(reg.get("fecha_emision")) or hoy
     fecha_pago = fecha_ddmmyyyy_a_api(reg.get("fecha_pago")) or fecha_emision
     fecha_vencimiento = fecha_ddmmyyyy_a_api(reg.get("fecha_vencimiento")) or fecha_pago
 
@@ -286,4 +289,66 @@ def construir_payload_venta(
     if payload["observaciones"] is None:
         payload.pop("observaciones", None)
     return payload
+
+
+def construir_payload_venta_n8n(
+    reg: Dict[str, Any],
+    id_cliente: int,
+    id_empresa: int,
+    id_usuario: int,
+    params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Construye payload para ws_venta.php (N8N) usando codOpe=REGISTRAR_VENTA_N8N.
+    Acepta 'detalle_items' o 'detalles'. En N8N, para obtener PDF: generacion_comprobante=1.
+
+    Nota: el SP sp_registrar_venta consume campos como id_catalogo, id_tipo_producto, id_unidad, concepto, valor_*;
+    por eso completamos defaults en cada ítem.
+    """
+    detalle_base = construir_detalle_desde_registro(reg, params["monto_total"], params["monto_base"], params["monto_igv"])
+    detalle_items: list[Dict[str, Any]] = []
+    for i, it in enumerate(detalle_base):
+        concepto = str((it.get("concepto") or reg.get("observaciones") or reg.get("observacion") or f"Item {i+1}")).strip() or f"Item {i+1}"
+        # No forzar id_catalogo ni id_inventario: si el registro no los tiene, enviar None (como en test_pdf_sunat).
+        id_inv = it.get("id_inventario") if it.get("id_inventario") is not None else reg.get("id_inventario")
+        id_cat = it.get("id_catalogo") if it.get("id_catalogo") is not None else reg.get("id_catalogo")
+        detalle_items.append(
+            {
+                "id_inventario": id_inv,
+                "id_catalogo": id_cat,
+                "id_tipo_producto": it.get("id_tipo_producto", reg.get("id_tipo_producto", 2)),
+                "cantidad": it.get("cantidad", 1),
+                "id_unidad": it.get("id_unidad", reg.get("id_unidad", 1)),
+                "precio_unitario": float(it.get("precio_unitario") or 0),
+                "concepto": concepto,
+                "valor_subtotal_item": float(it.get("valor_subtotal_item") or 0),
+                "porcentaje_descuento": float(it.get("porcentaje_descuento") or 0),
+                "valor_descuento": float(it.get("valor_descuento") or 0),
+                "valor_isc": float(it.get("valor_isc") or 0),
+                "valor_igv": float(it.get("valor_igv") or 0),
+                "valor_icbper": float(it.get("valor_icbper") or 0),
+                "valor_total_item": float(it.get("valor_total_item") or 0),
+                "anticipo": float(it.get("anticipo") or 0),
+                "otros_cargos": float(it.get("otros_cargos") or 0),
+                "otros_tributos": float(it.get("otros_tributos") or 0),
+            }
+        )
+
+    return {
+        "codOpe": "REGISTRAR_VENTA_N8N",
+        "empresa_id": int(id_empresa),
+        "usuario_id": int(id_usuario),
+        "id_cliente": int(id_cliente),
+        "id_tipo_comprobante": int(params["id_tipo_comprobante"]) if params.get("id_tipo_comprobante") is not None else None,
+        "fecha_emision": params["fecha_emision"],
+        "fecha_pago": params["fecha_pago"],
+        "id_moneda": int(params["id_moneda"]) if params.get("id_moneda") is not None else 1,
+        "id_forma_pago": int(params["id_forma_pago"]) if params.get("id_forma_pago") is not None else 9,
+        "id_medio_pago": _id_medio_pago_desde_reg(reg),
+        "id_sucursal": int(reg.get("id_sucursal") or 14),
+        "tipo_venta": params.get("tipo_venta") or "Contado",
+        "observaciones": str(reg.get("observaciones") or reg.get("observacion") or "").strip() or None,
+        "generacion_comprobante": 1,
+        "detalle_items": detalle_items,
+    }
 

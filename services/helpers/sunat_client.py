@@ -3,7 +3,9 @@ Cliente HTTP para la API de ventas SUNAT.
 
 Encapsula la llamada POST y el parseo de la respuesta,
 de modo que FinalizarService no dependa de detalles HTTP.
-Obtiene token vía login (codOpe=LOGIN) cuando hay credenciales en config.
+Soporta:
+- ws_venta.php (N8N): REGISTRAR_VENTA / REGISTRAR_VENTA_N8N (sin token; devuelve pdf_url en raíz)
+- ws_ventas.php: CREAR_VENTA (puede requerir Bearer token vía LOGIN)
 """
 from __future__ import annotations
 
@@ -68,7 +70,7 @@ class SunatResult:
 
 
 class SunatClient:
-    """Abstrae la comunicación con el endpoint de ventas SUNAT. El token se obtiene por LOGIN al usarlo."""
+    """Abstrae la comunicación con endpoints de ventas (N8N y/o CREAR_VENTA)."""
 
     def __init__(
         self,
@@ -89,18 +91,19 @@ class SunatClient:
         return None, error
 
     def crear_venta(self, payload: Dict[str, Any]) -> SunatResult:
-        token, error_msg = self._asegurar_token()
-        if not token:
-            mensaje = (
-                error_msg
-                if error_msg
-                else "No se obtuvo token. Configure MARAVIA_USER y MARAVIA_PASSWORD; el token se obtiene por LOGIN en ws_login.php (codOpe=LOGIN)."
-            )
-            return SunatResult(success=False, error_mensaje=mensaje)
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
+        cod_ope = str(payload.get("codOpe") or "").strip().upper()
+        headers = {"Content-Type": "application/json"}
+        # N8N ws_venta.php: no requiere token (según comportamiento observado en test).
+        if cod_ope not in ("REGISTRAR_VENTA", "REGISTRAR_VENTA_N8N"):
+            token, error_msg = self._asegurar_token()
+            if not token:
+                mensaje = (
+                    error_msg
+                    if error_msg
+                    else "No se obtuvo token. Configure MARAVIA_USER y MARAVIA_PASSWORD; el token se obtiene por LOGIN en ws_login.php (codOpe=LOGIN)."
+                )
+                return SunatResult(success=False, error_mensaje=mensaje)
+            headers["Authorization"] = f"Bearer {token}"
         try:
             res = requests.post(self._url, json=payload, headers=headers, timeout=30)
         except requests.RequestException as e:
@@ -115,12 +118,29 @@ class SunatClient:
                 error_debug={"status_code": res.status_code, "raw": res.text[:500] if res.text else None},
             )
 
+        # Caso N8N (ws_venta.php): pdf_url y sunat_estado están en la raíz
+        if cod_ope in ("REGISTRAR_VENTA", "REGISTRAR_VENTA_N8N"):
+            if res_json.get("success"):
+                url_pdf = res_json.get("pdf_url") or res_json.get("url_pdf")
+                return SunatResult(
+                    success=True,
+                    url_pdf=url_pdf,
+                    serie=res_json.get("serie"),
+                    numero=str(res_json.get("numero")) if res_json.get("numero") is not None else None,
+                )
+            err = res_json.get("details") or res_json.get("message") or res_json.get("error") or "No se pudo registrar la venta."
+            return SunatResult(
+                success=False,
+                error_mensaje=err,
+                error_debug={"status_code": res.status_code, **{k: res_json.get(k) for k in ("success", "error", "message", "details")}},
+            )
+
+        # Caso CREAR_VENTA (ws_ventas.php): estructura sunat.sunat_data + payload.pdf
         sunat_obj = res_json.get("sunat") or {}
         sunat_data = sunat_obj.get("sunat_data") or {}
         payload_data = (sunat_obj.get("data") or {}).get("payload") or {}
         payload_pdf = payload_data.get("pdf") if isinstance(payload_data.get("pdf"), dict) else {}
 
-        # Misma extracción de PDF que en test_pdf_sunat: sunat.sunat_data.sunat_pdf o enlace_documento
         url_pdf = (
             sunat_data.get("sunat_pdf")
             or sunat_data.get("enlace_documento")
@@ -130,12 +150,7 @@ class SunatClient:
         )
 
         if res_json.get("success") and url_pdf:
-            return SunatResult(
-                success=True,
-                url_pdf=url_pdf,
-                serie=sunat_data.get("serie"),
-                numero=sunat_data.get("numero"),
-            )
+            return SunatResult(success=True, url_pdf=url_pdf, serie=sunat_data.get("serie"), numero=sunat_data.get("numero"))
 
         # Preferir mensaje detallado de SUNAT (sunat_data.sunat_error_mensaje) para saber el motivo del rechazo
         error = (

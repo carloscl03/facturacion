@@ -70,9 +70,11 @@ def construir_detalle_desde_registro(
         mt = float(monto_total)
         mb = float(monto_base or mt / 1.18)
         mi = float(monto_igv or mt - mb)
+        # Sin catálogo ni inventario (como en test_pdf_sunat): la API acepta null y funciona con normalidad.
         return [
             {
-                "id_inventario": reg.get("id_inventario", 7),
+                "id_inventario": reg.get("id_inventario"),
+                "id_catalogo": reg.get("id_catalogo"),
                 "id_tipo_producto": 2,
                 "cantidad": 1,
                 "id_unidad": id_unidad,
@@ -94,8 +96,9 @@ def construir_detalle_desde_registro(
         igv = total_item - subtotal
         detalle.append(
             {
-                "id_inventario": reg.get("id_inventario", 7),
-                "id_tipo_producto": 2,
+                "id_inventario": p.get("id_inventario") or reg.get("id_inventario"),
+                "id_catalogo": p.get("id_catalogo") or reg.get("id_catalogo"),
+                "id_tipo_producto": p.get("id_tipo_producto", 2),
                 "cantidad": qty,
                 "id_unidad": p.get("id_unidad", id_unidad),
                 "precio_unitario": pu,

@@ -1,0 +1,969 @@
+<?php
+/**
+ * API REST para N8N - Servicio de Ventas
+ *
+ * Este servicio permite registrar ventas a través de la integración con N8N.
+ *
+ * Endpoint: /servicio/n8n/ws_venta.php
+ * Método: POST
+ *
+ * Operaciones disponibles:
+ * - REGISTRAR_VENTA: (POST) Registra una nueva venta con sus detalles
+ *
+ * Ejemplo de uso:
+ * POST (JSON body): {
+ *   "codOpe": "REGISTRAR_VENTA",
+ *   "empresa_id": 1,
+ *   "usuario_id": 1,
+ *   "id_cliente": 5,
+ *   "id_tipo_comprobante": 1,
+ *   "fecha_emision": "2025-10-31",
+ *   "serie": "F001",
+ *   "numero": "1",
+ *   "id_medio_pago": 1,
+ *   "id_forma_pago": 1,
+ *   "id_moneda": 1,
+ *   "id_sucursal": 1,
+ *   "tipo_venta": "Contado",
+ *   "observacion": "Venta de productos",
+ *   "generacion_comprobante": 1,
+ *   "detalles": [
+ *     {
+ *       "id_inventario": null,
+ *       "id_catalogo": 10,
+ *       "id_tipo_producto": 1,
+ *       "cantidad": 10,
+ *       "id_unidad": 1,
+ *       "precio_unitario": 100.00,
+ *       "id_moneda": 1,
+ *       "concepto": "Producto de ejemplo",
+ *       "valor_subtotal_item": 1000.00,
+ *       "porcentaje_descuento": 0,
+ *       "valor_descuento": 0,
+ *       "valor_isc": 0,
+ *       "valor_igv": 180.00,
+ *       "valor_icbper": 0,
+ *       "valor_total_item": 1180.00,
+ *       "anticipo": 0,
+ *       "otros_cargos": 0,
+ *       "otros_tributos": 0
+ *     }
+ *   ]
+ * }
+ *
+ * NOTAS IMPORTANTES:
+ *
+ * 1. SERIE Y NÚMERO:
+ *    - Si generacion_comprobante = 0: Usa "serie" y "numero" del request
+ *    - Si generacion_comprobante = 1: AUTOGENERA serie y número:
+ *      * Tipo 1 (Factura): Serie "MF01", Número = MAX(numero) + 1
+ *      * Tipo 2 (Boleta): Serie "MB01", Número = MAX(numero) + 1
+ *      * Tipo 3 (Nota Crédito): Serie "MNC01", Número = MAX(numero) + 1
+ *      * Tipo 4 (Nota Débito): Serie "MND01", Número = MAX(numero) + 1
+ *
+ * 2. RETROCOMPATIBILIDAD:
+ *    - El servicio también acepta "nro_documento" en formato "SERIE-NUMERO" (ej: "F001-00001")
+ *    - Internamente se divide en "serie" y "numero"
+ *
+ * PARÁMETROS OPCIONALES:
+ * - generacion_comprobante: (0 o 1) Si es 1, genera comprobante en SUNAT después de registrar la venta
+ *                            Si es 0 o no se envía, solo registra la venta sin generar comprobante
+ *                            Default: 0
+ *
+ * RESPUESTA EXITOSA:
+ * {
+ *   "success": true,
+ *   "message": "Venta registrada exitosamente",
+ *   "id_venta": 123,
+ *   "resultado": "SUCCESS: Venta registrada con ID 123",
+ *   "comprobante_generado": true,
+ *   "pdf_url": "https://app.apisunat.pe/pdf/ticket/xyz123...",
+ *   "sunat_estado": "ACEPTADA"
+ * }
+ *
+ * NOTA: Los campos pdf_url y sunat_estado solo aparecen si generacion_comprobante = 1
+ */
+
+// Configurar logging de errores
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+ini_set('error_log', __DIR__ . '/error_venta_n8n.log');
+
+error_log("========== INICIO REQUEST " . date('Y-m-d H:i:s') . " ==========");
+error_log("🚀 N8N ws_venta.php - Request recibido");
+
+header('Content-Type: application/json; charset=utf-8');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+header('Access-Control-Allow-Credentials: true');
+header('Access-Control-Max-Age: 86400');
+
+// Manejar preflight OPTIONS request
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+error_log("📁 N8N - Cargando conexion.php");
+require_once '../conexion.php';
+error_log("✅ N8N - conexion.php cargado correctamente");
+
+// Validar método HTTP
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => 'Método no permitido. Use POST']);
+    exit;
+}
+
+// Obtener parámetros
+$rawInput = file_get_contents('php://input');
+error_log("📥 N8N - Raw input recibido: " . substr($rawInput, 0, 500) . "...");
+$data = json_decode($rawInput, true);
+error_log("📥 N8N - JSON decodificado: " . ($data ? "OK" : "FALLÓ - " . json_last_error_msg()));
+
+if ($data === null) {
+    http_response_code(400);
+    echo json_encode(['error' => 'JSON inválido o vacío']);
+    exit;
+}
+
+// Convertir valores vacíos, "0" o 0 a null para campos opcionales de foreign key
+$camposOpcionales = [
+    'id_tipo_comprobante',
+    'id_forma_pago',
+    'id_medio_pago',
+    'id_sucursal',
+    'id_tipo_afectacion',
+    'id_caja_banco',
+    'cuotas',
+    'dias_credito'
+];
+
+foreach ($camposOpcionales as $campo) {
+    if (!isset($data[$campo]) ||
+        $data[$campo] === null ||
+        $data[$campo] === 'null' ||
+        $data[$campo] === '' ||
+        $data[$campo] === '0' ||
+        $data[$campo] === 0) {
+        $data[$campo] = null;
+    }
+}
+
+// Convertir id_tipo_comprobante a entero para que el switch funcione correctamente
+if (isset($data['id_tipo_comprobante']) && $data['id_tipo_comprobante'] !== null) {
+    $data['id_tipo_comprobante'] = (int)$data['id_tipo_comprobante'];
+}
+
+$codOpe = $data['codOpe'] ?? '';
+$empresa_id = $data['empresa_id'] ?? '';
+$usuario_id = $data['usuario_id'] ?? '';
+
+if (empty($codOpe)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Código de operación requerido']);
+    exit;
+}
+
+if (empty($empresa_id)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'ID de empresa requerido']);
+    exit;
+}
+
+if (empty($usuario_id)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'ID de usuario requerido']);
+    exit;
+}
+
+try {
+    // Usar la clase Conexion directamente
+    error_log("🔌 N8N - Intentando conectar a BD...");
+    $conexion = new Conexion();
+    $pdo = $conexion->conectar();
+    error_log("🔌 N8N - Conexión a BD: " . ($pdo ? "OK" : "FALLÓ"));
+
+    if (!$pdo) {
+        http_response_code(500);
+        echo json_encode(['error' => 'No se pudo conectar a la base de datos']);
+        exit;
+    }
+
+    error_log("🔀 N8N - Entrando al switch con codOpe: {$codOpe}");
+    switch ($codOpe) {
+        case 'REGISTRAR_VENTA':
+            registrarVenta($pdo, $data, $empresa_id, $usuario_id);
+            break;
+
+        case 'REGISTRAR_VENTA_N8N':
+            registrarVentaN8N($pdo, $data, $empresa_id, $usuario_id);
+            break;
+
+        default:
+            http_response_code(400);
+            echo json_encode(['error' => 'Operación no válida']);
+            break;
+    }
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode([
+        'error' => 'Error en el servidor',
+        'details' => $e->getMessage(),
+        'trace' => $e->getTraceAsString()
+    ]);
+}
+
+/**
+ * Obtiene el siguiente número de serie usando MAX()
+ * @param PDO $pdo Conexión a BD
+ * @param int $empresa_id ID de la empresa
+ * @param string $serie Serie del comprobante (MF01, MB01, etc.)
+ * @return int Siguiente número disponible
+ */
+function obtenerSiguienteNumeroN8n($pdo, $empresa_id, $serie) {
+    try {
+        $sql = "SELECT COALESCE(MAX(numero), 0) as ultimo_numero
+                FROM Venta
+                WHERE id_empresa = :id_empresa
+                AND serie = :serie
+                AND estado_registro = 1";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->bindParam(':id_empresa', $empresa_id, PDO::PARAM_INT);
+        $stmt->bindParam(':serie', $serie, PDO::PARAM_STR);
+        $stmt->execute();
+
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        $siguienteNumero = intval($result['ultimo_numero']) + 1;
+
+        error_log("🔢 N8N - Siguiente número para empresa {$empresa_id}, serie {$serie}: {$siguienteNumero}");
+
+        return $siguienteNumero;
+
+    } catch (Exception $e) {
+        error_log("❌ N8N - Error al obtener siguiente número: " . $e->getMessage());
+        return 1; // Default si hay error
+    }
+}
+
+/**
+ * Registra una nueva venta con sus detalles
+ */
+function registrarVenta($pdo, $data, $empresa_id, $usuario_id) {
+    try {
+        // Validar campos requeridos
+        $camposRequeridos = [
+            'id_cliente',
+            'fecha_emision',
+            'id_moneda'
+        ];
+
+        foreach ($camposRequeridos as $campo) {
+            if (!isset($data[$campo]) || $data[$campo] === '') {
+                http_response_code(400);
+                echo json_encode(['error' => "Campo requerido: $campo"]);
+                return;
+            }
+        }
+
+        // Validar que haya al menos un detalle
+        if (!isset($data['detalles']) || !is_array($data['detalles']) || count($data['detalles']) === 0) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Debe incluir al menos un detalle de venta']);
+            return;
+        }
+
+        error_log("📦 N8N - Iniciando proceso de venta");
+        error_log("📦 Cliente: {$data['id_cliente']}, Moneda: {$data['id_moneda']}, Items: " . count($data['detalles']));
+
+        // Verificar si se va a generar comprobante en SUNAT
+        $generacion_comprobante = $data['generacion_comprobante'] ?? 0;
+        $id_tipo_comprobante = $data['id_tipo_comprobante'] ?? null;
+
+        $pdf_url = null;
+        $sunat_estado = null;
+        $serie = null;
+        $numero = null;
+
+        // SI SE VA A GENERAR COMPROBANTE SUNAT: Hacerlo PRIMERO antes de registrar venta
+        if ($generacion_comprobante == 1) {
+            error_log("📄 N8N - Generando comprobante SUNAT ANTES de registrar venta");
+
+            // AUTOGENERAR serie según tipo de comprobante
+            // Usar las mismas series que ws_sunat_venta.php para consistencia con SUNAT
+            switch ($id_tipo_comprobante) {
+                case 1: // Factura
+                    $serie = 'F001';
+                    break;
+                case 2: // Boleta
+                    $serie = 'B001';
+                    break;
+                default:
+                    $serie = 'F001';
+                    break;
+            }
+
+            // Obtener siguiente número (MAX + 1) usando función local
+            $numero = obtenerSiguienteNumeroN8n($pdo, $empresa_id, $serie);
+
+            error_log("🔢 N8N - Serie: {$serie}, Número: {$numero}");
+
+            try {
+                // Incluir el servicio de SUNAT
+                error_log("📄 N8N - Cargando ws_sunat_venta.php...");
+                require_once __DIR__ . '/../ws_sunat_venta.php';
+                error_log("✅ N8N - ws_sunat_venta.php cargado correctamente");
+
+                // Construir datos para SUNAT (SIN id_venta porque aún no existe)
+                $datosDirectos = [
+                    'id_empresa' => $empresa_id,
+                    'id_tipo_comprobante' => $id_tipo_comprobante,
+                    'id_moneda' => $data['id_moneda'],
+                    'id_cliente' => $data['id_cliente'],
+                    'fecha_emision' => $data['fecha_emision'],
+                    'fecha_vencimiento' => $data['fecha_vencimiento'] ?? null,
+                    'observacion' => $data['observacion'] ?? '',
+                    'tipo_venta' => $data['tipo_venta'] ?? 'Contado',
+                    'cuotas' => $data['cuotas'] ?? 1,
+                    'porcentaje_detraccion' => $data['porcentaje_detraccion'] ?? 0,
+                    'serie' => $serie,
+                    'numero' => $numero,
+                    'detalle_items' => $data['detalles']  // Mapear 'detalles' a 'detalle_items'
+                ];
+
+                error_log("📋 N8N - Datos directos para SUNAT: " . json_encode($datosDirectos, JSON_UNESCAPED_UNICODE));
+                error_log("📋 N8N - detalle_items tipo: " . gettype($datosDirectos['detalle_items']));
+                error_log("📋 N8N - detalle_items count: " . (is_array($datosDirectos['detalle_items']) ? count($datosDirectos['detalle_items']) : 'NO ES ARRAY'));
+                error_log("📋 N8N - data[detalles] tipo: " . gettype($data['detalles']));
+                error_log("📋 N8N - data[detalles] count: " . (is_array($data['detalles']) ? count($data['detalles']) : 'NO ES ARRAY'));
+
+                // Construir datos de venta para SUNAT
+                error_log("🔧 N8N - Llamando a construirDatosVentaDesdeFrontend...");
+                $datosVenta = construirDatosVentaDesdeFrontend($pdo, $datosDirectos, 1);
+                error_log("🔧 N8N - construirDatosVentaDesdeFrontend retornó: " . ($datosVenta ? "datos" : "null/false"));
+
+                if (!$datosVenta) {
+                    throw new Exception("Error al construir datos para SUNAT");
+                }
+
+                // Verificar si hubo error de validación de documento
+                if (isset($datosVenta['success']) && $datosVenta['success'] === false) {
+                    throw new Exception($datosVenta['error'] ?? $datosVenta['message'] ?? "Error de validación del cliente");
+                }
+
+                // Verificar que el detalle exista
+                if (empty($datosVenta['detalle'])) {
+                    error_log("❌ N8N - datosVenta no tiene detalle: " . json_encode($datosVenta, JSON_UNESCAPED_UNICODE));
+                    throw new Exception("No se encontraron items en los datos de venta");
+                }
+
+                error_log("📦 N8N - Datos de venta construidos para SUNAT - detalle count: " . count($datosVenta['detalle']));
+
+                // Construir JSON en formato SUNAT
+                error_log("📝 N8N - Llamando a construirJsonSunat...");
+                $jsonSunat = construirJsonSunat($datosVenta);
+                error_log("📝 N8N - construirJsonSunat retornó: " . ($jsonSunat ? "datos" : "null/false"));
+
+                if (!$jsonSunat) {
+                    throw new Exception("Error al construir JSON SUNAT");
+                }
+
+                error_log("📄 N8N - JSON SUNAT construido correctamente");
+
+                // Enviar a SUNAT
+                error_log("🔑 N8N - Obteniendo API Key de SUNAT...");
+                $apiKey = obtenerApiKeySunat($pdo, $empresa_id);
+                error_log("🔑 N8N - API Key: " . ($apiKey ? "obtenida (" . substr($apiKey, 0, 10) . "...)" : "NO ENCONTRADA"));
+                if (!$apiKey) {
+                    throw new Exception("API Key de SUNAT no configurada para empresa {$empresa_id}");
+                }
+
+                // Pasar el array directamente (enviarDocumentoSunat() hace el json_encode internamente)
+                error_log("📤 N8N - Enviando documento a SUNAT...");
+                $resultadoEnvio = enviarDocumentoSunat($apiKey, $jsonSunat, false);
+                error_log("📤 N8N - Respuesta de enviarDocumentoSunat: " . json_encode($resultadoEnvio, JSON_UNESCAPED_UNICODE));
+
+                if (!$resultadoEnvio['success']) {
+                    throw new Exception($resultadoEnvio['error'] ?? 'Error al enviar a SUNAT');
+                }
+
+                // Extraer PDF de la respuesta de SUNAT
+                $payload = $resultadoEnvio['data']['payload'] ?? $resultadoEnvio['data'];
+                $pdf_url = $payload['pdf']['ticket'] ?? $payload['pdf'] ?? null;
+                $sunat_estado = $payload['estado'] ?? null;
+
+                if (!$pdf_url) {
+                    throw new Exception("SUNAT no retornó PDF URL");
+                }
+
+                error_log("✅ N8N - Comprobante SUNAT generado exitosamente - PDF: {$pdf_url}, Estado: {$sunat_estado}");
+
+            } catch (Exception $eSunat) {
+                error_log("❌ N8N - Error al generar comprobante SUNAT: " . $eSunat->getMessage());
+                // Si falla SUNAT, NO registrar la venta
+                http_response_code(500);
+                echo json_encode([
+                    'success' => false,
+                    'serie' => $serie,
+                    'numero' => $numero,
+                    'error' => 'Error al generar comprobante en SUNAT',
+                    'details' => $eSunat->getMessage()
+                ]);
+                return;
+            }
+        } else {
+            // Usar serie y número del request
+            $serie = $data['serie'] ?? null;
+            $numero = $data['numero'] ?? null;
+
+            error_log("📝 N8N - Sin comprobante SUNAT: Serie manual = {$serie}, Número = {$numero}");
+        }
+
+        // Preparar JSON de detalle para el stored procedure
+        error_log("💾 N8N - Preparando para registrar en BD...");
+        $detalle_items_json = json_encode($data['detalles']);
+        error_log("💾 N8N - Detalle JSON preparado, longitud: " . strlen($detalle_items_json));
+
+        // Llamar a la función PostgreSQL sp_registrar_venta
+        $sql = "SELECT * FROM sp_registrar_venta(
+            :p_id_tipo_comprobante,
+            :p_serie,
+            :p_numero,
+            :p_id_moneda,
+            :p_id_forma_pago,
+            :p_id_medio_pago,
+            :p_id_sucursal,
+            :p_id_empresa,
+            :p_id_usuario,
+            :p_id_cliente,
+            :p_tipo_venta,
+            :p_dias_credito,
+            :p_cuotas,
+            :p_porcentaje_detraccion,
+            :p_fecha_pago,
+            :p_fecha_emision,
+            :p_enlace_documento,
+            :p_fecha_vencimiento,
+            :p_id_tipo_afectacion,
+            :p_observacion,
+            :p_id_caja_banco,
+            :p_detalle_items::jsonb
+        )";
+
+        $stmt = $pdo->prepare($sql);
+
+        // Función helper para convertir valores vacíos a null
+        $toNullIfEmpty = function($value) {
+            return ($value === '' || $value === 'null' || $value === null || $value === '0' || $value === 0) ? null : $value;
+        };
+
+        // Bind parámetros (convertir strings vacíos a null para campos integer)
+        $id_forma_pago = $toNullIfEmpty($data['id_forma_pago'] ?? null);
+        $id_medio_pago = $toNullIfEmpty($data['id_medio_pago'] ?? null);
+        $id_sucursal = $toNullIfEmpty($data['id_sucursal'] ?? null);
+        $tipo_venta = $data['tipo_venta'] ?? 'Contado';
+        $dias_credito = $toNullIfEmpty($data['dias_credito'] ?? null);
+        $cuotas = $toNullIfEmpty($data['cuotas'] ?? null);
+        $porcentaje_detraccion = $data['porcentaje_detraccion'] ?? 0;
+        $fecha_pago = $toNullIfEmpty($data['fecha_pago'] ?? null);
+        // Si se generó PDF en SUNAT, usarlo como enlace_documento
+        $enlace_documento = $pdf_url ?? $toNullIfEmpty($data['enlace_documento'] ?? null);
+        $fecha_vencimiento = $toNullIfEmpty($data['fecha_vencimiento'] ?? null);
+        $id_tipo_afectacion = $toNullIfEmpty($data['id_tipo_afectacion'] ?? null);
+        $observacion = $toNullIfEmpty($data['observacion'] ?? null);
+        $id_caja_banco = $toNullIfEmpty($data['id_caja_banco'] ?? null);
+
+        $stmt->bindParam(':p_id_tipo_comprobante', $id_tipo_comprobante, $id_tipo_comprobante === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_serie', $serie, PDO::PARAM_STR);
+        $stmt->bindParam(':p_numero', $numero, $numero === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_moneda', $data['id_moneda'], PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_forma_pago', $id_forma_pago, $id_forma_pago === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_medio_pago', $id_medio_pago, $id_medio_pago === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_sucursal', $id_sucursal, $id_sucursal === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_empresa', $empresa_id, PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_usuario', $usuario_id, PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_cliente', $data['id_cliente'], PDO::PARAM_INT);
+        $stmt->bindParam(':p_tipo_venta', $tipo_venta, PDO::PARAM_STR);
+        $stmt->bindParam(':p_dias_credito', $dias_credito, $dias_credito === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_cuotas', $cuotas, $cuotas === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_porcentaje_detraccion', $porcentaje_detraccion, PDO::PARAM_STR);
+        $stmt->bindParam(':p_fecha_pago', $fecha_pago, PDO::PARAM_STR);
+        $stmt->bindParam(':p_fecha_emision', $data['fecha_emision'], PDO::PARAM_STR);
+        $stmt->bindParam(':p_enlace_documento', $enlace_documento, PDO::PARAM_STR);
+        $stmt->bindParam(':p_fecha_vencimiento', $fecha_vencimiento, $fecha_vencimiento === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        $stmt->bindParam(':p_id_tipo_afectacion', $id_tipo_afectacion, $id_tipo_afectacion === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_observacion', $observacion, PDO::PARAM_STR);
+        $stmt->bindParam(':p_id_caja_banco', $id_caja_banco, $id_caja_banco === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_detalle_items', $detalle_items_json, PDO::PARAM_STR);
+
+        // Ejecutar función PostgreSQL
+        error_log("⚡ N8N - Ejecutando sp_registrar_venta...");
+        $stmt->execute();
+        error_log("✅ N8N - sp_registrar_venta ejecutado");
+
+        // Obtener resultados (PostgreSQL retorna directamente los OUT params)
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        error_log("📊 N8N - Resultado del SP: " . json_encode($result, JSON_UNESCAPED_UNICODE));
+
+        $venta_id = $result['p_venta_id'];
+        $resultado = $result['p_resultado'];
+
+        if (strpos($resultado, 'SUCCESS') === 0) {
+            error_log("✅ N8N - Venta registrada exitosamente en BD - ID: {$venta_id}");
+
+            http_response_code(201);
+            $response = [
+                'success' => true,
+                'message' => 'Venta registrada exitosamente',
+                'id_venta' => $venta_id,
+                'resultado' => $resultado,
+                'comprobante_generado' => $generacion_comprobante == 1
+            ];
+
+            // Agregar datos de SUNAT si se generó comprobante
+            if ($generacion_comprobante == 1 && $pdf_url) {
+                $response['pdf_url'] = $pdf_url;
+                $response['sunat_estado'] = $sunat_estado;
+                error_log("📄 N8N - Comprobante SUNAT ya generado - PDF incluido en respuesta");
+            }
+
+            echo json_encode($response);
+        } else {
+            error_log("❌ N8N - Error del SP: {$resultado}");
+            throw new Exception($resultado);
+        }
+
+    } catch (Exception $e) {
+        error_log("❌ N8N - Error al registrar venta: " . $e->getMessage());
+        error_log("❌ N8N - Stack trace: " . $e->getTraceAsString());
+        error_log("========== FIN REQUEST CON ERROR " . date('Y-m-d H:i:s') . " ==========");
+        http_response_code(500);
+        echo json_encode([
+            'error' => 'Error al registrar venta',
+            'details' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+    }
+}
+
+/**
+ * Registra una venta desde N8N con paridad completa al flujo del frontend (ws_ventas.php)
+ * Incluye: SP con todos los params, detracción, vendedor, comisión, insumos, cronograma, cotización, SUNAT
+ */
+function registrarVentaN8N($pdo, $data, $id_empresa, $usuario_id) {
+    error_log("🟡 N8N_V2 - ENTRANDO A registrarVentaN8N()");
+
+    // Validar campos requeridos
+    $camposRequeridos = ['id_cliente', 'fecha_emision', 'id_moneda'];
+    foreach ($camposRequeridos as $campo) {
+        if (!isset($data[$campo]) || $data[$campo] === '') {
+            http_response_code(400);
+            echo json_encode(['error' => "Campo requerido: $campo"]);
+            return;
+        }
+    }
+
+    // Acepta 'detalles' o 'detalle_items'
+    $detalle_items = $data['detalle_items'] ?? $data['detalles'] ?? [];
+    if (empty($detalle_items) || !is_array($detalle_items)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Debe incluir al menos un detalle de venta']);
+        return;
+    }
+
+    // Extraer parámetros (mismo mapeo que ws_ventas.php crearVenta)
+    $id_tipo_comprobante = !empty($data['id_tipo_comprobante']) ? intval($data['id_tipo_comprobante']) : null;
+    $serie = !empty(trim($data['serie'] ?? '')) ? trim($data['serie']) : null;
+    $numero = !empty($data['numero']) ? intval($data['numero']) : null;
+    $id_cliente = !empty($data['id_cliente']) ? $data['id_cliente'] : null;
+    $id_moneda = !empty($data['id_moneda']) ? $data['id_moneda'] : 1;
+    $id_forma_pago = !empty($data['id_forma_pago']) ? $data['id_forma_pago'] : 1;
+    $id_medio_pago = !empty($data['id_medio_pago']) ? $data['id_medio_pago'] : null;
+    $id_sucursal = !empty($data['id_sucursal']) ? $data['id_sucursal'] : null;
+    $fecha_emision = $data['fecha_emision'] ?? date('Y-m-d');
+    $fecha_pago = !empty($data['fecha_pago']) ? $data['fecha_pago'] : null;
+    $tipo_venta = $data['tipo_venta'] ?? 'Contado';
+    $dias_credito = !empty($data['dias_credito']) ? $data['dias_credito'] : null;
+    $cuotas = !empty($data['cuotas']) ? $data['cuotas'] : null;
+    $porcentaje_detraccion = $data['porcentaje_detraccion'] ?? 0.00;
+    $id_tipo_detraccion = !empty($data['id_tipo_detraccion']) ? $data['id_tipo_detraccion'] : null;
+    $id_medio_pago_detraccion = !empty($data['id_medio_pago_detraccion']) ? $data['id_medio_pago_detraccion'] : null;
+    $fecha_vencimiento = !empty($data['fecha_vencimiento']) ? $data['fecha_vencimiento'] : null;
+    $id_tipo_afectacion = !empty($data['id_tipo_afectacion']) ? $data['id_tipo_afectacion'] : null;
+    $observacion = !empty($data['observaciones'] ?? $data['observacion'] ?? '') ? ($data['observaciones'] ?? $data['observacion']) : null;
+    $id_caja_banco = !empty($data['id_caja_banco']) ? $data['id_caja_banco'] : null;
+    $id_cotizacion = !empty($data['id_cotizacion']) ? $data['id_cotizacion'] : null;
+    $id_pedido = !empty($data['id_pedido']) ? $data['id_pedido'] : null;
+    $id_empleado = !empty($data['id_empleado']) ? $data['id_empleado'] : null;
+    $id_contrato_cliente = !empty($data['id_contrato_cliente']) ? $data['id_contrato_cliente'] : null;
+    $periodo_facturado = !empty($data['periodo_facturado']) ? trim($data['periodo_facturado']) : null;
+    $enlace_documento = '';
+
+    // Verificar si es facturación electrónica
+    $generacion_comprobante = $data['generacion_comprobante'] ?? 0;
+    $es_facturacion_electronica = ($generacion_comprobante == 1);
+
+    // Sin SUNAT: si n8n manda serie pero no numero, autogenerar con MAX+1
+    if (!$es_facturacion_electronica && !empty($serie) && empty($numero)) {
+        $numero = obtenerSiguienteNumeroN8n($pdo, $id_empresa, $serie);
+        error_log("🔢 N8N_V2 - Número autogenerado para serie {$serie}: {$numero}");
+    }
+
+    // === SUNAT: Generar comprobante ANTES de crear en BD ===
+    $sunat_estado = null;
+    $sunat_hash = null;
+    $sunat_xml = null;
+    $sunat_cdr = null;
+    $sunat_pdf = null;
+
+    if ($es_facturacion_electronica && ($id_tipo_comprobante == 1 || $id_tipo_comprobante == 2)) {
+        try {
+            require_once __DIR__ . '/../ws_sunat_venta.php';
+
+            // Autogenerar serie si no viene
+            if (empty($serie)) {
+                $serie = $id_tipo_comprobante == 1 ? 'F001' : 'B001';
+            }
+            if (empty($numero)) {
+                $numero = obtenerSiguienteNumeroN8n($pdo, $id_empresa, $serie);
+            }
+
+            $datosParaSunat = [
+                'id_empresa' => $id_empresa,
+                'id_tipo_comprobante' => $id_tipo_comprobante,
+                'serie' => $serie,
+                'numero' => $numero,
+                'id_moneda' => $id_moneda,
+                'id_cliente' => $id_cliente,
+                'fecha_emision' => $fecha_emision,
+                'fecha_vencimiento' => $fecha_vencimiento,
+                'observacion' => $observacion,
+                'tipo_venta' => $tipo_venta,
+                'cuotas' => $cuotas,
+                'porcentaje_detraccion' => $porcentaje_detraccion,
+                'id_tipo_detraccion' => $id_tipo_detraccion,
+                'id_medio_pago_detraccion' => $id_medio_pago_detraccion,
+                'id_tipo_afectacion' => $id_tipo_afectacion,
+                'detalle_items' => $detalle_items
+            ];
+
+            $resultadoSunat = generarFacturaElectronica($id_empresa, null, null, $datosParaSunat);
+
+            if (!$resultadoSunat['success']) {
+                if (isset($resultadoSunat['documento_invalido']) && $resultadoSunat['documento_invalido'] === true) {
+                    http_response_code(400);
+                    echo json_encode([
+                        'success' => false,
+                        'error' => $resultadoSunat['error'] ?? 'Documento del cliente inválido',
+                        'documento_invalido' => true
+                    ]);
+                    return;
+                }
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'SUNAT rechazó el comprobante',
+                    'sunat_message' => $resultadoSunat['message'] ?? 'Error al procesar con SUNAT',
+                    'details' => $resultadoSunat['error'] ?? 'Error desconocido'
+                ]);
+                return;
+            }
+
+            $datosSunat = $resultadoSunat['sunat_data'] ?? [];
+            $enlace_documento = $datosSunat['enlace_documento'] ?? '';
+            $sunat_estado = $datosSunat['sunat_estado'] ?? null;
+            $sunat_hash = $datosSunat['sunat_hash'] ?? null;
+            $sunat_xml = $datosSunat['sunat_xml'] ?? null;
+            $sunat_cdr = $datosSunat['sunat_cdr'] ?? null;
+            $sunat_pdf = $datosSunat['sunat_pdf'] ?? null;
+            $serie = $datosSunat['serie'] ?? $serie;
+            $numero = $datosSunat['numero'] ?? $numero;
+
+            error_log("✅ N8N_V2 - SUNAT aceptó: {$serie}-{$numero}, estado: {$sunat_estado}");
+
+        } catch (Exception $e) {
+            error_log("❌ N8N_V2 - Error SUNAT: " . $e->getMessage());
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Error al validar con SUNAT',
+                'details' => $e->getMessage()
+            ]);
+            return;
+        }
+    }
+
+    try {
+        // === Llamar SP con TODOS los parámetros (igual que frontend) ===
+        $detalle_items_json = json_encode($detalle_items);
+
+        // Params adicionales para apuntar a la versión más completa del SP (con p_porcentaje_igv, p_es_pos, p_id_canal_venta)
+        $porcentaje_igv = $data['porcentaje_igv'] ?? 18.00;
+        $es_pos = isset($data['es_pos']) ? intval($data['es_pos']) : 0;
+        $id_canal_venta = !empty($data['id_canal_venta']) ? intval($data['id_canal_venta']) : null;
+
+        $sql = "SELECT * FROM sp_registrar_venta(
+            :p_id_tipo_comprobante::integer,
+            :p_serie::varchar,
+            :p_numero::integer,
+            :p_id_moneda::integer,
+            :p_id_forma_pago::integer,
+            :p_id_medio_pago::integer,
+            :p_id_sucursal::integer,
+            :p_id_empresa::integer,
+            :p_id_usuario::integer,
+            :p_id_cliente::integer,
+            :p_tipo_venta::varchar,
+            :p_dias_credito::integer,
+            :p_cuotas::integer,
+            :p_porcentaje_detraccion::numeric,
+            :p_porcentaje_igv::numeric,
+            :p_fecha_pago::date,
+            :p_fecha_emision::date,
+            :p_enlace_documento::text,
+            :p_fecha_vencimiento::timestamp,
+            :p_id_tipo_afectacion::integer,
+            :p_observacion::text,
+            :p_id_caja_banco::integer,
+            :p_detalle_items::jsonb,
+            :p_id_pedido::integer,
+            :p_id_contrato_cliente::integer,
+            :p_periodo_facturado::varchar,
+            :p_es_pos::smallint,
+            :p_id_canal_venta::integer
+        )";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->bindParam(':p_id_tipo_comprobante', $id_tipo_comprobante, $id_tipo_comprobante === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_serie', $serie, $serie === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        $stmt->bindParam(':p_numero', $numero, $numero === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_moneda', $id_moneda, PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_forma_pago', $id_forma_pago, PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_medio_pago', $id_medio_pago, $id_medio_pago === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_sucursal', $id_sucursal, $id_sucursal === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_empresa', $id_empresa, PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_usuario', $usuario_id, PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_cliente', $id_cliente, $id_cliente === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_tipo_venta', $tipo_venta, PDO::PARAM_STR);
+        $stmt->bindParam(':p_dias_credito', $dias_credito, $dias_credito === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_cuotas', $cuotas, $cuotas === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_porcentaje_detraccion', $porcentaje_detraccion, PDO::PARAM_STR);
+        $stmt->bindParam(':p_porcentaje_igv', $porcentaje_igv, PDO::PARAM_STR);
+        $stmt->bindParam(':p_fecha_pago', $fecha_pago, $fecha_pago === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        $stmt->bindParam(':p_fecha_emision', $fecha_emision, PDO::PARAM_STR);
+        $stmt->bindParam(':p_enlace_documento', $enlace_documento, PDO::PARAM_STR);
+        $stmt->bindParam(':p_fecha_vencimiento', $fecha_vencimiento, $fecha_vencimiento === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        $stmt->bindParam(':p_id_tipo_afectacion', $id_tipo_afectacion, $id_tipo_afectacion === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_observacion', $observacion, $observacion === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        $stmt->bindParam(':p_id_caja_banco', $id_caja_banco, $id_caja_banco === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_detalle_items', $detalle_items_json, PDO::PARAM_STR);
+        $stmt->bindParam(':p_id_pedido', $id_pedido, $id_pedido === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_contrato_cliente', $id_contrato_cliente, $id_contrato_cliente === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmt->bindParam(':p_periodo_facturado', $periodo_facturado, $periodo_facturado === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        $stmt->bindParam(':p_es_pos', $es_pos, PDO::PARAM_INT);
+        $stmt->bindParam(':p_id_canal_venta', $id_canal_venta, $id_canal_venta === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+
+        $stmt->execute();
+        $output = $stmt->fetch(PDO::FETCH_ASSOC);
+        $venta_id = $output['p_venta_id'];
+        $resultado = $output['p_resultado'];
+
+        if (strpos($resultado, 'SUCCESS') !== 0) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => $resultado]);
+            return;
+        }
+
+        error_log("✅ N8N_V2 - Venta creada ID: {$venta_id}");
+
+        // === POST-SP: Detracción ===
+        $flag_pago_detraccion = isset($data['flag_pago_detraccion']) ? intval($data['flag_pago_detraccion']) : 0;
+        $fecha_pago_detraccion = !empty($data['fecha_pago_detraccion']) ? $data['fecha_pago_detraccion'] : null;
+        $fecha_pago_igv = !empty($data['fecha_pago_igv']) ? $data['fecha_pago_igv'] : null;
+
+        if ($id_tipo_detraccion || $id_medio_pago_detraccion || $porcentaje_detraccion > 0) {
+            $sqlDet = "UPDATE venta SET id_tipo_detraccion = :a, id_medio_pago_detraccion = :b,
+                       flag_pago_detraccion = :c, fecha_pago_detraccion = :d, fecha_pago_igv = :e WHERE id = :f";
+            $stmtDet = $pdo->prepare($sqlDet);
+            $stmtDet->bindParam(':a', $id_tipo_detraccion, $id_tipo_detraccion === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+            $stmtDet->bindParam(':b', $id_medio_pago_detraccion, $id_medio_pago_detraccion === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+            $stmtDet->bindParam(':c', $flag_pago_detraccion, PDO::PARAM_INT);
+            $stmtDet->bindParam(':d', $fecha_pago_detraccion, $fecha_pago_detraccion === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+            $stmtDet->bindParam(':e', $fecha_pago_igv, $fecha_pago_igv === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+            $stmtDet->bindParam(':f', $venta_id, PDO::PARAM_INT);
+            $stmtDet->execute();
+        }
+
+        // === POST-SP: Vendedor ===
+        if ($id_empleado) {
+            $pdo->prepare("UPDATE venta SET id_empleado = :a WHERE id = :b")
+                ->execute([':a' => $id_empleado, ':b' => $venta_id]);
+        }
+
+        // === POST-SP: Comisión ===
+        $comision_data = $data['comision'] ?? null;
+        if ($comision_data && !empty($comision_data['id_empleado']) && !empty($comision_data['valor'])) {
+            $sqlCom = "INSERT INTO detalle_venta_comision
+                (id_venta, id_empleado, id_comision, tipo_calculo, valor, monto_base, monto_comision, estado_registro)
+                VALUES (:a, :b, :c, :d, :e, :f, :g, 1)";
+            $stmtCom = $pdo->prepare($sqlCom);
+            $id_comision = !empty($comision_data['id_comision']) ? $comision_data['id_comision'] : null;
+            $stmtCom->bindParam(':a', $venta_id, PDO::PARAM_INT);
+            $stmtCom->bindParam(':b', $comision_data['id_empleado'], PDO::PARAM_INT);
+            $stmtCom->bindParam(':c', $id_comision, $id_comision === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+            $stmtCom->bindParam(':d', $comision_data['tipo_calculo'], PDO::PARAM_STR);
+            $stmtCom->bindParam(':e', $comision_data['valor'], PDO::PARAM_STR);
+            $stmtCom->bindParam(':f', $comision_data['monto_base'], PDO::PARAM_STR);
+            $stmtCom->bindParam(':g', $comision_data['monto_comision'], PDO::PARAM_STR);
+            $stmtCom->execute();
+        }
+
+        // === POST-SP: Descuento de insumos para servicios ===
+        foreach ($detalle_items as $item) {
+            if (isset($item['id_tipo_producto']) && $item['id_tipo_producto'] == 5 && !empty($item['insumos_a_descontar'])) {
+                $id_catalogo_servicio = $item['id_catalogo'] ?? null;
+                $id_detalleitem_padre = null;
+
+                if ($id_catalogo_servicio) {
+                    $stmtBD = $pdo->prepare("SELECT id FROM detalleitem_venta WHERE id_venta = :a AND id_catalogo = :b AND id_tipo_producto = 5 ORDER BY id DESC LIMIT 1");
+                    $stmtBD->execute([':a' => $venta_id, ':b' => $id_catalogo_servicio]);
+                    $row = $stmtBD->fetch(PDO::FETCH_ASSOC);
+                    $id_detalleitem_padre = $row['id'] ?? null;
+                }
+
+                foreach ($item['insumos_a_descontar'] as $insumo) {
+                    try {
+                        $id_catalogo_insumo = $insumo['id_catalogo'] ?? null;
+                        $cantidad_descontar = floatval($insumo['cantidad_necesaria'] ?? 0);
+
+                        if ($id_catalogo_insumo && $cantidad_descontar > 0) {
+                            $stmtInv = $pdo->prepare("SELECT id, stock_real, precio_unitario, id_moneda FROM inventario WHERE id_catalogo = :a AND id_sucursal = :b AND estado_registro = 1 LIMIT 1");
+                            $stmtInv->execute([':a' => $id_catalogo_insumo, ':b' => $id_sucursal]);
+                            $inv = $stmtInv->fetch(PDO::FETCH_ASSOC);
+
+                            if ($inv) {
+                                $id_inventario = $inv['id'];
+
+                                // Obtener precio del catálogo
+                                $stmtCat = $pdo->prepare("SELECT precio_unitario, id_moneda FROM catalogo WHERE id = :a AND estado_registro = 1");
+                                $stmtCat->execute([':a' => $id_catalogo_insumo]);
+                                $cat = $stmtCat->fetch(PDO::FETCH_ASSOC);
+                                $costo_unitario = floatval($cat['precio_unitario'] ?? 0);
+                                $id_moneda_insumo = intval($cat['id_moneda'] ?? 1);
+
+                                // Descontar stock
+                                $pdo->prepare("UPDATE inventario SET stock_real = stock_real - :a, fecha_actualizacion = CURRENT_TIMESTAMP, usuario_actualizacion = :b WHERE id = :c")
+                                    ->execute([':a' => $cantidad_descontar, ':b' => $usuario_id, ':c' => $id_inventario]);
+
+                                // Cardex
+                                $motivo = "Insumo para servicio - Venta #{$venta_id}";
+                                $sqlK = "INSERT INTO cardex (id_inventario, tipo_movimiento, cantidad, costo_unitario, id_moneda, referencia, fecha_movimiento, id_usuario, id_empresa, id_sucursal, usuario_registro, estado_registro)
+                                         VALUES (:a, 'salida', :b, :c, :d, :e, CURRENT_TIMESTAMP, :f, :g, :h, :i, 1)";
+                                $stmtK = $pdo->prepare($sqlK);
+                                $stmtK->execute([':a' => $id_inventario, ':b' => $cantidad_descontar, ':c' => $costo_unitario, ':d' => $id_moneda_insumo, ':e' => $motivo, ':f' => $usuario_id, ':g' => $id_empresa, ':h' => $id_sucursal, ':i' => $usuario_id]);
+
+                                // Insertar insumo en detalleitem_venta
+                                if ($id_detalleitem_padre) {
+                                    $stmtTipo = $pdo->prepare("SELECT id_tipo_producto FROM inventario WHERE id = :a");
+                                    $stmtTipo->execute([':a' => $id_inventario]);
+                                    $tipoRes = $stmtTipo->fetch(PDO::FETCH_ASSOC);
+                                    $id_tipo_producto_insumo = $tipoRes['id_tipo_producto'] ?? 1;
+
+                                    $sqlIns = "INSERT INTO detalleitem_venta (id_venta, id_inventario, id_catalogo, id_tipo_producto, cantidad, precio_unitario, valor_subtotal_item, porcentaje_descuento, valor_descuento, valor_isc, valor_igv, valor_icbper, valor_total_item, anticipo, otros_cargos, otros_tributos, id_detalleitem_venta_padre, usuario_registro)
+                                               VALUES (:a, :b, :c, :d, :e, :f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, :g, :h)";
+                                    $pdo->prepare($sqlIns)->execute([':a' => $venta_id, ':b' => $id_inventario, ':c' => $id_catalogo_insumo, ':d' => $id_tipo_producto_insumo, ':e' => $cantidad_descontar, ':f' => $costo_unitario, ':g' => $id_detalleitem_padre, ':h' => $usuario_id]);
+                                }
+                            }
+                        }
+                    } catch (Exception $e) {
+                        error_log("⚠️ N8N_V2 - Error insumo: " . $e->getMessage());
+                    }
+                }
+            }
+        }
+
+        // === POST-SP: Cronograma crédito ===
+        $cronograma_generado = false;
+        $cuotas_insertadas = 0;
+        $tipo_venta_lower = strtolower(trim($tipo_venta ?? ''));
+        $es_credito = ($tipo_venta_lower === 'credito' || $tipo_venta_lower === 'crédito');
+
+        if ($es_credito && !empty($cuotas) && intval($cuotas) > 0 && !empty($dias_credito) && intval($dias_credito) > 0) {
+            try {
+                $stmtCron = $pdo->prepare("SELECT * FROM sp_generar_cronograma_credito(:a, :b, :c, :d, :e::date, :f)");
+                $stmtCron->execute([':a' => $venta_id, ':b' => $id_empresa, ':c' => intval($dias_credito), ':d' => intval($cuotas), ':e' => $fecha_emision, ':f' => $usuario_id]);
+                $cronRes = $stmtCron->fetch(PDO::FETCH_ASSOC);
+                $cronograma_generado = $cronRes['success'] ?? false;
+                $cuotas_insertadas = $cronRes['cuotas_generadas'] ?? 0;
+            } catch (Exception $e) {
+                error_log("⚠️ N8N_V2 - Error cronograma: " . $e->getMessage());
+            }
+        }
+
+        // === POST-SP: Vincular cotización ===
+        if ($id_cotizacion) {
+            try {
+                $pdo->prepare("UPDATE Venta SET id_cotizacion = :a, fecha_actualizacion = CURRENT_TIMESTAMP, usuario_actualizacion = :b WHERE id = :c")
+                    ->execute([':a' => $id_cotizacion, ':b' => $usuario_id, ':c' => $venta_id]);
+                $pdo->prepare("UPDATE cotizacion SET estado = 'aprobada', fecha_actualizacion = CURRENT_TIMESTAMP, usuario_actualizacion = :a WHERE id = :b")
+                    ->execute([':a' => $usuario_id, ':b' => $id_cotizacion]);
+            } catch (Exception $e) {
+                error_log("⚠️ N8N_V2 - Error cotización: " . $e->getMessage());
+            }
+        }
+
+        // === POST-SP: Guardar datos SUNAT ===
+        if ($es_facturacion_electronica && $sunat_estado) {
+            try {
+                $pdo->prepare("UPDATE Venta SET sunat_estado = :a, sunat_hash = :b, sunat_xml = :c, sunat_cdr = :d, sunat_pdf = :e, fecha_actualizacion = CURRENT_TIMESTAMP, usuario_actualizacion = :f WHERE id = :g")
+                    ->execute([':a' => $sunat_estado, ':b' => $sunat_hash, ':c' => $sunat_xml, ':d' => $sunat_cdr, ':e' => $sunat_pdf, ':f' => $usuario_id, ':g' => $venta_id]);
+            } catch (Exception $e) {
+                error_log("⚠️ N8N_V2 - Error guardando SUNAT: " . $e->getMessage());
+            }
+        }
+
+        // Obtener codigo_venta
+        $stmtCod = $pdo->prepare("SELECT codigo_venta, serie, numero FROM venta WHERE id = :a");
+        $stmtCod->execute([':a' => $venta_id]);
+        $ventaFinal = $stmtCod->fetch(PDO::FETCH_ASSOC);
+        $codigo_venta = $ventaFinal['codigo_venta'] ?? null;
+        $serie = $ventaFinal['serie'] ?? $serie;
+        $numero = $ventaFinal['numero'] ?? $numero;
+
+        // === Respuesta ===
+        $response = [
+            'success' => true,
+            'message' => 'Venta registrada exitosamente',
+            'id_venta' => $venta_id,
+            'codigo_venta' => $codigo_venta,
+            'serie' => $serie,
+            'numero' => $numero,
+            'cronograma' => [
+                'generado' => $cronograma_generado,
+                'cuotas_insertadas' => $cuotas_insertadas
+            ]
+        ];
+
+        if ($es_facturacion_electronica) {
+            $response['sunat_estado'] = $sunat_estado;
+            $response['pdf_url'] = $enlace_documento;
+        }
+
+        http_response_code(201);
+        echo json_encode($response);
+
+    } catch (Exception $e) {
+        error_log("❌ N8N_V2 - Error: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Error al registrar venta',
+            'details' => $e->getMessage()
+        ]);
+    }
+}
+
+error_log("========== FIN REQUEST " . date('Y-m-d H:i:s') . " ==========");

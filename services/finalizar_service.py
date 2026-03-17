@@ -13,15 +13,44 @@ MONTO_LIMITE_DOC_OPCIONAL_PEN = 700
 # Usuario con el que se registran ventas y compras (temporal; informado por Maravia).
 ID_USUARIO_REGISTRO = 3
 
+# Mapeo de errores conocidos de las APIs de registro (ws_compra.php, ws_cliente) a mensajes claros.
+MAPEO_ERRORES_API_COMPRA = {
+    "Campo requerido: id_proveedor": "Falta indicar el proveedor.",
+    "Campo requerido: fecha_emision": "Falta la fecha de emisión.",
+    "Campo requerido: id_moneda": "Falta la moneda.",
+    "Campo requerido: tipo_compra": "Falta el tipo de compra (Contado o Crédito).",
+    "Debe incluir al menos un detalle de compra": "Debe incluir al menos un detalle (producto o concepto).",
+    "Formato de nro_documento inválido": "El número de comprobante del proveedor debe ser SERIE-NÚMERO (ej: F001-00001).",
+    "JSON inválido o vacío": "Datos enviados inválidos. Reintente.",
+    "No se pudo conectar a la base de datos": "Servicio temporalmente no disponible. Reintente más tarde.",
+}
+MAPEO_ERRORES_API_CLIENTE = {
+    "duplicate": "Ya existe un cliente con ese documento.",
+    "ya existe": "Ya existe un cliente con ese documento.",
+    "documento": "Revise el número de documento (DNI 8 dígitos, RUC 11 dígitos).",
+}
+
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
 from services.helpers.compra_mapper import construir_payload_compra
 from services.helpers.sunat_client import SunatClient
 from services.helpers.venta_mapper import (
     construir_payload_venta,
+    construir_payload_venta_n8n,
     construir_sintesis_actual,
     traducir_registro_a_parametros,
 )
+
+
+def _mensaje_error_mapeado(mensaje: str, mapeo: dict) -> str:
+    """Sustituye mensajes conocidos de la API por textos más claros para el usuario."""
+    if not mensaje or not isinstance(mensaje, str):
+        return mensaje or "Error desconocido"
+    mensaje = mensaje.strip()
+    for clave, reemplazo in mapeo.items():
+        if clave.lower() in mensaje.lower():
+            return reemplazo
+    return mensaje
 
 
 class FinalizarService:
@@ -180,6 +209,7 @@ class FinalizarService:
                     or resp_cli.get("detail")
                     or "Error desconocido"
                 )
+                msg = _mensaje_error_mapeado(str(msg), MAPEO_ERRORES_API_CLIENTE)
                 # Si sigue siendo genérico, añadir pista con status o respuesta
                 if msg == "Error desconocido" and resp_cli:
                     extra = []
@@ -203,14 +233,14 @@ class FinalizarService:
             mensaje = f"{sintesis}\n\n{faltan}" if sintesis else faltan
             return {"status": "incompleto", "mensaje": mensaje, "sintesis_actual": sintesis}
 
-        payload = construir_payload_venta(
-            reg, id_cliente, id_from,
-            params["id_tipo_comprobante"], params["monto_total"],
-            params["monto_base"], params["monto_igv"],
-            params["moneda_simbolo"], params["id_moneda"],
-            params["id_forma_pago"], params["tipo_venta"],
-            params["fecha_emision"], params["fecha_pago"],
-            id_usuario=ID_USUARIO_REGISTRO,
+        # Usar el mismo flujo que el test: ws_venta.php REGISTRAR_VENTA_N8N (sin token),
+        # generacion_comprobante=1 para devolver PDF y estado SUNAT.
+        payload = construir_payload_venta_n8n(
+            reg=reg,
+            id_cliente=int(id_cliente),
+            id_empresa=int(id_from),
+            id_usuario=int(ID_USUARIO_REGISTRO),
+            params=params,
         )
 
         resultado = self._sunat.crear_venta(payload)
@@ -262,6 +292,7 @@ class FinalizarService:
 
         sintesis = construir_sintesis_actual(reg)
         error_msg = resultado.get("error") or resultado.get("message", "Error al registrar compra")
+        error_msg = _mensaje_error_mapeado(str(error_msg), MAPEO_ERRORES_API_COMPRA)
         if resultado.get("details"):
             error_msg = f"{error_msg}\nDetalles: {resultado['details']}"
         mensaje = f"{sintesis}\n\n❌ {error_msg}" if sintesis else f"❌ {error_msg}"

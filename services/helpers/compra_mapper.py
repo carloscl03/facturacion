@@ -106,8 +106,14 @@ def construir_payload_compra(
     tipo_compra = (params.get("tipo_venta") or "Contado").strip()
     dias_credito = int(reg.get("dias_credito", 30))
     cuotas = int(reg.get("cuotas", 1))
-    # Número del comprobante (factura/boleta del proveedor): solo serie-número, nunca RUC/DNI del proveedor
-    nro_documento = nro_documento_comprobante(reg) or "S/N"
+    # Número del comprobante: solo enviar si es SERIE-NUMERO válido (ws_compra exige formato "F001-00001").
+    # Si no hay comprobante, no enviar la clave para que la API deje serie/numero en null.
+    nro_raw = nro_documento_comprobante(reg)
+    nro_documento = None
+    if nro_raw and isinstance(nro_raw, str):
+        nro_raw = nro_raw.strip()
+        if nro_raw and "-" in nro_raw and len(nro_raw.split("-")) == 2 and nro_raw.upper() != "S/N":
+            nro_documento = nro_raw
 
     id_proveedor = reg.get("entidad_id")
     if id_proveedor is not None:
@@ -124,7 +130,6 @@ def construir_payload_compra(
         "id_proveedor": id_proveedor,
         "id_tipo_comprobante": int(params["id_tipo_comprobante"]) if params.get("id_tipo_comprobante") is not None else 1,
         "fecha_emision": params["fecha_emision"],
-        "nro_documento": nro_documento or "S/N",
         "id_medio_pago": int(reg.get("id_medio_pago") or 1),
         "id_forma_pago": id_forma_pago,
         "id_moneda": int(params["id_moneda"]) if params.get("id_moneda") is not None else 1,
@@ -147,4 +152,6 @@ def construir_payload_compra(
         payload.pop("enlace_documento", None)
     if payload["observacion"] is None:
         payload.pop("observacion", None)
+    if nro_documento is not None:
+        payload["nro_documento"] = nro_documento
     return payload

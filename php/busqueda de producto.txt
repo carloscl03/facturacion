@@ -1,0 +1,386 @@
+CREATE OR REPLACE FUNCTION public.sp_registrar_venta(p_id_tipo_comprobante integer, p_serie character varying, p_numero integer, p_id_moneda integer, p_id_forma_pago integer, p_id_medio_pago integer, p_id_sucursal integer, p_id_empresa integer, p_id_usuario integer, p_id_cliente integer, p_tipo_venta character varying, p_dias_credito integer, p_cuotas integer, p_porcentaje_detraccion numeric, p_porcentaje_igv numeric, p_fecha_pago date, p_fecha_emision date, p_enlace_documento text, p_fecha_vencimiento timestamp without time zone, p_id_tipo_afectacion integer, p_observacion text, p_id_caja_banco integer, p_detalle_items jsonb, p_id_pedido integer DEFAULT NULL::integer, p_id_contrato_cliente integer DEFAULT NULL::integer, p_periodo_facturado character varying DEFAULT NULL::character varying, p_es_pos smallint DEFAULT 0, p_id_canal_venta integer DEFAULT NULL::integer, OUT p_venta_id integer, OUT p_resultado character varying)
+ RETURNS record
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    v_monto_total NUMERIC := 0.00;
+    v_item_index INTEGER := 0;
+    v_total_items INTEGER;
+    v_sucursal_valida INTEGER := NULL;
+    v_id_inventario INTEGER;
+    v_id_catalogo INTEGER;
+    v_id_tipo_producto INTEGER;
+    v_id_unidad INTEGER;
+    v_temp_id_inventario VARCHAR(50);
+    v_temp_id_catalogo VARCHAR(50);
+    v_temp_id_tipo_producto VARCHAR(50);
+    v_temp_id_unidad VARCHAR(50);
+    v_cantidad NUMERIC;
+    v_precio_unitario NUMERIC;
+    v_valor_subtotal_item NUMERIC;
+    v_porcentaje_descuento NUMERIC;
+    v_valor_descuento NUMERIC;
+    v_valor_isc NUMERIC;
+    v_valor_igv NUMERIC;
+    v_valor_icbper NUMERIC;
+    v_valor_total_item NUMERIC;
+    v_anticipo NUMERIC;
+    v_otros_cargos NUMERIC;
+    v_otros_tributos NUMERIC;
+    v_post_envio INTEGER;  -- Cambiado a INTEGER
+    v_stock_total NUMERIC;
+    v_producto_nombre VARCHAR(255);
+    v_producto_id_catalogo INTEGER;
+    v_cantidad_restante NUMERIC;
+    v_cantidad_descontar NUMERIC;
+    v_inv_precio NUMERIC;
+    v_referencia VARCHAR(255);
+    v_item JSONB;
+    rec_fifo RECORD;
+    rec_paquete RECORD;
+    v_cantidad_paquete NUMERIC;
+    v_paquete_nombre VARCHAR(255);
+BEGIN
+    -- Validaciones
+    IF p_id_moneda IS NULL OR p_id_moneda = 0 THEN
+        p_resultado := 'ERROR: El id_moneda es obligatorio';
+        p_venta_id := NULL;
+        RETURN;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM Moneda WHERE id = p_id_moneda AND estado_registro = 1) THEN
+        p_resultado := 'ERROR: La moneda con ID ' || p_id_moneda || ' no existe o está inactiva';
+        p_venta_id := NULL;
+        RETURN;
+    END IF;
+
+    SELECT id INTO v_sucursal_valida
+    FROM Sucursal
+    WHERE id_empresa = p_id_empresa AND estado_registro = 1
+    ORDER BY id ASC
+    LIMIT 1;
+
+    IF p_id_sucursal IS NULL AND v_sucursal_valida IS NOT NULL THEN
+        p_id_sucursal := v_sucursal_valida;
+    END IF;
+
+    v_total_items := jsonb_array_length(p_detalle_items);
+
+    IF v_total_items = 0 OR v_total_items IS NULL THEN
+        p_resultado := 'ERROR: Debe agregar al menos un producto';
+        p_venta_id := NULL;
+        RETURN;
+    END IF;
+
+    -- Validar stock de todos los items primero (incluyendo paquetes)
+    FOR v_item_index IN 0..v_total_items-1 LOOP
+        v_item := p_detalle_items->v_item_index;
+        v_temp_id_inventario := v_item->>'id_inventario';
+        v_temp_id_catalogo := v_item->>'id_catalogo';
+        v_temp_id_tipo_producto := v_item->>'id_tipo_producto';
+        v_cantidad := (v_item->>'cantidad')::NUMERIC;
+
+        IF v_temp_id_tipo_producto IS NULL OR v_temp_id_tipo_producto = 'null' OR v_temp_id_tipo_producto = '' THEN
+            v_id_tipo_producto := NULL;
+        ELSE
+            v_id_tipo_producto := v_temp_id_tipo_producto::INTEGER;
+        END IF;
+
+        IF v_temp_id_catalogo IS NULL OR v_temp_id_catalogo = 'null' OR v_temp_id_catalogo = '' THEN
+            v_id_catalogo := NULL;
+        ELSE
+            v_id_catalogo := v_temp_id_catalogo::INTEGER;
+        END IF;
+
+        IF v_id_tipo_producto = 6 AND v_id_catalogo IS NOT NULL THEN
+            SELECT nombre INTO v_paquete_nombre FROM Catalogo WHERE id = v_id_catalogo;
+            
+            FOR rec_paquete IN
+                SELECT pp.id_catalogo, pp.cantidad, c.nombre as producto_nombre
+                FROM PaqueteProducto pp
+                INNER JOIN Catalogo c ON pp.id_catalogo = c.id
+                WHERE pp.id_catalogo_parent = v_id_catalogo
+                AND c.id_tipo_producto != 5
+            LOOP
+                v_cantidad_paquete := rec_paquete.cantidad * v_cantidad;
+                
+                SELECT COALESCE(SUM(stock_real), 0)
+                INTO v_stock_total
+                FROM Inventario
+                WHERE id_catalogo = rec_paquete.id_catalogo
+                  AND id_empresa = p_id_empresa
+                  AND (p_id_sucursal IS NULL OR id_sucursal = p_id_sucursal)
+                  AND COALESCE(id_tipo_producto, 0) NOT IN (5, 6)
+                  AND estado_registro = 1;
+
+                IF v_cantidad_paquete > v_stock_total THEN
+                    p_resultado := 'ERROR: Stock insuficiente para el producto "' || rec_paquete.producto_nombre ||
+                                   '" del paquete "' || COALESCE(v_paquete_nombre, 'Sin nombre') || 
+                                   '". Stock disponible: ' || v_stock_total || ', requerido: ' || v_cantidad_paquete;
+                    p_venta_id := NULL;
+                    RETURN;
+                END IF;
+            END LOOP;
+
+        ELSIF v_temp_id_inventario IS NOT NULL AND v_temp_id_inventario != 'null' AND v_temp_id_inventario != '' THEN
+            v_id_inventario := v_temp_id_inventario::INTEGER;
+
+            SELECT id_tipo_producto, id_catalogo, nombre_producto
+            INTO v_id_tipo_producto, v_producto_id_catalogo, v_producto_nombre
+            FROM Inventario
+            WHERE id = v_id_inventario AND id_empresa = p_id_empresa;
+
+            IF v_producto_nombre IS NULL THEN
+                p_resultado := 'ERROR: Producto no encontrado';
+                p_venta_id := NULL;
+                RETURN;
+            END IF;
+
+            IF COALESCE(v_id_tipo_producto, 0) NOT IN (5, 6) THEN
+                IF v_producto_id_catalogo IS NOT NULL THEN
+                    SELECT COALESCE(SUM(stock_real), 0)
+                    INTO v_stock_total
+                    FROM Inventario
+                    WHERE id_catalogo = v_producto_id_catalogo
+                      AND id_empresa = p_id_empresa
+                      AND (p_id_sucursal IS NULL OR id_sucursal = p_id_sucursal)
+                      AND COALESCE(id_tipo_producto, 0) NOT IN (5, 6)
+                      AND estado_registro = 1;
+                ELSE
+                    SELECT COALESCE(stock_real, 0)
+                    INTO v_stock_total
+                    FROM Inventario
+                    WHERE id = v_id_inventario
+                      AND id_empresa = p_id_empresa
+                      AND (p_id_sucursal IS NULL OR id_sucursal = p_id_sucursal)
+                      AND estado_registro = 1;
+                END IF;
+
+                IF v_cantidad > v_stock_total THEN
+                    p_resultado := 'ERROR: Stock insuficiente para el producto "' || v_producto_nombre ||
+                                   '". Stock disponible: ' || v_stock_total || ', solicitado: ' || v_cantidad;
+                    p_venta_id := NULL;
+                    RETURN;
+                END IF;
+            END IF;
+        END IF;
+    END LOOP;
+
+    -- Calcular monto total
+    FOR v_item_index IN 0..v_total_items-1 LOOP
+        v_valor_total_item := (p_detalle_items->v_item_index->>'valor_total_item')::NUMERIC;
+        v_monto_total := v_monto_total + COALESCE(v_valor_total_item, 0);
+    END LOOP;
+
+    -- Insertar venta
+    INSERT INTO Venta (
+        id_tipo_comprobante, serie, numero, id_moneda, monto,
+        id_forma_pago, id_medio_pago, id_sucursal, id_empresa,
+        id_usuario, id_cliente, id_pedido, tipo_venta, dias_credito, cuotas, porcentaje_detraccion, porcentaje_igv,
+        fecha_pago, fecha_emision, enlace_documento, fecha_vencimiento,
+        id_tipo_afectacion, observacion, id_caja_banco,
+        id_contrato_cliente, periodo_facturado, es_pos, id_canal_venta,
+        estado_registro, fecha_registro, usuario_registro
+    ) VALUES (
+        p_id_tipo_comprobante, p_serie, p_numero, p_id_moneda, v_monto_total,
+        p_id_forma_pago, p_id_medio_pago, p_id_sucursal, p_id_empresa,
+        p_id_usuario, p_id_cliente, p_id_pedido, p_tipo_venta, p_dias_credito, p_cuotas, p_porcentaje_detraccion, COALESCE(p_porcentaje_igv, 0),
+        p_fecha_pago, p_fecha_emision, p_enlace_documento, p_fecha_vencimiento,
+        p_id_tipo_afectacion, p_observacion, p_id_caja_banco,
+        p_id_contrato_cliente, p_periodo_facturado, COALESCE(p_es_pos, 0), p_id_canal_venta,
+        1, CURRENT_TIMESTAMP, p_id_usuario
+    )
+    RETURNING id INTO p_venta_id;
+
+    -- Procesar items
+    FOR v_item_index IN 0..v_total_items-1 LOOP
+        v_item := p_detalle_items->v_item_index;
+
+        v_temp_id_inventario := v_item->>'id_inventario';
+        v_temp_id_catalogo := v_item->>'id_catalogo';
+        v_temp_id_tipo_producto := v_item->>'id_tipo_producto';
+        v_temp_id_unidad := v_item->>'id_unidad';
+        v_cantidad := (v_item->>'cantidad')::NUMERIC;
+        v_precio_unitario := (v_item->>'precio_unitario')::NUMERIC;
+        v_valor_subtotal_item := (v_item->>'valor_subtotal_item')::NUMERIC;
+        v_porcentaje_descuento := (v_item->>'porcentaje_descuento')::NUMERIC;
+        v_valor_descuento := (v_item->>'valor_descuento')::NUMERIC;
+        v_valor_isc := COALESCE((v_item->>'valor_isc')::NUMERIC, 0);
+        v_valor_igv := COALESCE((v_item->>'valor_igv')::NUMERIC, 0);
+        v_valor_icbper := COALESCE((v_item->>'valor_icbper')::NUMERIC, 0);
+        v_valor_total_item := (v_item->>'valor_total_item')::NUMERIC;
+        v_anticipo := COALESCE((v_item->>'anticipo')::NUMERIC, 0);
+        v_otros_cargos := COALESCE((v_item->>'otros_cargos')::NUMERIC, 0);
+        v_otros_tributos := COALESCE((v_item->>'otros_tributos')::NUMERIC, 0);
+        
+        -- Leer post_envio como INTEGER (0 o 1)
+        v_post_envio := COALESCE((v_item->>'post_envio')::INTEGER, 0);
+
+        IF v_temp_id_inventario IS NULL OR v_temp_id_inventario = 'null' OR v_temp_id_inventario = '' THEN
+            v_id_inventario := NULL;
+        ELSE
+            v_id_inventario := v_temp_id_inventario::INTEGER;
+        END IF;
+
+        IF v_temp_id_catalogo IS NULL OR v_temp_id_catalogo = 'null' OR v_temp_id_catalogo = '' THEN
+            v_id_catalogo := NULL;
+        ELSE
+            v_id_catalogo := v_temp_id_catalogo::INTEGER;
+        END IF;
+
+        IF v_temp_id_tipo_producto IS NULL OR v_temp_id_tipo_producto = 'null' OR v_temp_id_tipo_producto = '' THEN
+            v_id_tipo_producto := NULL;
+        ELSE
+            v_id_tipo_producto := v_temp_id_tipo_producto::INTEGER;
+        END IF;
+
+        IF v_temp_id_unidad IS NULL OR v_temp_id_unidad = 'null' OR v_temp_id_unidad = '' THEN
+            v_id_unidad := NULL;
+        ELSE
+            v_id_unidad := v_temp_id_unidad::INTEGER;
+        END IF;
+
+        -- Insertar detalle con post_envio como INTEGER
+        INSERT INTO DetalleItem_Venta (
+            id_venta, id_inventario, id_catalogo, id_tipo_producto, cantidad, id_unidad,
+            precio_unitario, valor_subtotal_item,
+            porcentaje_descuento, valor_descuento, valor_isc,
+            valor_igv, valor_icbper, valor_total_item,
+            anticipo, otros_cargos, otros_tributos, post_envio
+        ) VALUES (
+            p_venta_id, v_id_inventario, v_id_catalogo, v_id_tipo_producto, v_cantidad, v_id_unidad,
+            v_precio_unitario, v_valor_subtotal_item,
+            v_porcentaje_descuento, v_valor_descuento, v_valor_isc,
+            v_valor_igv, v_valor_icbper, v_valor_total_item,
+            v_anticipo, v_otros_cargos, v_otros_tributos, v_post_envio
+        );
+
+        IF v_id_tipo_producto = 6 AND v_id_catalogo IS NOT NULL THEN
+            SELECT nombre INTO v_paquete_nombre FROM Catalogo WHERE id = v_id_catalogo;
+            
+            FOR rec_paquete IN
+                SELECT pp.id_catalogo, pp.cantidad, c.nombre as producto_nombre
+                FROM PaqueteProducto pp
+                INNER JOIN Catalogo c ON pp.id_catalogo = c.id
+                WHERE pp.id_catalogo_parent = v_id_catalogo
+                AND c.id_tipo_producto != 5
+            LOOP
+                v_cantidad_paquete := rec_paquete.cantidad * v_cantidad;
+                v_cantidad_restante := v_cantidad_paquete;
+
+                FOR rec_fifo IN
+                    SELECT id, stock_real, precio_unitario, id_sucursal
+                    FROM Inventario
+                    WHERE id_catalogo = rec_paquete.id_catalogo
+                      AND id_empresa = p_id_empresa
+                      AND (p_id_sucursal IS NULL OR id_sucursal = p_id_sucursal)
+                      AND COALESCE(id_tipo_producto, 0) NOT IN (5, 6)
+                      AND stock_real > 0
+                      AND estado_registro = 1
+                    ORDER BY fecha_registro ASC
+                LOOP
+                    EXIT WHEN v_cantidad_restante <= 0;
+
+                    IF v_cantidad_restante <= rec_fifo.stock_real THEN
+                        v_cantidad_descontar := v_cantidad_restante;
+                    ELSE
+                        v_cantidad_descontar := rec_fifo.stock_real;
+                    END IF;
+
+                    UPDATE Inventario
+                    SET stock_real = stock_real - v_cantidad_descontar
+                    WHERE id = rec_fifo.id;
+
+                    v_referencia := 'Venta #' || p_venta_id || ' - Pack: ' || COALESCE(v_paquete_nombre, 'Sin nombre') || ' - ' || rec_paquete.producto_nombre;
+
+                    INSERT INTO Cardex (
+                        id_inventario, tipo_movimiento, cantidad, costo_unitario,
+                        id_moneda, referencia, fecha_movimiento, id_usuario,
+                        id_empresa, id_sucursal, usuario_registro, estado_registro
+                    ) VALUES (
+                        rec_fifo.id, 'salida', v_cantidad_descontar, rec_fifo.precio_unitario,
+                        p_id_moneda, v_referencia, CURRENT_TIMESTAMP, p_id_usuario,
+                        p_id_empresa, COALESCE(rec_fifo.id_sucursal, p_id_sucursal), p_id_usuario, 1
+                    );
+
+                    v_cantidad_restante := v_cantidad_restante - v_cantidad_descontar;
+                END LOOP;
+
+                IF v_cantidad_restante > 0 THEN
+                    p_resultado := 'ERROR: Stock insuficiente para el producto "' || rec_paquete.producto_nombre ||
+                                   '" del paquete "' || COALESCE(v_paquete_nombre, 'Sin nombre') || 
+                                   '". Faltaron ' || v_cantidad_restante || ' unidades.';
+                    p_venta_id := NULL;
+                    RAISE EXCEPTION '%', p_resultado;
+                END IF;
+            END LOOP;
+
+        -- Descuento de stock: usar id_catalogo si existe, sino id_inventario como fallback
+        ELSIF COALESCE(v_id_tipo_producto, 0) NOT IN (5, 6) AND (v_id_catalogo IS NOT NULL OR v_id_inventario IS NOT NULL) THEN
+            -- Obtener nombre del producto para el Cardex
+            IF v_id_catalogo IS NOT NULL THEN
+                SELECT nombre INTO v_producto_nombre FROM Catalogo WHERE id = v_id_catalogo;
+            ELSIF v_id_inventario IS NOT NULL THEN
+                SELECT nombre_producto INTO v_producto_nombre FROM Inventario WHERE id = v_id_inventario;
+            END IF;
+
+            v_cantidad_restante := v_cantidad;
+
+            FOR rec_fifo IN
+                SELECT id, stock_real, precio_unitario, id_sucursal
+                FROM Inventario
+                WHERE (
+                    (v_id_catalogo IS NOT NULL AND id_catalogo = v_id_catalogo)
+                    OR (v_id_catalogo IS NULL AND id = v_id_inventario)
+                )
+                  AND id_empresa = p_id_empresa
+                  AND (p_id_sucursal IS NULL OR id_sucursal = p_id_sucursal)
+                  AND COALESCE(id_tipo_producto, 0) NOT IN (5, 6)
+                  AND stock_real > 0
+                  AND estado_registro = 1
+                ORDER BY fecha_registro ASC
+            LOOP
+                    EXIT WHEN v_cantidad_restante <= 0;
+
+                    IF v_cantidad_restante <= rec_fifo.stock_real THEN
+                        v_cantidad_descontar := v_cantidad_restante;
+                    ELSE
+                        v_cantidad_descontar := rec_fifo.stock_real;
+                    END IF;
+
+                    UPDATE Inventario
+                    SET stock_real = stock_real - v_cantidad_descontar
+                    WHERE id = rec_fifo.id;
+
+                    v_referencia := 'Venta #' || p_venta_id || ' - ' || v_producto_nombre;
+
+                    INSERT INTO Cardex (
+                        id_inventario, tipo_movimiento, cantidad, costo_unitario,
+                        id_moneda, referencia, fecha_movimiento, id_usuario,
+                        id_empresa, id_sucursal, usuario_registro, estado_registro
+                    ) VALUES (
+                        rec_fifo.id, 'salida', v_cantidad_descontar, v_valor_total_item,
+                        p_id_moneda, v_referencia, CURRENT_TIMESTAMP, p_id_usuario,
+                        p_id_empresa, COALESCE(rec_fifo.id_sucursal, p_id_sucursal), p_id_usuario, 1
+                    );
+
+                    v_cantidad_restante := v_cantidad_restante - v_cantidad_descontar;
+            END LOOP;
+
+            IF v_cantidad_restante > 0 THEN
+                p_resultado := 'ERROR: Stock insuficiente para el producto "' || COALESCE(v_producto_nombre, 'Sin nombre') ||
+                               '". Faltaron ' || v_cantidad_restante || ' unidades.';
+                p_venta_id := NULL;
+                RAISE EXCEPTION '%', p_resultado;
+            END IF;
+        END IF;
+    END LOOP;
+
+    p_resultado := 'SUCCESS: Venta creada correctamente con ID: ' || p_venta_id;
+
+EXCEPTION WHEN OTHERS THEN
+    p_resultado := 'ERROR: ' || SQLERRM;
+    p_venta_id := NULL;
+    RAISE NOTICE 'Error en sp_registrar_venta: %', SQLERRM;
+END;
+$function$

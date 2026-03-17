@@ -85,6 +85,8 @@ class EntityRepository:
                 data = r.json()
             except Exception:
                 data = {"success": False, "message": r.text or f"Respuesta no JSON (status {r.status_code})"}
+            if r.status_code >= 400:
+                data["success"] = False
             if not data.get("success") and "message" not in data:
                 data["message"] = (
                     data.get("error") or data.get("msg") or data.get("detail") or data.get("mensaje")
@@ -138,6 +140,8 @@ class EntityRepository:
         """
         Envía el payload REGISTRAR_COMPRA a ws_compra.php.
         Espera JSON con success, message, id_compra o error/details.
+        Errores posibles (ws_compra.php): 400 (JSON inválido, codOpe/empresa_id/usuario_id,
+        campo requerido, detalles vacíos, nro_documento inválido), 405 (método), 500 (BD, SP).
         """
         if not self._url_compra:
             return {"success": False, "message": "URL de compras no configurada"}
@@ -148,8 +152,23 @@ class EntityRepository:
                 headers={"Content-Type": "application/json"},
                 timeout=30,
             )
-            if "application/json" in (r.headers.get("content-type") or ""):
-                return r.json()
-            return {"success": False, "message": r.text, "status_code": r.status_code}
+            try:
+                data = r.json()
+            except Exception:
+                data = {}
+            # 4xx/5xx: forzar success=False y unificar error/message/details
+            if r.status_code >= 400:
+                return {
+                    "success": False,
+                    "error": data.get("error"),
+                    "message": data.get("message") or data.get("error") or r.text or f"Error HTTP {r.status_code}",
+                    "details": data.get("details"),
+                    "status_code": r.status_code,
+                }
+            # 2xx pero body con success=false (p. ej. SP devolvió error)
+            if not data.get("success") and "error" not in data and "message" not in data:
+                data["error"] = data.get("details") or "Error al registrar compra"
+                data["message"] = data.get("message") or data["error"]
+            return data
         except Exception as e:
             return {"success": False, "message": str(e)}
