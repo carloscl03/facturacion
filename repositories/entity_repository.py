@@ -14,30 +14,37 @@ class EntityRepository:
     # ------------------------------------------------------------------ #
 
     def buscar_cliente(self, id_from: int, termino: str) -> dict | None:
-        """Busca un cliente por RUC, DNI o nombre. Retorna data o None."""
+        """Busca un cliente por RUC, DNI o nombre. Retorna data con cliente_id o None."""
         res = requests.get(
             self._url_cliente,
             params={"codOpe": "BUSCAR_CLIENTE", "empresa_id": id_from, "termino": termino},
         ).json()
-        return res.get("data") if res.get("found") else None
+        if not res.get("found"):
+            return None
+        data = res.get("data") or {}
+        if res.get("cliente_id") is not None:
+            data = {**data, "cliente_id": res["cliente_id"]}
+        return data
 
     def buscar_proveedor(self, id_from: int, termino: str) -> dict | None:
-        """Busca un proveedor por nombre, RUC o DNI. Retorna data o None."""
+        """Busca un proveedor por nombre, RUC o DNI. Retorna data con proveedor_id/persona_id o None."""
         termino = (termino or "").strip()
+        # La API espera id_empresa y nombre_completo (acepta RUC/DNI como número o string)
         payload = {
             "codOpe": "BUSCAR_PROVEEDOR",
-            "id_from": id_from,
+            "id_empresa": id_from,
             "nombre_completo": termino,
-            "termino": termino,
         }
-        # Si el término es solo dígitos (8=DNI, 11=RUC), enviar también como documento para búsqueda por RUC/DNI
-        solo_digitos = "".join(c for c in termino if c.isdigit())
-        if len(solo_digitos) == 11:
-            payload["ruc"] = solo_digitos
-        elif len(solo_digitos) == 8:
-            payload["numero_documento"] = solo_digitos
         res = requests.post(self._url_proveedor, json=payload, timeout=15).json()
-        return res.get("data") if res.get("found") else None
+        if not res.get("found"):
+            return None
+        data = res.get("data") or {}
+        # Asegurar proveedor_id y persona_id (pueden venir en raíz o dentro de data)
+        if res.get("proveedor_id") is not None:
+            data = {**data, "proveedor_id": res["proveedor_id"]}
+        if res.get("persona_id") is not None:
+            data = {**data, "persona_id": res["persona_id"]}
+        return data
 
     # ------------------------------------------------------------------ #
     # REGISTRO

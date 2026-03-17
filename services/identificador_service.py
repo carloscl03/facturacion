@@ -59,7 +59,23 @@ class IdentificadorService:
             def clean(val):
                 return str(val).strip() if val and str(val).strip() not in ["None", "null", ""] else "_No registrado_"
 
-            nombre_entidad = clean(base.get("razon_social") or base.get("nombre_completo"))
+            # Nombre: para proveedor persona natural viene nombres + apellidos; para cliente/jurídico razon_social o nombre_completo
+            def _nombre_entidad_desde_base(b: dict) -> str:
+                rs = (b.get("razon_social") or "").strip()
+                if rs:
+                    return clean(rs)
+                nc = (b.get("nombre_completo") or "").strip()
+                if nc:
+                    return clean(nc)
+                partes = [
+                    (b.get("nombres") or "").strip(),
+                    (b.get("apellido_paterno") or "").strip(),
+                    (b.get("apellido_materno") or "").strip(),
+                ]
+                nombre_armado = " ".join(p for p in partes if p)
+                return clean(nombre_armado) if nombre_armado else "_No registrado_"
+
+            nombre_entidad = _nombre_entidad_desde_base(base)
             doc_identidad = clean(base.get("ruc") or base.get("numero_documento"))
             tipo_doc_txt = clean(
                 base.get("tipo_documento_nombre")
@@ -86,18 +102,19 @@ class IdentificadorService:
             p_id = (data_cli or data_prov).get("persona_id")
             c_id = data_cli.get("cliente_id") if data_cli else None
             pr_id = data_prov.get("proveedor_id") if data_prov else None
+            es_compra = tipo_ope_norm in ("compras", "compra")
+            es_venta = tipo_ope_norm in ("ventas", "venta")
             entidad_id_maestro = (
-                (c_id if tipo_ope_norm == "ventas" else None)
-                or (pr_id if tipo_ope_norm == "compras" else None)
+                (c_id if es_venta else None)
+                or (pr_id if es_compra else None)
                 or p_id
             )
 
             doc_raw = base.get("ruc") or base.get("numero_documento") or ""
             entidad_id_tipo_documento = 6 if len(str(doc_raw).strip()) == 11 else 1
-            nombre_entidad_limpio = (base.get("razon_social") or base.get("nombre_completo") or "").strip() or None
+            # Nombre para Redis: mismo que nombre_entidad (ya construido para persona natural / jurídica)
+            nombre_entidad_limpio = nombre_entidad if nombre_entidad != "_No registrado_" else None
             doc_limpio = (doc_raw and str(doc_raw).strip()) or None
-            if nombre_entidad_limpio is None and nombre_entidad != "_No registrado_":
-                nombre_entidad_limpio = nombre_entidad
             if doc_limpio is None and doc_identidad != "_No registrado_":
                 doc_limpio = doc_identidad
 
