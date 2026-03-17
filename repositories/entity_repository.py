@@ -22,11 +22,21 @@ class EntityRepository:
         return res.get("data") if res.get("found") else None
 
     def buscar_proveedor(self, id_from: int, termino: str) -> dict | None:
-        """Busca un proveedor por nombre. Retorna data o None."""
-        res = requests.post(
-            self._url_proveedor,
-            json={"codOpe": "BUSCAR_PROVEEDOR", "id_from": id_from, "nombre_completo": termino},
-        ).json()
+        """Busca un proveedor por nombre, RUC o DNI. Retorna data o None."""
+        termino = (termino or "").strip()
+        payload = {
+            "codOpe": "BUSCAR_PROVEEDOR",
+            "id_from": id_from,
+            "nombre_completo": termino,
+            "termino": termino,
+        }
+        # Si el término es solo dígitos (8=DNI, 11=RUC), enviar también como documento para búsqueda por RUC/DNI
+        solo_digitos = "".join(c for c in termino if c.isdigit())
+        if len(solo_digitos) == 11:
+            payload["ruc"] = solo_digitos
+        elif len(solo_digitos) == 8:
+            payload["numero_documento"] = solo_digitos
+        res = requests.post(self._url_proveedor, json=payload, timeout=15).json()
         return res.get("data") if res.get("found") else None
 
     # ------------------------------------------------------------------ #

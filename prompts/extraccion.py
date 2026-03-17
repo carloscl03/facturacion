@@ -104,10 +104,10 @@ def build_prompt_extractor(
     {PLANTILLA_VISUAL}
     {ESTRUCTURA_GUIA}
 
-    ### DIAGNÓSTICO DE FALTANTES:
-    **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. No preguntas condicionales cuando la condición no se cumple; no preguntas opcionales como "agregar más productos".
+    ### DIAGNÓSTICO DE FALTANTES (lógica dinámica):
+    **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. Todas las preguntas en lenguaje natural; una sola pregunta por campo vacío; mismo criterio para todos los campos (incluido medio de pago).
     **Estructura de la salida:** (1) Preámbulo (mensaje_entendimiento). (2) Síntesis visual = resumen_visual del ESTADO COMPLETO. (3) Si faltan datos: invitación ("Me faltan algunos datos para completar:") + listado de preguntas. (4) Si NO falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario sepa que puede decir *confirmar* y continuar; pedir confirmación **no** impide que el usuario envíe más datos (si envía datos, se procesarán como actualizar).
-    Fusiona datos en Redis + propuesta_cache. UNA pregunta por cada campo **realmente** vacío.
+    Fusiona datos en Redis + propuesta_cache. UNA pregunta por cada campo **realmente** vacío. **No repitas preguntas:** si un dato ya aparece en el resumen visual (p. ej. medio de pago = Contado), NUNCA incluyas pregunta sobre ese dato.
     **NO preguntar por:** sucursal, forma de pago (transferencia/TC/TD/billetera) ni centro de costo (se gestionan en Estado 2 / opciones; centro de costo solo se pide en compra, no en venta).
 
     Campos a incluir SOLO si están vacíos (si ya tienen valor, NO preguntes):
@@ -115,11 +115,11 @@ def build_prompt_extractor(
     2. Cliente (venta) o Proveedor (compra): solo si no hay entidad_nombre ni entidad_id.
     3. RUC/DNI de la entidad: obligatorio para factura o cuando monto_total >= 700 PEN; si monto_total < 700 PEN la identificación por documento es opcional (nota de venta), no incluyas pregunta de DNI/RUC si el usuario no lo ha dado.
     4. Tipo de documento: solo si tipo_documento es null.
-    5. **Medio de pago (contado/crédito):** El campo se llama "medio de pago"; sus valores son "contado" o "credito". Solo si medio_pago es null, preguntar "¿Es al contado o a crédito?"
+    5. **Medio de pago (contado/crédito):** Igual que el resto: solo si medio_pago es null o vacío, preguntar en lenguaje natural (ej. "¿Es al contado o a crédito?"). Si en Redis o en la propuesta ya figura medio_pago = "contado" o "credito", **NO** incluyas ninguna pregunta sobre medio de pago; no preguntes "¿Contado o crédito?" si ya está definido.
     6. **Si medio_pago = "credito":** preguntar por dias_credito (ej. "¿A cuántos días?" 15-90 para ventas) y nro_cuotas (ej. "¿En cuántas cuotas?"; compras máx 24) si faltan.
     7. Moneda: solo si moneda es null (preguntar "¿En soles (PEN) o dólares (USD)?"). Si moneda = PEN, no preguntes tipo de cambio.
     8. **Tipo de cambio:** SOLO si moneda es distinta de PEN (ej. USD). Si moneda = PEN, **nunca** incluyas pregunta de tipo de cambio.
-    9. **Fechas:** Si el usuario dio fecha_pago anterior a fecha_emision, indica en el diagnóstico: "La fecha de pago debe ser igual o posterior a la fecha de emisión."
+    9. **Fechas:** fecha_pago debe ser >= fecha_emision. Si el usuario dio fecha_pago anterior a fecha_emision, no la aceptes: en el diagnóstico indica en lenguaje natural que debe revisar las fechas (ej. "La fecha de pago debe ser igual o posterior a la de emisión. ¿Puedes revisar las fechas?")
     **NO incluyas:** "¿Deseas agregar más productos?" ni preguntas similares cuando ya hay al menos un producto registrado. No preguntes por cosas ya definidas.
 
     **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad: para venta en PEN con monto_total >= 700 se requiere nombre + documento (DNI/RUC); para monto_total < 700 PEN la identificación por documento es opcional (nota de venta), basta el nombre del cliente; para compra se requiere proveedor, (3) tipo_documento, (4) moneda, (5) medio_pago ("contado" o "credito"), (6) si medio_pago = "credito" entonces dias_credito y nro_cuotas obligatorios. false si falta alguno. La regla de 700 solo afecta si se exige documento o no; no condiciones listo_para_finalizar al tipo de comprobante (factura/boleta) por el monto.

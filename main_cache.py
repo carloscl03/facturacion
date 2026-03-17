@@ -575,18 +575,29 @@ async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str, id_empres
         r_c = requests.get(URL_CLIENTE, params={"codOpe": "BUSCAR_CLIENTE", "empresa_id": id_empresa, "termino": termino}).json()
         if r_c.get('found'): data_cli = r_c['data']
 
-        r_p = requests.post(URL_PROVEEDOR, json={"codOpe": "BUSCAR_PROVEEDOR", "id_empresa": id_empresa, "nombre_completo": termino}).json()
+        payload_prov = {"codOpe": "BUSCAR_PROVEEDOR", "id_empresa": id_empresa, "nombre_completo": termino, "termino": termino}
+        solo_digitos = "".join(c for c in str(termino or "") if c.isdigit())
+        if len(solo_digitos) == 11:
+            payload_prov["ruc"] = solo_digitos
+        elif len(solo_digitos) == 8:
+            payload_prov["numero_documento"] = solo_digitos
+        r_p = requests.post(URL_PROVEEDOR, json=payload_prov).json()
         if r_p.get('found'): data_prov = r_p['data']
 
         if not data_cli and not data_prov:
-            # No identificado en base: invitar a llenar el campo sin identificar (nombre + documento) para poder registrar al finalizar
-            rol = "cliente" if (tipo_ope or "").lower() == "ventas" else "proveedor"
+            rol = "cliente" if (tipo_ope or "").lower() in ("ventas", "venta") else "proveedor"
+            if len(solo_digitos) == 11:
+                pregunta = "¿El RUC está correctamente digitado? No se encuentra registrado como proveedor." if rol == "proveedor" else "¿El RUC está correctamente digitado? No se encuentra registrado como cliente."
+            elif len(solo_digitos) == 8:
+                pregunta = "¿El DNI está correctamente digitado? No se encuentra registrado como proveedor." if rol == "proveedor" else "¿El DNI está correctamente digitado? No se encuentra registrado como cliente."
+            else:
+                pregunta = f"No se encuentra registrado como {rol}. Indica el nombre o razón social y el número de documento (RUC o DNI) para anotarlo y registrarlo al finalizar."
             return {
                 "identificado": False,
                 "mensaje": (
-                    f"❌ No encontré ese RUC/DNI o nombre en la base de {rol}es.\n\n"
-                    f"Puedes *llenar el campo sin identificar*: indícame el **nombre o razón social** y el **número de documento** (RUC o DNI) "
-                    f"y lo anotaré para continuar. Al finalizar la operación podré registrarlo si es necesario.\n\n"
+                    f"❌ {pregunta}\n\n"
+                    f"Si los datos son correctos, indícame el **nombre o razón social** y lo anotaré para continuar. "
+                    f"Al finalizar la operación podré registrarlo si es necesario.\n\n"
                     f"Ejemplo: «Razón Social SAC, RUC 20123456789» o «Juan Pérez, DNI 12345678»."
                 ),
                 "sugiere_llenar_sin_identificar": True,

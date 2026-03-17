@@ -114,7 +114,7 @@ class ExtraccionService:
             )
             if salida_identificador and salida_identificador.get("identificado"):
                 campos_entidad = salida_identificador.get("campos_entidad") or {}
-                # Siempre usar nombre exacto e id del servicio de identificación
+                # Siempre usar nombre exacto e id del servicio de identificación y persistir en Redis
                 if campos_entidad.get("entidad_nombre"):
                     payload_db["entidad_nombre"] = campos_entidad["entidad_nombre"]
                 doc = campos_entidad.get("entidad_numero_documento") or campos_entidad.get("entidad_numero")
@@ -130,6 +130,9 @@ class ExtraccionService:
                     payload_db["entidad_id"] = maestro
                     payload_db["id_identificado"] = maestro
                     payload_db["identificado"] = True
+            elif salida_identificador and not salida_identificador.get("identificado"):
+                # No encontrado: el mensaje del identificador se mostrará al usuario (más abajo)
+                pass
 
         # --- Calcular estado (una sola asignación; no sobrescribir estado 4) ---
         estado_calculado = calcular_estado(payload_db)
@@ -140,10 +143,21 @@ class ExtraccionService:
             estado = estado_calculado
         payload_db["estado"] = estado
 
-        # --- ultima_pregunta como keyword ---
+        # --- Si el identificador no encontró al proveedor/cliente, mostrar su mensaje (¿DNI/RUC correcto?) ---
         texto_completo = resumen_visual
         if diagnostico:
             texto_completo = f"{resumen_visual}\n\n{diagnostico}".strip()
+        if salida_identificador and not salida_identificador.get("identificado"):
+            msg_id = (salida_identificador.get("mensaje") or "").strip()
+            if msg_id:
+                texto_completo = f"{msg_id}\n\n{texto_completo}".strip()
+
+        # --- Validación: fecha_pago >= fecha_emision (si no cumple, preguntar revisión y no persistir fecha_pago inválida) ---
+        diagnostico_fechas = self._validar_fechas_pago_emision(payload_db)
+        if diagnostico_fechas:
+            payload_db["fecha_pago"] = None
+            texto_completo = f"{texto_completo}\n\n{diagnostico_fechas}".strip() if texto_completo else diagnostico_fechas
+
         payload_db["ultima_pregunta"] = ultima_pregunta_keyword or "inicio"
 
         # --- Persistir ---
@@ -177,6 +191,42 @@ class ExtraccionService:
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _parsear_fecha_ddmmyyyy(val: str | None) -> tuple[int, int, int] | None:
+        """Convierte DD-MM-YYYY a (año, mes, día) o None si no es válida."""
+        if not val or not isinstance(val, str):
+            return None
+        s = val.strip()
+        if not s:
+            return None
+        partes = s.replace("-", " ").replace("/", " ").split()
+        if len(partes) != 3:
+            return None
+        try:
+            d, m, a = int(partes[0]), int(partes[1]), int(partes[2])
+            if a < 100:
+                a += 2000
+            if 1 <= m <= 12 and 1 <= d <= 31 and 1900 <= a <= 2100:
+                return (a, m, d)
+        except (ValueError, TypeError):
+            pass
+        return None
+
+    @staticmethod
+    def _validar_fechas_pago_emision(payload: dict) -> str | None:
+        """Si fecha_pago < fecha_emision, devuelve mensaje para revisión; si no, None."""
+        fe = payload.get("fecha_emision")
+        fp = payload.get("fecha_pago")
+        if not fe or not fp:
+            return None
+        pe = ExtraccionService._parsear_fecha_ddmmyyyy(fe)
+        pp = ExtraccionService._parsear_fecha_ddmmyyyy(fp)
+        if not pe or not pp:
+            return None
+        if pp < pe:
+            return "⚠️ La fecha de pago no puede ser anterior a la fecha de emisión. ¿Puedes revisar las fechas e indicar la correcta?"
+        return None
 
     @staticmethod
     def _es_valor_valido(v) -> bool:

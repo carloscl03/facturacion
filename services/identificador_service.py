@@ -32,11 +32,19 @@ class IdentificadorService:
             data_prov = self._entities.buscar_proveedor(id_from, termino)
 
             if not data_cli and not data_prov:
-                rol = "cliente" if (tipo_ope or "").lower() == "ventas" else "proveedor"
+                rol = "cliente" if (tipo_ope or "").lower() in ("ventas", "venta") else "proveedor"
+                # Si el término parece un documento (8 o 11 dígitos), preguntar si está bien digitado
+                termino_limpio = "".join(c for c in str(termino or "") if c.isdigit())
+                if len(termino_limpio) == 11:
+                    pregunta = "¿El RUC está correctamente digitado? No se encuentra registrado como proveedor." if rol == "proveedor" else "¿El RUC está correctamente digitado? No se encuentra registrado como cliente."
+                elif len(termino_limpio) == 8:
+                    pregunta = "¿El DNI está correctamente digitado? No se encuentra registrado como proveedor." if rol == "proveedor" else "¿El DNI está correctamente digitado? No se encuentra registrado como cliente."
+                else:
+                    pregunta = f"No se encuentra registrado como {rol}. Indica el nombre o razón social y el número de documento (RUC o DNI) para anotarlo y registrarlo al finalizar."
                 mensaje = (
-                    f"❌ No encontré ese RUC/DNI o nombre en la base de {rol}es.\n\n"
-                    f"Puedes *llenar el campo sin identificar*: indícame el **nombre o razón social** y el **número de documento** (RUC o DNI) "
-                    f"y lo anotaré para continuar. Al finalizar la operación podré registrarlo si es necesario.\n\n"
+                    f"❌ {pregunta}\n\n"
+                    f"Si los datos son correctos, indícame el **nombre o razón social** y lo anotaré para continuar. "
+                    f"Al finalizar la operación podré registrarlo si es necesario.\n\n"
                     f"Ejemplo: «Razón Social SAC, RUC 20123456789» o «Juan Pérez, DNI 12345678»."
                 )
                 return {
