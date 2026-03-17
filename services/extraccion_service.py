@@ -114,7 +114,7 @@ class ExtraccionService:
             )
             if salida_identificador and salida_identificador.get("identificado"):
                 campos_entidad = salida_identificador.get("campos_entidad") or {}
-                # Siempre usar nombre exacto e id del servicio de identificación y persistir en Redis
+                # Guardar de inmediato en campos oficiales de Redis (sin variable intermedia ni confirmación)
                 if campos_entidad.get("entidad_nombre"):
                     payload_db["entidad_nombre"] = campos_entidad["entidad_nombre"]
                 doc = campos_entidad.get("entidad_numero_documento") or campos_entidad.get("entidad_numero")

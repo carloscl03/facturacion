@@ -558,7 +558,7 @@ async def generar_resumen(wa_id: str, id_empresa: int):
     
     return {"resumen": response.choices[0].message.content}
 
-# --- SERVICIO 6: IDENTIFICADOR (actualiza metadata_ia.dato_identificado y ultima_pregunta = "IDENTIFICACION PENDIENTE") ---
+# --- SERVICIO 6: IDENTIFICADOR (guarda entidad_nombre, entidad_id, entidad_numero en Redis de inmediato) ---
 def _sin_nulos(d):
     """Devuelve un dict solo con claves cuyo valor no es None, vacío ni 'null'."""
     if not isinstance(d, dict):
@@ -587,19 +587,14 @@ async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str, id_empres
         if not data_cli and not data_prov:
             rol = "cliente" if (tipo_ope or "").lower() in ("ventas", "venta") else "proveedor"
             if len(solo_digitos) == 11:
-                pregunta = "¿El RUC está correctamente digitado? No se encuentra registrado como proveedor." if rol == "proveedor" else "¿El RUC está correctamente digitado? No se encuentra registrado como cliente."
+                mensaje = f"❌ Ese RUC no figura como {rol}. ¿Está bien digitado o me pasas el nombre para anotarlo?"
             elif len(solo_digitos) == 8:
-                pregunta = "¿El DNI está correctamente digitado? No se encuentra registrado como proveedor." if rol == "proveedor" else "¿El DNI está correctamente digitado? No se encuentra registrado como cliente."
+                mensaje = f"❌ Ese DNI no figura como {rol}. ¿Está bien digitado o me pasas el nombre para anotarlo?"
             else:
-                pregunta = f"No se encuentra registrado como {rol}. Indica el nombre o razón social y el número de documento (RUC o DNI) para anotarlo y registrarlo al finalizar."
+                mensaje = f"❌ No está registrado como {rol}. Indícame nombre y documento para anotarlo."
             return {
                 "identificado": False,
-                "mensaje": (
-                    f"❌ {pregunta}\n\n"
-                    f"Si los datos son correctos, indícame el **nombre o razón social** y lo anotaré para continuar. "
-                    f"Al finalizar la operación podré registrarlo si es necesario.\n\n"
-                    f"Ejemplo: «Razón Social SAC, RUC 20123456789» o «Juan Pérez, DNI 12345678»."
-                ),
+                "mensaje": mensaje,
                 "sugiere_llenar_sin_identificar": True,
             }
 
@@ -656,63 +651,30 @@ async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str, id_empres
         if doc_limpio is None and doc_identidad != "_No registrado_":
             doc_limpio = doc_identidad
 
-        # 6. Propuesta de identidad con los mismos nombres que el analizador/registro (solo no nulos)
+        # 6. Propuesta de identidad: campos oficiales para guardar de inmediato en Redis (sin paso de confirmación)
         propuesta_identidad = _sin_nulos({
             "cod_ope": tipo_ope_norm or None,
             "entidad_nombre": nombre_entidad_limpio,
             "entidad_numero_documento": doc_limpio,
+            "entidad_numero": doc_limpio,
             "entidad_id_tipo_documento": entidad_id_tipo_documento,
             "entidad_id_maestro": entidad_id_maestro,
+            "entidad_id": entidad_id_maestro,
             "persona_id": p_id,
             "cliente_id": c_id,
             "proveedor_id": pr_id,
         })
 
-        # 7. Obtener cache actual y metadata_ia (estructura { dato_registrado, dato_identificado })
-        params_leer = {"codOpe": "CONSULTAR_CACHE", "ws_whatsapp": wa_id, "id_empresa": id_empresa}
-        res_cache = requests.get(URL_API, params=params_leer)
-        data_cache = res_cache.json().get("data", [])
-        registro_actual = data_cache[0] if data_cache else {}
-        raw_metadata = registro_actual.get("metadata_ia") or "{}"
-        try:
-            metadata_ia = json.loads(raw_metadata) if raw_metadata.strip() else {}
-        except Exception:
-            metadata_ia = {}
-        dato_registrado = metadata_ia.get("dato_registrado") or {}
-        # Si no hay metadata_ia previa (cache antiguo), reconstruir dato_registrado desde campos planos
-        if not dato_registrado and registro_actual:
-            prod = registro_actual.get("productos_json")
-            if isinstance(prod, str):
-                try:
-                    prod = json.loads(prod) if (prod or "").strip() else []
-                except Exception:
-                    prod = []
-            dato_registrado = _sin_nulos({
-                "cod_ope": registro_actual.get("cod_ope"),
-                "entidad_nombre": registro_actual.get("entidad_nombre"),
-                "entidad_numero_documento": registro_actual.get("entidad_numero_documento"),
-                "entidad_id_tipo_documento": registro_actual.get("entidad_id_tipo_documento"),
-                "id_moneda": registro_actual.get("id_moneda"),
-                "id_comprobante_tipo": registro_actual.get("id_comprobante_tipo"),
-                "tipo_operacion": registro_actual.get("tipo_operacion"),
-                "monto_total": registro_actual.get("monto_total"),
-                "monto_base": registro_actual.get("monto_base"),
-                "monto_impuesto": registro_actual.get("monto_impuesto"),
-                "productos_json": prod,
-            })
-        metadata_ia["dato_identificado"] = _sin_nulos(propuesta_identidad)
-        metadata_ia["dato_registrado"] = dato_registrado
-
-        # 8. ACTUALIZAR CACHÉ: metadata_ia, ultima_pregunta y campos planos de identidad (para resumen/finalizar)
+        # 7. Actualizar caché: guardar directamente en campos oficiales (entidad_nombre, entidad_id, entidad_numero)
         payload_cache = {
             "codOpe": "ACTUALIZAR_CACHE",
             "ws_whatsapp": wa_id,
             "id_empresa": id_empresa,
-            "metadata_ia": json.dumps(metadata_ia, ensure_ascii=False),
             "ultima_pregunta": "IDENTIFICACION PENDIENTE",
         }
-        for key in ("cod_ope", "entidad_nombre", "entidad_numero_documento", "entidad_id_tipo_documento",
-                    "entidad_id_maestro", "persona_id", "cliente_id", "proveedor_id"):
+        for key in ("cod_ope", "entidad_nombre", "entidad_numero_documento", "entidad_numero",
+                    "entidad_id_tipo_documento", "entidad_id_maestro", "entidad_id",
+                    "persona_id", "cliente_id", "proveedor_id"):
             val = propuesta_identidad.get(key)
             if val is not None and val != "" and (not isinstance(val, str) or val.strip()):
                 payload_cache[key] = val
@@ -722,7 +684,6 @@ async def identificar_entidad(wa_id: str, tipo_ope: str, termino: str, id_empres
             "identificado": True,
             "mensaje": mensaje_bot,
             "ids": {"p_id": p_id, "c_id": c_id, "pr_id": pr_id},
-            "metadata_ia": metadata_ia,
         }
 
     except Exception as e:

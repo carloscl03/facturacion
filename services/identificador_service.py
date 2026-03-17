@@ -33,20 +33,13 @@ class IdentificadorService:
 
             if not data_cli and not data_prov:
                 rol = "cliente" if (tipo_ope or "").lower() in ("ventas", "venta") else "proveedor"
-                # Si el término parece un documento (8 o 11 dígitos), preguntar si está bien digitado
                 termino_limpio = "".join(c for c in str(termino or "") if c.isdigit())
                 if len(termino_limpio) == 11:
-                    pregunta = "¿El RUC está correctamente digitado? No se encuentra registrado como proveedor." if rol == "proveedor" else "¿El RUC está correctamente digitado? No se encuentra registrado como cliente."
+                    mensaje = f"❌ Ese RUC no figura como {rol}. ¿Está bien digitado o me pasas el nombre para anotarlo?"
                 elif len(termino_limpio) == 8:
-                    pregunta = "¿El DNI está correctamente digitado? No se encuentra registrado como proveedor." if rol == "proveedor" else "¿El DNI está correctamente digitado? No se encuentra registrado como cliente."
+                    mensaje = f"❌ Ese DNI no figura como {rol}. ¿Está bien digitado o me pasas el nombre para anotarlo?"
                 else:
-                    pregunta = f"No se encuentra registrado como {rol}. Indica el nombre o razón social y el número de documento (RUC o DNI) para anotarlo y registrarlo al finalizar."
-                mensaje = (
-                    f"❌ {pregunta}\n\n"
-                    f"Si los datos son correctos, indícame el **nombre o razón social** y lo anotaré para continuar. "
-                    f"Al finalizar la operación podré registrarlo si es necesario.\n\n"
-                    f"Ejemplo: «Razón Social SAC, RUC 20123456789» o «Juan Pérez, DNI 12345678»."
-                )
+                    mensaje = f"❌ No está registrado como {rol}. Indícame nombre y documento para anotarlo."
                 return {
                     "identificado": False,
                     "mensaje": mensaje,
