@@ -1,11 +1,12 @@
 """
-Agente Estado 2: opciones (sucursal → [centro de costo solo compra] → método de pago).
+Agente Estado 2: opciones (sucursal → [centro de costo solo compra] → forma de pago).
 Solo actúa cuando el registro está confirmado (estado >= 4).
 El cambio de estado 3 → 4 se hace en el Clasificador con la confirmación del usuario; este agente
 nunca escribe estado 4, solo lo exige para mostrar listas y guardar elecciones.
 Opciones se presentan como lista de texto; el usuario responde con el nombre y se guarda el id.
 En venta no se pide centro de costo (sucursal → forma_pago). En compra: sucursal → centro_costo → forma_pago.
-Se guarda en Redis: id_sucursal, id_centro_costo (solo compra), id_metodo_pago. medio_pago (contado/crédito) se pregunta en analizar/extracción.
+Se envía y guarda en Redis: sucursal, centros de costo (solo compra), forma de pago. No se envía método de pago.
+Se guarda en Redis: id_sucursal, id_centro_costo (solo compra), id_metodo_pago/forma_pago. medio_pago (contado/crédito) se pregunta en analizar/extracción.
 """
 from __future__ import annotations
 
@@ -138,7 +139,7 @@ class OpcionesService:
             debug_agente["motivo"] = "estado_menor_4"
             return {
                 "listo_estado1": False,
-                "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir sucursal y método de pago (y centro de costo si es compra).",
+                "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir sucursal, centro de costo (si es compra) y forma de pago.",
                 "campo_pendiente": None,
                 "payload_whatsapp_list": None,
                 "debug": debug_agente,
@@ -450,7 +451,7 @@ class OpcionesService:
         if campo == "centro_costo":
             return "Centros de costo:"
         if campo == "forma_pago":
-            return "Métodos de pago:"
+            return "Formas de pago:"
         return "Opciones:"
 
     def _textos_whatsapp_list(self, campo: str) -> tuple[str, str, str, str, str]:
@@ -476,11 +477,11 @@ class OpcionesService:
             )
         if campo == "forma_pago":
             return (
-                "Métodos de pago disponibles: ",
-                "Métodos de pago",
-                "Selecciona un método de pago",
-                "Ver métodos de pago",
-                "Métodos de pago",
+                "Formas de pago disponibles: ",
+                "Formas de pago",
+                "Selecciona una forma de pago",
+                "Ver formas de pago",
+                "Formas de pago",
             )
         return (
             "Opciones disponibles: ",

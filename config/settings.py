@@ -14,6 +14,15 @@ URL_PROVEEDOR: str = "https://api.maravia.pe/servicio/n8n_asistente/ws_proveedor
 # Endpoint N8N ventas (REGISTRAR_VENTA / REGISTRAR_VENTA_N8N)
 URL_VENTA_SUNAT: str = "https://api.maravia.pe/servicio/n8n/ws_venta.php"
 URL_INFORMACION_IA: str = "https://api.maravia.pe/servicio/ws_informacion_ia.php"
+# Catálogos n8n: GET con parámetro codOpe (id empresa / operador)
+URL_FORMA_PAGO: str = os.getenv(
+    "URL_FORMA_PAGO",
+    "https://api.maravia.pe/servicio/n8n/ws_forma_pago.php",
+)
+URL_MEDIO_PAGO: str = os.getenv(
+    "URL_MEDIO_PAGO",
+    "https://api.maravia.pe/servicio/n8n/ws_medio_pago.php",
+)
 URL_PARAMETROS: str = "https://api.maravia.pe/servicio/n8n/ws_parametros.php"
 URL_COMPRA: str = "https://api.maravia.pe/servicio/n8n/ws_compra.php"
 URL_SEND_WHATSAPP_LIST: str = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_list.php"

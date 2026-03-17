@@ -8,23 +8,26 @@ from services.helpers.registro_domain import operacion_desde_registro
 CAMPOS_ESTADO2: Tuple[str, ...] = ("sucursal", "centro_costo", "forma_pago")
 
 
+def _forma_pago_completa(registro: Dict[str, Any]) -> bool:
+    return bool((registro.get("forma_pago") or "").strip() or registro.get("id_forma_pago"))
+
+
 def siguiente_campo_pendiente(registro: Dict[str, Any] | None, tiene_parametros: bool) -> str | None:
     """
     Determina el siguiente campo de opciones pendiente para Estado 2.
 
-    Orden: sucursal → (centro_costo solo si es compra) → forma_pago.
-    En venta no se pide centro de costo; en compra sí (si hay parámetros).
-    medio_pago (contado/crédito) se pregunta en analizar/extracción, no aquí.
+    Orden: sucursal → (centro_costo solo si es compra) → forma_pago (LISTAR_FORMAS_PAGO).
+    En venta no se pide centro de costo. No se pide método de pago (catálogo); medio_pago se pregunta en analizar/extracción.
     """
     if not registro:
         return "sucursal"
     if not registro.get("id_sucursal"):
         return "sucursal"
     operacion = operacion_desde_registro(registro)
-    # Centro de costo solo para compra; en venta se omite.
+    # Centro de costo solo para compra; en venta no se registra.
     if operacion != "venta" and tiene_parametros and not registro.get("id_centro_costo"):
         return "centro_costo"
-    if not (registro.get("forma_pago") or "").strip():
+    if not _forma_pago_completa(registro):
         return "forma_pago"
     return None
 
