@@ -41,6 +41,7 @@ MAPEO_ERRORES_API_CLIENTE = {
 
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
+from services.eliminar_service import EliminarService
 from services.helpers.compra_mapper import construir_payload_compra
 from services.helpers.sunat_client import SunatClient
 from services.helpers.venta_mapper import (
@@ -323,6 +324,10 @@ class FinalizarService:
 
         if resultado.success:
             self._marcar_completado(wa_id, id_from)
+            try:
+                EliminarService(self._cache).ejecutar(wa_id, id_from)
+            except Exception:
+                pass
             sintesis = construir_sintesis_actual(reg)
             mensaje_texto = (
                 f"{sintesis}\n\n"
@@ -398,6 +403,10 @@ class FinalizarService:
 
         if resultado.get("success") is True:
             self._marcar_completado(wa_id, id_from)
+            try:
+                EliminarService(self._cache).ejecutar(wa_id, id_from)
+            except Exception:
+                pass
             sintesis = construir_sintesis_actual(reg)
             id_compra = resultado.get("id_compra", "")
             mensaje_texto = (
