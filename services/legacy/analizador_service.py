@@ -148,7 +148,7 @@ class AnalizadorService:
                     "tipo_ope": requiere_identificacion["tipo_ope"],
                     "mensaje": requiere_identificacion["mensaje"]
                     or f"Buscando '{requiere_identificacion['termino']}' en "
-                    f\"{'clientes' if requiere_identificacion['tipo_ope'] == 'ventas' else 'proveedores'}...\",
+                    f"{'clientes' if requiere_identificacion['tipo_ope'] == 'ventas' else 'proveedores'}...",
                 }
             return out
 

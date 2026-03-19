@@ -126,7 +126,14 @@ class FinalizarService:
                 sintesis = construir_sintesis_actual(registro)
                 faltan = f"⚠️ *No se puede finalizar.*\n\nFaltan: **{', '.join(errores)}**."
                 mensaje = f"{sintesis}\n\n{faltan}" if sintesis else faltan
-                return {"status": "incompleto", "mensaje": mensaje, "sintesis_actual": sintesis, "debug": {**debug, "paso": "sintesis_incompleto"}}
+                return {
+                    "status": "incompleto",
+                    "mensaje": mensaje,
+                    "sintesis_actual": sintesis,
+                    "resumen_visual": sintesis,
+                    "whatsapp_output": {"texto": mensaje},
+                    "debug": {**debug, "paso": "sintesis_incompleto"},
+                }
             except Exception as e:
                 return {
                     "status": "error",
@@ -232,7 +239,13 @@ class FinalizarService:
             sintesis = construir_sintesis_actual(reg)
             faltan = "⚠️ Falta el cliente (nombre y documento). Indica los datos para registrarlo."
             mensaje = f"{sintesis}\n\n{faltan}" if sintesis else faltan
-            return {"status": "incompleto", "mensaje": mensaje, "sintesis_actual": sintesis}
+            return {
+                "status": "incompleto",
+                "mensaje": mensaje,
+                "sintesis_actual": sintesis,
+                "resumen_visual": sintesis,
+                "whatsapp_output": {"texto": mensaje},
+            }
 
         # Usar el mismo flujo que el test: ws_venta.php REGISTRAR_VENTA_N8N (sin token),
         # generacion_comprobante=1 para devolver PDF y estado SUNAT.
@@ -248,15 +261,27 @@ class FinalizarService:
 
         if resultado.success:
             self._marcar_completado(wa_id, id_from)
+            sintesis = construir_sintesis_actual(reg)
             return {
                 "status": "finalizado",
                 "mensaje": (
+                    f"{sintesis}\n\n"
                     f"✨ *¡VENTA REGISTRADA EN SUNAT!*\n\n"
                     f"👤 *Cliente:* {reg.get('entidad_nombre')}\n"
                     f"💰 *Total:* {params['moneda_simbolo']} {params['monto_total']}\n"
                     f"📄 *Documento:* {resultado.serie_numero}\n\n"
                     f"🔗 *Descargar Comprobante:* {resultado.url_pdf}"
                 ),
+                "sintesis_actual": sintesis,
+                "resumen_visual": sintesis,
+                "whatsapp_output": {"texto": (
+                    f"{sintesis}\n\n"
+                    f"✨ *¡VENTA REGISTRADA EN SUNAT!*\n\n"
+                    f"👤 *Cliente:* {reg.get('entidad_nombre')}\n"
+                    f"💰 *Total:* {params['moneda_simbolo']} {params['monto_total']}\n"
+                    f"📄 *Documento:* {resultado.serie_numero}\n\n"
+                    f"🔗 *Descargar Comprobante:* {resultado.url_pdf}"
+                )},
             }
 
         sintesis = construir_sintesis_actual(reg)
@@ -276,6 +301,8 @@ class FinalizarService:
             "🔄 Reinicié el flujo al paso de edición (estado 3). "
             "Puedes actualizar los datos y volver a confirmar para intentar nuevamente."
         )
+        out["resumen_visual"] = sintesis
+        out["whatsapp_output"] = {"texto": out["mensaje"]}
         return out
 
     # ------------------------------------------------------------------ #
@@ -290,10 +317,12 @@ class FinalizarService:
 
         if resultado.get("success") is True:
             self._marcar_completado(wa_id, id_from)
+            sintesis = construir_sintesis_actual(reg)
             id_compra = resultado.get("id_compra", "")
             return {
                 "status": "finalizado",
                 "mensaje": (
+                    f"{sintesis}\n\n"
                     f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
                     f"🏢 *Proveedor:* {reg.get('entidad_nombre')}\n"
                     f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']}\n"
@@ -301,6 +330,16 @@ class FinalizarService:
                     f"Estado guardado en el historial de compras."
                 ),
                 "debug": {**debug, "paso": "compra_ok", "id_compra": id_compra},
+                "sintesis_actual": sintesis,
+                "resumen_visual": sintesis,
+                "whatsapp_output": {"texto": (
+                    f"{sintesis}\n\n"
+                    f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
+                    f"🏢 *Proveedor:* {reg.get('entidad_nombre')}\n"
+                    f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']}\n"
+                    f"📝 *ID compra:* {id_compra}\n"
+                    f"Estado guardado en el historial de compras."
+                )},
             }
 
         sintesis = construir_sintesis_actual(reg)
@@ -325,6 +364,8 @@ class FinalizarService:
             "🔄 Reinicié el flujo al paso de edición (estado 3). "
             "Puedes actualizar los datos y volver a intentar."
         )
+        out["resumen_visual"] = sintesis
+        out["whatsapp_output"] = {"texto": out["mensaje"]}
         return out
 
     # ------------------------------------------------------------------ #
