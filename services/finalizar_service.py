@@ -130,7 +130,7 @@ class FinalizarService:
             return {}
         return {k: type(v).__name__ for k, v in d.items()}
 
-    def ejecutar(self, wa_id: str, id_from: int, id_plataforma: int = 6) -> dict:
+    def ejecutar(self, wa_id: str, id_from: int, id_empresa: int, id_plataforma: int = 6) -> dict:
         debug: dict = {"paso": "inicio"}
 
         try:
@@ -208,7 +208,7 @@ class FinalizarService:
 
         try:
             if operacion == "venta":
-                return self._finalizar_venta(wa_id, registro, id_from, params, id_plataforma)
+                return self._finalizar_venta(wa_id, registro, id_from, params, id_empresa, id_plataforma)
             return self._finalizar_compra(wa_id, registro, id_from, params, debug)
         except Exception as e:
             return {
@@ -258,7 +258,9 @@ class FinalizarService:
     # generacion_comprobante=1; respuesta: pdf_url, sunat_estado en raíz.
     # ------------------------------------------------------------------ #
 
-    def _finalizar_venta(self, wa_id: str, reg: dict, id_from: int, params: dict, id_plataforma: int = 6) -> dict:
+    def _finalizar_venta(
+        self, wa_id: str, reg: dict, id_from: int, params: dict, id_empresa: int, id_plataforma: int = 6
+    ) -> dict:
         id_cliente = params["id_cliente"]
 
         if not id_cliente and str(reg.get("entidad_nombre") or "").strip() and str(reg.get("entidad_numero") or "").strip():
@@ -331,15 +333,15 @@ class FinalizarService:
                 f"Te enviamos el comprobante en el siguiente mensaje."
             )
 
-            # Mensaje 1: texto
-            ok_texto, err_texto = _enviar_texto_whatsapp(id_from, wa_id, id_plataforma, mensaje_texto)
+            # Mensaje 1: texto (id_empresa para credenciales WhatsApp, no id_from)
+            ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, id_plataforma, mensaje_texto)
 
             # Mensaje 2: PDF (solo venta genera PDF)
             ok_pdf, err_pdf = False, None
             if resultado.url_pdf:
                 filename = os.path.basename(urlparse(resultado.url_pdf).path) or f"comprobante_{resultado.serie_numero.replace('-', '_')}.pdf"
                 ok_pdf, err_pdf = _enviar_pdf_whatsapp(
-                    id_empresa=id_from,
+                    id_empresa=id_empresa,
                     phone=wa_id,
                     id_plataforma=id_plataforma,
                     document_url=resultado.url_pdf,
