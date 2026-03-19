@@ -3,8 +3,17 @@ Finalizar operación (venta/compra).
 
 Orquesta validación, traducción de campos, registro/actualización de cliente
 y emisión de comprobante SUNAT delegando la lógica de dominio a helpers.
+
+En venta exitosa: envía 2 mensajes WhatsApp separados (texto + PDF).
 """
 from __future__ import annotations
+
+import os
+from urllib.parse import urlparse
+
+import requests
+
+from config import settings
 
 # Límite 700 PEN: si monto < 700 → identificación por documento (DNI/RUC) opcional (nota de venta).
 # Si monto >= 700 → documento obligatorio. No es restricción estricta sobre tipo de comprobante.
@@ -42,6 +51,57 @@ from services.helpers.venta_mapper import (
 )
 
 
+def _enviar_texto_whatsapp(
+    id_empresa: int, phone: str, id_plataforma: int, mensaje: str
+) -> tuple[bool, str | None]:
+    """Envía mensaje de texto por ws_send_whatsapp_oficial. Retorna (éxito, error)."""
+    url = settings.URL_SEND_WHATSAPP_OFICIAL
+    payload = {
+        "id_empresa": id_empresa,
+        "phone": phone,
+        "id_plataforma": id_plataforma,
+        "type": "text",
+        "message": mensaje,
+    }
+    try:
+        r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        if r.status_code != 200:
+            return False, f"HTTP {r.status_code}"
+        data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if not data.get("success", True):
+            return False, data.get("error") or data.get("message") or "API error"
+        return True, None
+    except requests.RequestException as e:
+        return False, str(e)
+
+
+def _enviar_pdf_whatsapp(
+    id_empresa: int, phone: str, id_plataforma: int, document_url: str, filename: str, caption: str = ""
+) -> tuple[bool, str | None]:
+    """Envía documento PDF por ws_send_whatsapp_oficial. Retorna (éxito, error)."""
+    url = settings.URL_SEND_WHATSAPP_OFICIAL
+    payload = {
+        "id_empresa": id_empresa,
+        "phone": phone,
+        "id_plataforma": id_plataforma,
+        "type": "document",
+        "document_url": document_url,
+        "filename": filename,
+    }
+    if caption:
+        payload["message"] = caption
+    try:
+        r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        if r.status_code != 200:
+            return False, f"HTTP {r.status_code}"
+        data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if not data.get("success", True):
+            return False, data.get("error") or data.get("message") or "API error"
+        return True, None
+    except requests.RequestException as e:
+        return False, str(e)
+
+
 def _mensaje_error_mapeado(mensaje: str, mapeo: dict) -> str:
     """Sustituye mensajes conocidos de la API por textos más claros para el usuario."""
     if not mensaje or not isinstance(mensaje, str):
@@ -70,7 +130,7 @@ class FinalizarService:
             return {}
         return {k: type(v).__name__ for k, v in d.items()}
 
-    def ejecutar(self, wa_id: str, id_from: int) -> dict:
+    def ejecutar(self, wa_id: str, id_from: int, id_plataforma: int = 6) -> dict:
         debug: dict = {"paso": "inicio"}
 
         try:
@@ -148,7 +208,7 @@ class FinalizarService:
 
         try:
             if operacion == "venta":
-                return self._finalizar_venta(wa_id, registro, id_from, params)
+                return self._finalizar_venta(wa_id, registro, id_from, params, id_plataforma)
             return self._finalizar_compra(wa_id, registro, id_from, params, debug)
         except Exception as e:
             return {
@@ -198,7 +258,7 @@ class FinalizarService:
     # generacion_comprobante=1; respuesta: pdf_url, sunat_estado en raíz.
     # ------------------------------------------------------------------ #
 
-    def _finalizar_venta(self, wa_id: str, reg: dict, id_from: int, params: dict) -> dict:
+    def _finalizar_venta(self, wa_id: str, reg: dict, id_from: int, params: dict, id_plataforma: int = 6) -> dict:
         id_cliente = params["id_cliente"]
 
         if not id_cliente and str(reg.get("entidad_nombre") or "").strip() and str(reg.get("entidad_numero") or "").strip():
@@ -262,26 +322,43 @@ class FinalizarService:
         if resultado.success:
             self._marcar_completado(wa_id, id_from)
             sintesis = construir_sintesis_actual(reg)
+            mensaje_texto = (
+                f"{sintesis}\n\n"
+                f"✨ *¡VENTA REGISTRADA EN SUNAT!*\n\n"
+                f"👤 *Cliente:* {reg.get('entidad_nombre')}\n"
+                f"💰 *Total:* {params['moneda_simbolo']} {params['monto_total']}\n"
+                f"📄 *Documento:* {resultado.serie_numero}\n\n"
+                f"Te enviamos el comprobante en el siguiente mensaje."
+            )
+
+            # Mensaje 1: texto
+            ok_texto, err_texto = _enviar_texto_whatsapp(id_from, wa_id, id_plataforma, mensaje_texto)
+
+            # Mensaje 2: PDF (solo venta genera PDF)
+            ok_pdf, err_pdf = False, None
+            if resultado.url_pdf:
+                filename = os.path.basename(urlparse(resultado.url_pdf).path) or f"comprobante_{resultado.serie_numero.replace('-', '_')}.pdf"
+                ok_pdf, err_pdf = _enviar_pdf_whatsapp(
+                    id_empresa=id_from,
+                    phone=wa_id,
+                    id_plataforma=id_plataforma,
+                    document_url=resultado.url_pdf,
+                    filename=filename,
+                    caption="Tu comprobante de pago electrónico.",
+                )
+
             return {
                 "status": "finalizado",
-                "mensaje": (
-                    f"{sintesis}\n\n"
-                    f"✨ *¡VENTA REGISTRADA EN SUNAT!*\n\n"
-                    f"👤 *Cliente:* {reg.get('entidad_nombre')}\n"
-                    f"💰 *Total:* {params['moneda_simbolo']} {params['monto_total']}\n"
-                    f"📄 *Documento:* {resultado.serie_numero}\n\n"
-                    f"🔗 *Descargar Comprobante:* {resultado.url_pdf}"
-                ),
+                "mensaje": mensaje_texto,
                 "sintesis_actual": sintesis,
                 "resumen_visual": sintesis,
-                "whatsapp_output": {"texto": (
-                    f"{sintesis}\n\n"
-                    f"✨ *¡VENTA REGISTRADA EN SUNAT!*\n\n"
-                    f"👤 *Cliente:* {reg.get('entidad_nombre')}\n"
-                    f"💰 *Total:* {params['moneda_simbolo']} {params['monto_total']}\n"
-                    f"📄 *Documento:* {resultado.serie_numero}\n\n"
-                    f"🔗 *Descargar Comprobante:* {resultado.url_pdf}"
-                )},
+                "whatsapp_output": {"texto": mensaje_texto},
+                "whatsapp_enviado": {
+                    "texto": ok_texto,
+                    "texto_error": err_texto,
+                    "pdf": ok_pdf,
+                    "pdf_error": err_pdf,
+                },
             }
 
         sintesis = construir_sintesis_actual(reg)
@@ -298,7 +375,7 @@ class FinalizarService:
             pass
         out["mensaje"] = (
             f"{out['mensaje']}\n\n"
-            "🔄 Reinicié el flujo al paso de edición (estado 3). "
+            "🔄 Reinicié el flujo al paso de edición. "
             "Puedes actualizar los datos y volver a confirmar para intentar nuevamente."
         )
         out["resumen_visual"] = sintesis
@@ -361,7 +438,7 @@ class FinalizarService:
             pass
         out["mensaje"] = (
             f"{out['mensaje']}\n\n"
-            "🔄 Reinicié el flujo al paso de edición (estado 3). "
+            "🔄 Reinicié el flujo al paso de edición. "
             "Puedes actualizar los datos y volver a intentar."
         )
         out["resumen_visual"] = sintesis

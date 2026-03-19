@@ -13,8 +13,11 @@ router = APIRouter()
 async def finalizar_operacion(
     wa_id: str,
     id_from: int,
+    id_plataforma: int = 6,
     cache_repo: CacheRepository = Depends(get_cache_repo),
     entity_repo: EntityRepository = Depends(get_entity_repo),
     sunat_client: SunatClient = Depends(get_sunat_client),
 ):
-    return FinalizarService(cache_repo, entity_repo, sunat_client=sunat_client).ejecutar(wa_id, id_from)
+    return FinalizarService(cache_repo, entity_repo, sunat_client=sunat_client).ejecutar(
+        wa_id, id_from, id_plataforma
+    )
