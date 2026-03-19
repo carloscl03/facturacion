@@ -209,7 +209,7 @@ class FinalizarService:
         try:
             if operacion == "venta":
                 return self._finalizar_venta(wa_id, registro, id_from, params, id_empresa, id_plataforma)
-            return self._finalizar_compra(wa_id, registro, id_from, params, debug)
+            return self._finalizar_compra(wa_id, registro, id_from, params, debug, id_empresa, id_plataforma)
         except Exception as e:
             return {
                 "status": "error",
@@ -389,7 +389,9 @@ class FinalizarService:
     # Payload: codOpe, empresa_id, usuario_id, id_proveedor, fecha_emision, detalles; nro_documento SERIE-NUMERO opcional.
     # ------------------------------------------------------------------ #
 
-    def _finalizar_compra(self, wa_id: str, reg: dict, id_from: int, params: dict, debug: dict) -> dict:
+    def _finalizar_compra(
+        self, wa_id: str, reg: dict, id_from: int, params: dict, debug: dict, id_empresa: int, id_plataforma: int = 6
+    ) -> dict:
         """Construye payload REGISTRAR_COMPRA para ws_compra.php y devuelve resultado."""
         payload = construir_payload_compra(reg, params, id_from, id_usuario=ID_USUARIO_REGISTRO)
         resultado = self._entities.registrar_compra(payload)
@@ -398,27 +400,29 @@ class FinalizarService:
             self._marcar_completado(wa_id, id_from)
             sintesis = construir_sintesis_actual(reg)
             id_compra = resultado.get("id_compra", "")
+            mensaje_texto = (
+                f"{sintesis}\n\n"
+                f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
+                f"🏢 *Proveedor:* {reg.get('entidad_nombre')}\n"
+                f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']}\n"
+                f"📝 *ID compra:* {id_compra}\n"
+                f"Estado guardado en el historial de compras."
+            )
+
+            # Enviar mensaje por WhatsApp (compra no genera PDF)
+            ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, id_plataforma, mensaje_texto)
+
             return {
                 "status": "finalizado",
-                "mensaje": (
-                    f"{sintesis}\n\n"
-                    f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
-                    f"🏢 *Proveedor:* {reg.get('entidad_nombre')}\n"
-                    f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']}\n"
-                    f"📝 *ID compra:* {id_compra}\n"
-                    f"Estado guardado en el historial de compras."
-                ),
+                "mensaje": mensaje_texto,
                 "debug": {**debug, "paso": "compra_ok", "id_compra": id_compra},
                 "sintesis_actual": sintesis,
                 "resumen_visual": sintesis,
-                "whatsapp_output": {"texto": (
-                    f"{sintesis}\n\n"
-                    f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
-                    f"🏢 *Proveedor:* {reg.get('entidad_nombre')}\n"
-                    f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']}\n"
-                    f"📝 *ID compra:* {id_compra}\n"
-                    f"Estado guardado en el historial de compras."
-                )},
+                "whatsapp_output": {"texto": mensaje_texto},
+                "whatsapp_enviado": {
+                    "texto": ok_texto,
+                    "texto_error": err_texto,
+                },
             }
 
         sintesis = construir_sintesis_actual(reg)
