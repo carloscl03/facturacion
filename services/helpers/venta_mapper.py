@@ -237,8 +237,9 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
             id_forma_pago = FORMA_PAGO_MAP.get(forma_pago_str)
 
     monto_total = float(reg.get("monto_total") or 0)
-    monto_base = float(reg.get("monto_sin_igv") or 0)
-    monto_igv = float(reg.get("igv") or 0)
+    monto_base = float(reg.get("monto_sin_igv") or reg.get("monto_base") or 0)
+    # Compatibilidad: algunos registros guardan el IGV como `igv`, otros como `monto_impuesto`.
+    monto_igv = float(reg.get("igv") or reg.get("monto_impuesto") or 0)
 
     entidad_numero = str(reg.get("entidad_numero") or "").strip()
     id_tipo_doc_entidad = 6 if len(entidad_numero) == 11 else 1

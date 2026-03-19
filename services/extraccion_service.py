@@ -353,6 +353,32 @@ class ExtraccionService:
                 if v is not None and str(v).strip():
                     entidad_numero = str(v).strip()
                     break
+        # --- IGV coherente (fallback determinístico) ---
+        # Si el extractor/IA no llenó igv/base con exactitud, lo calculamos con IGV 18%.
+        monto_total = float(propuesta.get("monto_total") or estado_actual.get("monto_total") or 0)
+        monto_sin_igv = float(
+            propuesta.get("monto_sin_igv")
+            or estado_actual.get("monto_sin_igv")
+            or estado_actual.get("monto_base")
+            or 0
+        )
+        igv_val = float(
+            propuesta.get("igv")
+            or estado_actual.get("igv")
+            or estado_actual.get("monto_impuesto")
+            or 0
+        )
+        if monto_total > 0:
+            # Si faltó base, la inferimos desde monto_total.
+            if monto_sin_igv == 0:
+                monto_sin_igv = monto_total / 1.18
+            # Si faltó IGV, la inferimos como diferencia.
+            if igv_val == 0:
+                igv_val = monto_total - monto_sin_igv
+
+        monto_sin_igv = round(float(monto_sin_igv or 0), 2)
+        igv_val = round(float(igv_val or 0), 2)
+
         return {
             "operacion": contexto_previo if contexto_previo else obtener("operacion", "cod_ope", None),
             "entidad_nombre": obtener("entidad_nombre", default=""),
@@ -363,9 +389,13 @@ class ExtraccionService:
             "metodo_pago": metodo_pago,
             "dias_credito": dias_credito,
             "nro_cuotas": nro_cuotas,
-            "monto_total": float(propuesta.get("monto_total") or estado_actual.get("monto_total") or 0),
-            "monto_sin_igv": float(propuesta.get("monto_sin_igv") or estado_actual.get("monto_sin_igv") or estado_actual.get("monto_base") or 0),
-            "igv": float(propuesta.get("igv") or estado_actual.get("igv") or estado_actual.get("monto_impuesto") or 0),
+            "monto_total": round(float(monto_total or 0), 2),
+            "monto_sin_igv": monto_sin_igv,
+            # Compatibilidad histórica (el resto del sistema suele usar monto_impuesto / monto_base)
+            "monto_base": monto_sin_igv,
+            "monto_impuesto": igv_val,
+            # Alias para componentes nuevos (venta_mapper/productos usan `igv`)
+            "igv": igv_val,
             "productos": productos_str,
             "fecha_emision": obtener("fecha_emision", default=None),
             "fecha_pago": obtener("fecha_pago", default=None),

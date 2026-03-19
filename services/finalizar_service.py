@@ -265,6 +265,17 @@ class FinalizarService:
         out = {"status": "error", "mensaje": mensaje, "sintesis_actual": sintesis}
         if getattr(resultado, "error_debug", None):
             out["debug"] = resultado.error_debug
+        # Reiniciar flujo: devolver a estado 3 para que el usuario pueda actualizar datos
+        # (por ejemplo, monto/IGV/fechas) y volver a intentar.
+        try:
+            self._cache.actualizar(wa_id, id_from, {"estado": 3, "ultima_pregunta": "inicio"})
+        except Exception:
+            pass
+        out["mensaje"] = (
+            f"{out['mensaje']}\n\n"
+            "🔄 Reinicié el flujo al paso de edición (estado 3). "
+            "Puedes actualizar los datos y volver a confirmar para intentar nuevamente."
+        )
         return out
 
     # ------------------------------------------------------------------ #
@@ -298,7 +309,23 @@ class FinalizarService:
         if resultado.get("details"):
             error_msg = f"{error_msg}\nDetalles: {resultado['details']}"
         mensaje = f"{sintesis}\n\n❌ {error_msg}" if sintesis else f"❌ {error_msg}"
-        return {"status": "error", "mensaje": mensaje, "sintesis_actual": sintesis, "debug": {**debug, "paso": "compra_error"}}
+        out = {
+            "status": "error",
+            "mensaje": mensaje,
+            "sintesis_actual": sintesis,
+            "debug": {**debug, "paso": "compra_error"},
+        }
+        # Reiniciar flujo: volver a estado 3 para edición.
+        try:
+            self._cache.actualizar(wa_id, id_from, {"estado": 3, "ultima_pregunta": "inicio"})
+        except Exception:
+            pass
+        out["mensaje"] = (
+            f"{out['mensaje']}\n\n"
+            "🔄 Reinicié el flujo al paso de edición (estado 3). "
+            "Puedes actualizar los datos y volver a intentar."
+        )
+        return out
 
     # ------------------------------------------------------------------ #
     # Cache
