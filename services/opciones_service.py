@@ -5,7 +5,7 @@ Orden: sucursal → centro_costo (solo compra) → forma_pago (LISTAR_FORMAS) �
 En venta se omite centro de costo.
 
 Redis: id_sucursal/sucursal, id_centro_costo/centro_costo (compra), id_forma_pago/forma_pago,
-id_medio_pago/nombre_medio_pago (medio concreto; no pisar medio_pago contado/crédito de extracción).
+id_medio_pago/medio_pago (catálogo LISTAR_MEDIOS). Contado/crédito queda en metodo_pago (extractor), no en medio_pago.
 Ya no se usa id_metodo_pago para forma; id_forma_pago e id_medio_pago vienen de sendas APIs n8n.
 """
 from __future__ import annotations
@@ -120,7 +120,8 @@ class OpcionesService:
                 "id_forma_pago": registro.get("id_forma_pago"),
                 "forma_pago": (registro.get("forma_pago") or "").strip() or None,
                 "id_medio_pago": registro.get("id_medio_pago"),
-                "nombre_medio_pago": (registro.get("nombre_medio_pago") or "").strip() or None,
+                "medio_pago_catalogo": (registro.get("medio_pago") or "").strip() or None,
+                "metodo_pago": (registro.get("metodo_pago") or "").strip() or None,
             }
             debug_agente["opciones_actuales_de_redis"] = {
                 "recuperado": len(opciones_en_redis) > 0,
@@ -347,6 +348,7 @@ class OpcionesService:
             v = (str(valor_id) or str(valor) or "").strip()
             if not v:
                 return {"success": False, "mensaje": "Valor de medio de pago vacío."}
+            datos["medio_pago"] = valor_nombre or v
             datos["nombre_medio_pago"] = valor_nombre or v
             try:
                 datos["id_medio_pago"] = int(float(str(valor_id).strip()))

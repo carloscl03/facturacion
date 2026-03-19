@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 from services.helpers.registro_domain import operacion_desde_registro
 
 
-# Campos válidos en submit (medio_catalogo = lista LISTAR_MEDIOS; no confundir con medio_pago contado/crédito de extracción).
+# medio_catalogo = LISTAR_MEDIOS; el nombre se guarda en medio_pago junto a id_medio_pago (contado/crédito va en metodo_pago, extractor).
 CAMPOS_ESTADO2: Tuple[str, ...] = ("sucursal", "centro_costo", "forma_pago", "medio_catalogo")
 
 
@@ -14,9 +14,12 @@ def _forma_pago_completa(registro: Dict[str, Any]) -> bool:
 
 
 def _medio_catalogo_completo(registro: Dict[str, Any]) -> bool:
-    """Medio concreto (efectivo, transferencia…) elegido en LISTAR_MEDIOS."""
+    """Medio concreto (efectivo, Yape…) elegido en LISTAR_MEDIOS → id_medio_pago + medio_pago (texto)."""
     v = registro.get("id_medio_pago")
     if v is not None and str(v).strip() != "":
+        return True
+    txt = (registro.get("medio_pago") or "").strip()
+    if txt and txt.lower() not in ("contado", "credito"):
         return True
     return bool((registro.get("nombre_medio_pago") or "").strip())
 
@@ -26,7 +29,7 @@ def siguiente_campo_pendiente(registro: Dict[str, Any] | None, tiene_parametros:
     Orden Estado 2:
     sucursal → centro_costo (solo compra) → forma_pago (LISTAR_FORMAS) → medio_catalogo (LISTAR_MEDIOS).
     En venta se omite centro de costo.
-    medio_pago (contado/crédito) viene de extracción; nombre_medio_pago + id_medio_pago del catálogo n8n.
+    metodo_pago (contado/crédito) viene del extractor; medio_pago + id_medio_pago del catálogo n8n (agente opciones).
     """
     if not registro:
         return "sucursal"

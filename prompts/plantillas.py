@@ -28,13 +28,13 @@ ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
 
 3) PAGO Y LOGÍSTICA (solo si están definidos)
    💵 *Moneda:* [moneda]  — PEN o USD
-   💳 *Medio de pago:* [medio_pago]  — contado o crédito (este campo es "medio de pago"; valores: contado | credito)
+   💳 *Método de pago:* [metodo_pago]  — solo contado o crédito (se pregunta en el extractor; en la pregunta usa paréntesis en el mismo renglón: "… (contado o crédito)")
    📅 *Emisión:* [fecha_emision]
    📅 *Pago:* [fecha_pago]
-   Si medio_pago = "credito" y hay valor: 📆 *Días crédito:* [dias_credito]  |  📋 *Cuotas:* [nro_cuotas]
+   Si metodo_pago = "credito" y hay valor: 📆 *Días crédito:* [dias_credito]  |  📋 *Cuotas:* [nro_cuotas] (cuotas: de 1 a 24)
    ━━━━━━━━━━━━━━━━━━━
 
-Nota: "Medio de pago" = contado o crédito (se pregunta y muestra aquí). En Estado 2 (opciones) se eligen sucursal y forma de pago (transferencia/TC/TD/billetera); centro de costo solo en compra (en venta no se pide). No confundir medio de pago (contado/crédito) con forma de pago (transferencia, tarjeta, etc.).
+Nota: **metodo_pago** = al contado o a crédito (extractor). **forma_pago** y **medio_pago** (con id_forma_pago / id_medio_pago) = catálogos del agente de opciones (Estado 2). Centro de costo solo en compra. No confundir método (contado/crédito) con forma ni medio de catálogo.
 
 REGLA CRÍTICA — DINÁMICO: Escribe solo las líneas para las que el campo tenga valor real. Si operacion está vacía, no pongas la línea de COMPRA/VENTA. Si tipo_documento está vacío, no pongas la línea del comprobante. Si monto_total es 0 y no hay productos, no pongas resumen económico. Campo vacío/null/0 = esa línea no aparece en el resumen.
 """
@@ -44,7 +44,7 @@ Orden obligatorio del texto de guía (resumen_y_guia / salida combinada):
 (1) PREÁMBULO: una frase en lenguaje natural (ej: "Perfecto, aquí va el resumen completo:").
 (2) SÍNTESIS VISUAL DINÁMICA: solo líneas para campos con valor (vacío = no escribir esa línea). Estado completo del registro según PLANTILLA_VISUAL.
 (3) Si faltan datos: INVITACIÓN A COMPLETAR (ej: "Me faltan algunos datos para completar:") + PREGUNTAS enumeradas 1️⃣ 2️⃣ 3️⃣ solo por campos realmente vacíos (nunca preguntar por lo ya definido; tipo de cambio solo si moneda ≠ PEN; no preguntar "agregar más productos" si ya hay al menos un producto).
-(4) Si no falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario diga *confirmar* y pase a opciones (sucursal y forma de pago; centro de costo solo si es compra). Pedir confirmación no impide que el usuario siga enviando datos para actualizar.
+(4) Si no falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario diga *confirmar* y pase a opciones (sucursal, forma de pago y medio de pago desde API; centro de costo solo si es compra). Pedir confirmación no impide que el usuario siga enviando datos para actualizar.
 """
 
 

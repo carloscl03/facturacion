@@ -61,6 +61,7 @@ class ExtraccionService:
 
         payload_base = self._construir_payload(propuesta, estado_actual, contexto_previo)
         payload_db = {k: v for k, v in payload_base.items() if self._es_valor_valido(v)}
+        self._preservar_campos_opciones_y_catalogo(estado_actual, payload_db)
 
         # Fijar operación (compra/venta): solo persistir "operacion" en Redis (sin cod_ope)
         op_val = operacion or (str(payload_base.get("operacion") or "").strip().lower())
@@ -247,6 +248,34 @@ class ExtraccionService:
         return None
 
     @staticmethod
+    def _preservar_campos_opciones_y_catalogo(estado_actual: dict, payload_db: dict) -> None:
+        """Tras extracción, no borrar lo ya elegido en Estado 2 (forma/medio catálogo, sucursal, etc.)."""
+        if not estado_actual:
+            return
+        passthrough = (
+            "forma_pago",
+            "id_forma_pago",
+            "id_medio_pago",
+            "id_sucursal",
+            "sucursal",
+            "centro_costo",
+            "id_centro_costo",
+            "id_metodo_pago",
+            "nombre_medio_pago",
+            "opciones_actuales",
+        )
+        for k in passthrough:
+            if k not in payload_db and estado_actual.get(k) is not None:
+                v = estado_actual.get(k)
+                if ExtraccionService._es_valor_valido(v):
+                    payload_db[k] = v
+        mp = estado_actual.get("medio_pago")
+        if mp is not None and str(mp).strip() != "":
+            low = str(mp).strip().lower()
+            if low not in ("contado", "credito") and "medio_pago" not in payload_db:
+                payload_db["medio_pago"] = mp
+
+    @staticmethod
     def _es_valor_valido(v) -> bool:
         if v is None:
             return False
@@ -255,36 +284,6 @@ class ExtraccionService:
         if v == "null":
             return False
         return True
-
-    @staticmethod
-    def _calcular_estado(datos: dict) -> int:
-        op = (datos.get("operacion") or "").strip().lower()
-        if op not in ("venta", "compra"):
-            return 0
-
-        tiene_monto = float(datos.get("monto_total") or 0) > 0
-        tiene_productos = False
-        prod = datos.get("productos")
-        if isinstance(prod, list) and len(prod) > 0:
-            tiene_productos = True
-        elif isinstance(prod, str) and prod.strip() and prod.strip() != "[]":
-            tiene_productos = True
-
-        tiene_entidad = bool(datos.get("entidad_nombre")) or bool(datos.get("entidad_id"))
-        tiene_documento = bool(datos.get("tipo_documento"))
-        tiene_moneda = bool(datos.get("moneda"))
-
-        obligatorios = [
-            tiene_monto or tiene_productos,
-            tiene_entidad,
-            tiene_documento,
-            tiene_moneda,
-        ]
-        if all(obligatorios):
-            return 3
-        if any(obligatorios):
-            return 2
-        return 1
 
     @staticmethod
     def _detectar_contexto(mensaje: str, estado_actual: dict) -> str | None:
@@ -314,11 +313,21 @@ class ExtraccionService:
                 viejo = estado_actual.get(campo_viejo)
             return viejo if viejo not in [None, "", 0, "null"] else default
 
-        medio_pago = obtener("medio_pago", "tipo_operacion", None)
-        if medio_pago and str(medio_pago).strip().lower() not in ("contado", "credito"):
-            medio_pago = None
-        elif medio_pago:
-            medio_pago = str(medio_pago).strip().lower()
+        # Contado/crédito → metodo_pago (extractor). Legado: medio_pago o tipo_operacion en propuesta/estado.
+        metodo_raw = obtener("metodo_pago", None, None)
+        if metodo_raw in [None, "", 0, "null"]:
+            metodo_raw = propuesta.get("medio_pago")
+        if metodo_raw in [None, "", 0, "null"]:
+            metodo_raw = estado_actual.get("metodo_pago")
+        if metodo_raw in [None, "", 0, "null"]:
+            metodo_raw = obtener("medio_pago", "tipo_operacion", None)
+            if metodo_raw and str(metodo_raw).strip().lower() not in ("contado", "credito"):
+                metodo_raw = None
+        metodo_pago = None
+        if metodo_raw not in [None, "", 0, "null"]:
+            s = str(metodo_raw).strip().lower()
+            if s in ("contado", "credito"):
+                metodo_pago = s
 
         dias_credito_raw = propuesta.get("dias_credito") or estado_actual.get("dias_credito")
         dias_credito = None
@@ -333,6 +342,7 @@ class ExtraccionService:
         if nro_cuotas_raw is not None and str(nro_cuotas_raw).strip() != "":
             try:
                 nro_cuotas = int(float(nro_cuotas_raw))
+                nro_cuotas = max(1, min(24, nro_cuotas))
             except (TypeError, ValueError):
                 pass
 
@@ -350,7 +360,7 @@ class ExtraccionService:
             "tipo_documento": obtener("tipo_documento", default=None),
             "numero_documento": obtener("numero_documento", default=None),
             "moneda": obtener("moneda", default=None),
-            "medio_pago": medio_pago,
+            "metodo_pago": metodo_pago,
             "dias_credito": dias_credito,
             "nro_cuotas": nro_cuotas,
             "monto_total": float(propuesta.get("monto_total") or estado_actual.get("monto_total") or 0),

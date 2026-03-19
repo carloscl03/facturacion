@@ -6,6 +6,8 @@ from fastapi import FastAPI, HTTPException
 from openai import OpenAI
 from dotenv import load_dotenv
 
+from services.helpers.registro_domain import metodo_contado_credito_desde_registro
+
 load_dotenv()
 app = FastAPI()
 
@@ -861,7 +863,12 @@ async def finalizar_operacion(wa_id: str, id_empresa: int):
                 "id_sucursal": reg.get("id_sucursal", 14),
                 "id_moneda": reg.get("id_moneda"),
                 "id_forma_pago": reg.get("id_forma_pago", 9),
-                "tipo_venta": (reg.get("tipo_operacion") or reg.get("medio_pago") or "Contado").strip().lower().capitalize(),
+                "tipo_venta": (
+                    (metodo_contado_credito_desde_registro(reg) or reg.get("tipo_operacion") or "contado")
+                    .strip()
+                    .lower()
+                    .capitalize()
+                ),
                 "fecha_emision": reg.get("fecha_emision") or "2026-03-03",
                 "tipo_facturacion": "facturacion_electronica",
                 "id_tipo_comprobante": tipo_comp,

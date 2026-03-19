@@ -78,20 +78,20 @@ def test_calcular_estado_con_campos_obligatorios():
         "entidad_nombre": "Cliente",
         "tipo_documento": "factura",
         "moneda": "PEN",
-        "medio_pago": "contado",
+        "metodo_pago": "contado",
     }
     assert calcular_estado(datos) == 3
 
     datos["monto_total"] = 0
     assert calcular_estado(datos) == 2
 
-    # Sin medio_pago no llega a estado 3
+    # Sin metodo_pago no llega a estado 3
     datos["monto_total"] = 100
-    datos.pop("medio_pago", None)
+    datos.pop("metodo_pago", None)
     assert calcular_estado(datos) == 2
 
     # Con crédito exige dias_credito y nro_cuotas para estado 3
-    datos["medio_pago"] = "credito"
+    datos["metodo_pago"] = "credito"
     assert calcular_estado(datos) == 2
     datos["dias_credito"] = 30
     datos["nro_cuotas"] = 3
@@ -149,7 +149,7 @@ def test_traducir_registro_a_parametros_y_payload_venta_basico():
         "operacion": "venta",
         "tipo_documento": "factura",
         "moneda": "PEN",
-        "medio_pago": "contado",
+        "metodo_pago": "contado",
         "forma_pago": "transferencia",
         "monto_total": 118,
         "monto_sin_igv": 100,

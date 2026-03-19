@@ -5,7 +5,7 @@ from typing import Any, Dict, Tuple
 
 from services.helpers.fechas import fecha_ddmmyyyy_a_api
 from services.helpers.productos import construir_detalle_desde_registro
-from services.helpers.registro_domain import operacion_desde_registro
+from services.helpers.registro_domain import metodo_contado_credito_desde_registro, operacion_desde_registro
 
 
 def _serie_numero_comprobante(reg: Dict[str, Any]) -> Tuple[Any, Any]:
@@ -61,7 +61,11 @@ def _id_medio_pago_desde_reg(reg: Dict[str, Any]) -> int:
             return int(float(str(v).strip()))
         except (TypeError, ValueError):
             return FORMA_PAGO_MAP.get(str(v).strip().lower(), 1)
-    nom = str(reg.get("nombre_medio_pago") or reg.get("forma_pago") or "").strip().lower()
+    nom = str(reg.get("medio_pago") or reg.get("nombre_medio_pago") or "").strip().lower()
+    if nom in ("contado", "credito"):
+        nom = ""
+    if not nom:
+        nom = str(reg.get("forma_pago") or "").strip().lower()
     return FORMA_PAGO_MAP.get(nom, 1)
 
 
@@ -159,9 +163,9 @@ def construir_sintesis_actual(reg: Dict[str, Any]) -> str:
     elif reg.get("id_sucursal"):
         lineas.append(f"📍 *Sucursal:* (id {reg.get('id_sucursal')})")
 
-    medio = str(reg.get("medio_pago") or "").strip().lower()
-    if medio in ("contado", "credito"):
-        lineas.append(f"💳 *Medio de pago:* {medio.capitalize()}")
+    metodo = metodo_contado_credito_desde_registro(reg)
+    if metodo:
+        lineas.append(f"💳 *Método de pago (contado/crédito):* {metodo.capitalize()}")
 
     moneda_str = str(reg.get("moneda") or "").strip()
     if moneda_str:
@@ -171,6 +175,9 @@ def construir_sintesis_actual(reg: Dict[str, Any]) -> str:
     forma_pago_val = str(reg.get("forma_pago") or "").strip()
     if forma_pago_val:
         lineas.append(f"🏦 *Forma de pago:* {forma_pago_val}")
+    mp_cat = str(reg.get("medio_pago") or "").strip()
+    if mp_cat and mp_cat.lower() not in ("contado", "credito"):
+        lineas.append(f"💰 *Medio de pago (catálogo):* {mp_cat}")
 
     lineas.append("━━━━━━━━━━━━━━━━━━━━")
     return "\n".join(lineas)
@@ -191,8 +198,8 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
     id_moneda = MONEDA_MAP.get(moneda_str)
     moneda_simbolo = MONEDA_SIMBOLO.get(moneda_str, "S/")
 
-    medio_pago = str(reg.get("medio_pago") or "").strip().lower()
-    tipo_venta = medio_pago.capitalize() if medio_pago in ("contado", "credito") else None
+    metodo = metodo_contado_credito_desde_registro(reg)
+    tipo_venta = metodo.capitalize() if metodo in ("contado", "credito") else None
 
     id_forma_pago = None
     if reg.get("id_forma_pago") is not None:

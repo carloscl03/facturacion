@@ -360,7 +360,7 @@ def test_forma_pago_opciones_por_servicio():
     assert reg.get("forma_pago") == "Contado"
     assert reg.get("id_forma_pago") == 1
     assert reg.get("id_medio_pago") == 10
-    assert reg.get("nombre_medio_pago") == "Efectivo"
+    assert reg.get("medio_pago") == "Efectivo"
 
 
 def test_forma_pago_con_datos_reales_api():

@@ -70,7 +70,7 @@ def build_prompt_extractor(
     - Productos: "productos", "items", "detalle" → productos (JSON array).
     - Moneda: "moneda" ("PEN"/"soles" → "PEN"; "USD"/"dolares" → "USD").
     - Fechas: "fecha_emision", "fecha_pago" → formato DD-MM-YYYY.
-    - Pago: "tipo_operacion", "medio_pago", "condicion_pago" → medio_pago ("contado"/"credito"). Si "credito" → "dias_credito" (entero), "nro_cuotas" (entero; compras máx 24, ventas mínimo 1).
+    - Pago condición: "tipo_operacion", "medio_pago", "condicion_pago", "metodo_pago" → **metodo_pago** ("contado"/"credito"). Si "credito" → "dias_credito" (entero), "nro_cuotas" (entero de **1 a 24**).
     Si el JSON tiene datos, combina con texto libre (JSON tiene prioridad).
     Tras procesar JSON, el diagnóstico lista solo lo que sigue faltando.
 
@@ -80,9 +80,9 @@ def build_prompt_extractor(
     - **REGLA 700 (PEN) — solo afecta si pides documento:** Para ventas en soles (PEN): si el monto total es **menor a S/ 700**, la identificación por documento (DNI o RUC) es **opcional** (puede ser nota de venta; no preguntes por DNI/RUC si el usuario no lo da). Si el monto es **>= S/ 700**, el documento del cliente (DNI/RUC) es **obligatorio**. Esta regla solo define cuándo pedir o no documento; no sugieras ni preguntes cambiar de boleta a factura ni impongas tipo de comprobante por el monto.
     - numero_documento: formato serie-número del **comprobante** según SUNAT (ej: B005-00000008, F001-00005678). Solo si el usuario da el número de boleta/factura a emitir. No confundir con el documento del cliente: el DNI/RUC del cliente va siempre en entidad_numero.
     - moneda: "PEN" o "USD". No asumir.
-    - medio_pago (medio de pago): solo "contado" o "credito". Este campo es "medio de pago" (contado/crédito); no confundir con forma de pago (transferencia, tarjeta, etc.). Si no se indica, null. Si el usuario dice "al contado", "al crédito", "crédito 30 días", etc., extraer a medio_pago y si es crédito también dias_credito y nro_cuotas si los da.
-    - dias_credito: entero (ej. 15, 30, 60). Obligatorio si medio_pago = "credito". Ventas: típico 15 a 90 días.
-    - nro_cuotas: entero (compras máx 24, ventas mínimo 1). Obligatorio si medio_pago = "credito".
+    - **metodo_pago** (método de pago = condición): solo "contado" o "credito". No confundir con **forma_pago** ni **medio_pago** del catálogo (esos los elige el usuario en Estado 2 / opciones con id). Si el JSON antiguo trae "medio_pago" con contado/credito, mapéalo a **metodo_pago**. Si no se indica, null.
+    - dias_credito: entero. Obligatorio si metodo_pago = "credito". **Valores típicos a ofrecer en la pregunta:** 15, 30, 45, 60, 90 días (el usuario puede indicar otro número si lo dice explícitamente).
+    - nro_cuotas: entero entre **1 y 24** (compras máximo 24 cuotas). Obligatorio si metodo_pago = "credito".
     - Fechas: formato DD-MM-YYYY siempre. **VALIDACIÓN:** fecha_pago debe ser >= fecha_emision. Si el usuario indica una fecha_pago anterior a fecha_emision, no la aceptes: en el diagnóstico indica que la fecha de pago debe ser igual o posterior a la fecha de emisión.
     - IGV 18% incluido en monto_total. Desglosar monto_sin_igv e igv.
     - entidad_numero: DNI tiene 8 dígitos, RUC tiene 11 dígitos. El tipo se infiere por la longitud.
@@ -105,9 +105,9 @@ def build_prompt_extractor(
     {ESTRUCTURA_GUIA}
 
     ### DIAGNÓSTICO DE FALTANTES (lógica dinámica):
-    **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. Todas las preguntas en lenguaje natural; una sola pregunta por campo vacío; mismo criterio para todos los campos (incluido medio de pago).
+    **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. Todas las preguntas en lenguaje natural; una sola pregunta por campo vacío; mismo criterio para todos los campos (incluido método de pago contado/crédito).
     **Estructura de la salida:** (1) Preámbulo (mensaje_entendimiento). (2) Síntesis visual = resumen_visual del ESTADO COMPLETO. (3) Si faltan datos: invitación ("Me faltan algunos datos para completar:") + listado de preguntas. (4) Si NO falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario sepa que puede decir *confirmar* y continuar; pedir confirmación **no** impide que el usuario envíe más datos (si envía datos, se procesarán como actualizar).
-    Fusiona datos en Redis + propuesta_cache. UNA pregunta por cada campo **realmente** vacío. **No repitas preguntas:** si un dato ya aparece en el resumen visual (p. ej. medio de pago = Contado), NUNCA incluyas pregunta sobre ese dato.
+    Fusiona datos en Redis + propuesta_cache. UNA pregunta por cada campo **realmente** vacío. **No repitas preguntas:** si un dato ya aparece en el resumen visual (p. ej. método de pago = Contado), NUNCA incluyas pregunta sobre ese dato.
     **NO preguntar por:** sucursal, forma de pago (transferencia/TC/TD/billetera) ni centro de costo (se gestionan en Estado 2 / opciones; centro de costo solo se pide en compra, no en venta).
 
     Campos a incluir SOLO si están vacíos (si ya tienen valor, NO preguntes):
@@ -115,16 +115,16 @@ def build_prompt_extractor(
     2. Cliente (venta) o Proveedor (compra): solo si no hay entidad_nombre ni entidad_id.
     3. RUC/DNI de la entidad: obligatorio para factura o cuando monto_total >= 700 PEN; si monto_total < 700 PEN la identificación por documento es opcional (nota de venta), no incluyas pregunta de DNI/RUC si el usuario no lo ha dado.
     4. Tipo de documento: solo si tipo_documento es null.
-    5. **Medio de pago (contado/crédito):** Igual que el resto: solo si medio_pago es null o vacío, preguntar en lenguaje natural (ej. "¿Es al contado o a crédito?"). Si en Redis o en la propuesta ya figura medio_pago = "contado" o "credito", **NO** incluyas ninguna pregunta sobre medio de pago; no preguntes "¿Contado o crédito?" si ya está definido.
-    6. **Si medio_pago = "credito":** preguntar por dias_credito (ej. "¿A cuántos días?" 15-90 para ventas) y nro_cuotas (ej. "¿En cuántas cuotas?"; compras máx 24) si faltan.
+    5. **Método de pago (contado o crédito):** Solo si **metodo_pago** es null o vacío (en Redis puede venir como metodo_pago o legado medio_pago solo si es contado/credito). La pregunta debe incluir **en el mismo renglón** la aclaración entre paréntesis, por ejemplo: "¿La operación es al contado o a crédito? **(contado o crédito)**" o "Indique si es al contado o a crédito **(contado o crédito)**." Si ya figura metodo_pago = "contado" o "credito", **NO** preguntes de nuevo.
+    6. **Si metodo_pago = "credito":** si faltan dias_credito o nro_cuotas, pregúntalos. Para **días de crédito**, ofrece valores típicos en el texto: **15, 30, 45, 60, 90** días (ej. "¿A cuántos días? Puede ser 15, 30, 45, 60 o 90 días."). Para **nro_cuotas**, indica que es de **1 a 24** (ej. "¿En cuántas cuotas? (de 1 a 24)").
     7. Moneda: solo si moneda es null (preguntar "¿En soles (PEN) o dólares (USD)?"). Si moneda = PEN, no preguntes tipo de cambio.
     8. **Tipo de cambio:** SOLO si moneda es distinta de PEN (ej. USD). Si moneda = PEN, **nunca** incluyas pregunta de tipo de cambio.
     9. **Fechas:** fecha_pago debe ser >= fecha_emision. Si el usuario dio fecha_pago anterior a fecha_emision, no la aceptes: en el diagnóstico indica en lenguaje natural que debe revisar las fechas (ej. "La fecha de pago debe ser igual o posterior a la de emisión. ¿Puedes revisar las fechas?")
     **NO incluyas:** "¿Deseas agregar más productos?" ni preguntas similares cuando ya hay al menos un producto registrado. No preguntes por cosas ya definidas.
 
-    **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad: para venta en PEN con monto_total >= 700 se requiere nombre + documento (DNI/RUC); para monto_total < 700 PEN la identificación por documento es opcional (nota de venta), basta el nombre del cliente; para compra se requiere proveedor, (3) tipo_documento, (4) moneda, (5) medio_pago ("contado" o "credito"), (6) si medio_pago = "credito" entonces dias_credito y nro_cuotas obligatorios. false si falta alguno. La regla de 700 solo afecta si se exige documento o no; no condiciones listo_para_finalizar al tipo de comprobante (factura/boleta) por el monto.
+    **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad: para venta en PEN con monto_total >= 700 se requiere nombre + documento (DNI/RUC); para monto_total < 700 PEN la identificación por documento es opcional (nota de venta), basta el nombre del cliente; para compra se requiere proveedor, (3) tipo_documento, (4) moneda, (5) **metodo_pago** ("contado" o "credito"), (6) si metodo_pago = "credito" entonces dias_credito y nro_cuotas obligatorios (nro_cuotas entre 1 y 24). false si falta alguno. La regla de 700 solo afecta si se exige documento o no; no condiciones listo_para_finalizar al tipo de comprobante (factura/boleta) por el monto.
     **Cuando listo_para_finalizar = true:** no listes preguntas; cierra el mensaje con "¿Confirmar todo para continuar?" (o similar). El usuario puede decir *confirmar* y el sistema pasará a estado 4 (opciones); si envía más datos, se actualizará igual.
-    **cambiar_estado_a_4:** true SOLO cuando listo_para_finalizar = true (todos los obligatorios llenos, incluido medio_pago y si es crédito dias_credito y nro_cuotas). El backend usará este campo para actualizar el estado del registro de 3 a 4 en Redis/caché, indicando que se puede pasar a opciones (sucursal y forma de pago; centro de costo solo en compra).
+    **cambiar_estado_a_4:** true SOLO cuando listo_para_finalizar = true (todos los obligatorios llenos, incluido metodo_pago y si es crédito dias_credito y nro_cuotas). El backend pasará a opciones (sucursal, forma_pago y medio_pago con ids de API; centro de costo solo en compra).
 
     ### IDENTIFICACIÓN (obligatoria cuando hay RUC/DNI):
     - **activo:** true **solo y siempre** que el mensaje contenga un RUC (exactamente 11 dígitos) o un DNI (exactamente 8 dígitos). No uses activo=true para búsquedas por nombre sin documento.
@@ -139,7 +139,7 @@ def build_prompt_extractor(
     - "documento_pendiente" si se preguntó tipo de documento
     - "moneda_pendiente" si se preguntó moneda
     - "monto_pendiente" si se preguntó monto/productos
-    - "medio_pago_pendiente" si se preguntó contado/crédito
+    - "metodo_pago_pendiente" si se preguntó contado/crédito (método de pago)
     - "credito_pendiente" si es crédito y faltan dias_credito o nro_cuotas
     - "datos_confirmados" si se mostraron datos, pendiente confirmación
     - "completo" si todos los campos Estado 1 están llenos
@@ -156,9 +156,9 @@ def build_prompt_extractor(
             "tipo_documento": "factura/boleta/nota de venta o null",
             "numero_documento": "serie-número del comprobante (ej. B005-00000008) o null — NUNCA el DNI/RUC del cliente",
             "moneda": "PEN o USD o null",
-            "medio_pago": "contado o credito o null",
-            "dias_credito": integer o null (obligatorio si medio_pago=credito),
-            "nro_cuotas": integer o null (obligatorio si medio_pago=credito; compras máx 24, ventas mín 1),
+            "metodo_pago": "contado o credito o null — condición de pago (extractor); NO rellenar forma_pago/medio_pago de catálogo aquí",
+            "dias_credito": integer o null (obligatorio si metodo_pago=credito; típico 15, 30, 45, 60 o 90),
+            "nro_cuotas": integer o null (obligatorio si metodo_pago=credito; mínimo 1, máximo 24),
             "monto_total": float,
             "monto_sin_igv": float,
             "igv": float,

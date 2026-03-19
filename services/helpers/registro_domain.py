@@ -26,18 +26,20 @@ def opciones_completas(registro: Dict[str, Any] | None) -> bool:
     True si las opciones de estado 2 están completas:
     - id_sucursal
     - forma (id_forma_pago o forma_pago)
-    - medio catálogo (id_medio_pago o nombre_medio_pago)
-    Si operacion es compra, también id_centro_costo. medio_pago (contado/crédito) viene de extracción.
+    - medio catálogo (id_medio_pago o texto en medio_pago distinto de contado/crédito)
+    Si operacion es compra, también id_centro_costo. metodo_pago (contado/crédito) viene del extractor.
     """
     if not registro:
         return False
     has_suc = bool(registro.get("id_sucursal"))
     has_fp = bool((registro.get("forma_pago") or "").strip() or registro.get("id_forma_pago"))
-    has_medio = bool(
+    mp_txt = (registro.get("medio_pago") or "").strip()
+    mp_cat = bool(
         (registro.get("id_medio_pago") is not None and str(registro.get("id_medio_pago")).strip() != "")
+        or (mp_txt and mp_txt.lower() not in ("contado", "credito"))
         or (registro.get("nombre_medio_pago") or "").strip()
     )
-    base = has_suc and has_fp and has_medio
+    base = has_suc and has_fp and mp_cat
     if operacion_desde_registro(registro) == "compra":
         return base and bool(registro.get("id_centro_costo"))
     return base
@@ -59,6 +61,23 @@ def operacion_normalizada(origen: str | None) -> str | None:
         return "compra"
     if op in ("venta", "compra"):
         return op
+    return None
+
+
+def metodo_contado_credito_desde_registro(datos: Dict[str, Any] | None) -> str | None:
+    """
+    Condición de pago al contado o a crédito (extractor / Estado 1).
+    Preferir metodo_pago; legado: medio_pago solo si es exactamente contado/credito
+    (no confundir con medio_pago = catálogo del agente de opciones).
+    """
+    if not datos:
+        return None
+    m = str(datos.get("metodo_pago") or "").strip().lower()
+    if m in ("contado", "credito"):
+        return m
+    leg = str(datos.get("medio_pago") or "").strip().lower()
+    if leg in ("contado", "credito"):
+        return leg
     return None
 
 
@@ -85,7 +104,7 @@ def calcular_estado(datos: Dict[str, Any]) -> int:
     - entidad
     - tipo_documento
     - moneda
-    - medio_pago (contado/credito); si credito, también dias_credito y nro_cuotas.
+    - metodo_pago (contado/credito) o legado medio_pago con esos valores; si credito, dias_credito y nro_cuotas.
 
     Equivalente a la lógica usada en ExtraccionService._calcular_estado.
     """
@@ -105,7 +124,7 @@ def calcular_estado(datos: Dict[str, Any]) -> int:
     tiene_documento = bool(datos.get("tipo_documento"))
     tiene_moneda = bool(datos.get("moneda"))
 
-    medio = (datos.get("medio_pago") or "").strip().lower()
+    medio = metodo_contado_credito_desde_registro(datos) or ""
     tiene_medio_pago = medio in ("contado", "credito")
     tiene_credito_completo = True
     if medio == "credito":

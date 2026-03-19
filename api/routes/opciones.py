@@ -1,6 +1,6 @@
 """
 Estado 2: listas WhatsApp (sucursal → centro solo compra → forma LISTAR_FORMAS → medio LISTAR_MEDIOS).
-Solo aplica con estado >= 4. Se guardan id+nombre en Redis; medio_pago (contado/crédito) de extracción no se pisa (nombre del catálogo en nombre_medio_pago).
+Solo aplica con estado >= 4. **forma_pago** / **medio_pago** + ids vienen aquí. **metodo_pago** (contado/crédito) lo llena el extractor y no se pisa.
 """
 from __future__ import annotations
 
