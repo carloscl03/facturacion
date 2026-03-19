@@ -50,8 +50,17 @@ def test_obtener_estado_y_opciones_completas():
 
     reg = {}
     assert opciones_completas(reg) is False
-    reg = {"id_sucursal": 1, "forma_pago": "yape"}
+    reg = {"id_sucursal": 1, "forma_pago": "Contado", "id_medio_pago": 1}
     assert opciones_completas(reg) is True
+    reg_compra = {
+        "operacion": "compra",
+        "id_sucursal": 1,
+        "id_centro_costo": 9,
+        "forma_pago": "Contado",
+        "id_medio_pago": 2,
+    }
+    assert opciones_completas(reg_compra) is True
+    assert opciones_completas({"operacion": "compra", "id_sucursal": 1, "forma_pago": "x", "id_medio_pago": 1}) is False
 
 
 def test_calcular_estado_sin_operacion_es_cero():
@@ -102,7 +111,10 @@ def test_siguiente_campo_pendiente_respeta_orden_y_parametros():
     reg = {"id_sucursal": 1, "operacion": "venta"}
     assert siguiente_campo_pendiente(reg, tiene_parametros=True) == "forma_pago"
 
-    reg = {"id_sucursal": 1, "id_centro_costo": 2, "forma_pago": "yape"}
+    reg = {"id_sucursal": 1, "operacion": "venta", "forma_pago": "Contado", "id_forma_pago": 1}
+    assert siguiente_campo_pendiente(reg, tiene_parametros=True) == "medio_catalogo"
+
+    reg = {"id_sucursal": 1, "id_centro_costo": 2, "forma_pago": "Contado", "id_forma_pago": 1, "id_medio_pago": 10}
     assert siguiente_campo_pendiente(reg, tiene_parametros=True) is None
 
 

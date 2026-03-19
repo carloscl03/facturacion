@@ -1,12 +1,12 @@
 """
-Agente Estado 2: opciones (sucursal → [centro de costo solo compra] → forma de pago).
-Solo actúa cuando el registro está confirmado (estado >= 4).
-El cambio de estado 3 → 4 se hace en el Clasificador con la confirmación del usuario; este agente
-nunca escribe estado 4, solo lo exige para mostrar listas y guardar elecciones.
-Opciones se presentan como lista de texto; el usuario responde con el nombre y se guarda el id.
-En venta no se pide centro de costo (sucursal → forma_pago). En compra: sucursal → centro_costo → forma_pago.
-Se envía y guarda en Redis: sucursal, centros de costo (solo compra), forma de pago. No se envía método de pago.
-Se guarda en Redis: id_sucursal, id_centro_costo (solo compra), id_metodo_pago/forma_pago. medio_pago (contado/crédito) se pregunta en analizar/extracción.
+Agente Estado 2: listas WhatsApp con id+nombre desde APIs; al responder se guarda en Redis.
+
+Orden: sucursal → centro_costo (solo compra) → forma_pago (LISTAR_FORMAS) → medio_catalogo (LISTAR_MEDIOS).
+En venta se omite centro de costo.
+
+Redis: id_sucursal/sucursal, id_centro_costo/centro_costo (compra), id_forma_pago/forma_pago,
+id_medio_pago/nombre_medio_pago (medio concreto; no pisar medio_pago contado/crédito de extracción).
+Ya no se usa id_metodo_pago para forma; id_forma_pago e id_medio_pago vienen de sendas APIs n8n.
 """
 from __future__ import annotations
 
@@ -117,7 +117,10 @@ class OpcionesService:
             debug_agente["redis_leido"] = {
                 "id_sucursal": registro.get("id_sucursal"),
                 "id_centro_costo": registro.get("id_centro_costo"),
+                "id_forma_pago": registro.get("id_forma_pago"),
                 "forma_pago": (registro.get("forma_pago") or "").strip() or None,
+                "id_medio_pago": registro.get("id_medio_pago"),
+                "nombre_medio_pago": (registro.get("nombre_medio_pago") or "").strip() or None,
             }
             debug_agente["opciones_actuales_de_redis"] = {
                 "recuperado": len(opciones_en_redis) > 0,
@@ -139,7 +142,7 @@ class OpcionesService:
             debug_agente["motivo"] = "estado_menor_4"
             return {
                 "listo_estado1": False,
-                "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir sucursal, centro de costo (si es compra) y forma de pago.",
+                "mensaje": "Primero confirme el registro (estado 3 → 4) antes de elegir sucursal, centro (si compra), forma y medio de pago.",
                 "campo_pendiente": None,
                 "payload_whatsapp_list": None,
                 "debug": debug_agente,
@@ -334,8 +337,21 @@ class OpcionesService:
                     flush=True,
                 )
                 return {"success": False, "mensaje": "Valor de forma de pago vacío."}
-            datos["id_metodo_pago"] = valor_id
             datos["forma_pago"] = valor_nombre or v
+            try:
+                datos["id_forma_pago"] = int(float(str(valor_id).strip()))
+            except (TypeError, ValueError):
+                datos["id_forma_pago"] = valor_id
+            datos["id_metodo_pago"] = None
+        elif campo == "medio_catalogo":
+            v = (str(valor_id) or str(valor) or "").strip()
+            if not v:
+                return {"success": False, "mensaje": "Valor de medio de pago vacío."}
+            datos["nombre_medio_pago"] = valor_nombre or v
+            try:
+                datos["id_medio_pago"] = int(float(str(valor_id).strip()))
+            except (TypeError, ValueError):
+                datos["id_medio_pago"] = valor_id
 
         siguiente = self._siguiente_campo_despues_de(registro, datos)
         id_tablas_next = id_from
@@ -430,7 +446,9 @@ class OpcionesService:
         if campo == "centro_costo" and self._parametros:
             return self._parametros.obtener_centros_costo(wa_id)
         if campo == "forma_pago":
-            return self._informacion.obtener_metodos_pago(id_tablas)
+            return self._informacion.obtener_formas_pago()
+        if campo == "medio_catalogo":
+            return self._informacion.obtener_medios_pago_catalogo()
         return []
 
     def _lista_para_redis(self, campo: str, raw: list) -> list[dict]:
@@ -452,6 +470,8 @@ class OpcionesService:
             return "Centros de costo:"
         if campo == "forma_pago":
             return "Formas de pago:"
+        if campo == "medio_catalogo":
+            return "Medios de pago:"
         return "Opciones:"
 
     def _textos_whatsapp_list(self, campo: str) -> tuple[str, str, str, str, str]:
@@ -482,6 +502,14 @@ class OpcionesService:
                 "Selecciona una forma de pago",
                 "Ver formas de pago",
                 "Formas de pago",
+            )
+        if campo == "medio_catalogo":
+            return (
+                "Medios de pago disponibles: ",
+                "Medios de pago",
+                "Selecciona un medio de pago",
+                "Ver medios de pago",
+                "Medios de pago",
             )
         return (
             "Opciones disponibles: ",

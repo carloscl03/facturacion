@@ -35,7 +35,11 @@ def get_entity_repo() -> EntityRepository:
 
 
 def get_informacion_repo() -> InformacionRepository:
-    return InformacionRepository(settings.URL_INFORMACION_IA)
+    return InformacionRepository(
+        settings.URL_INFORMACION_IA,
+        url_forma_pago=settings.URL_FORMA_PAGO,
+        url_medio_pago=settings.URL_MEDIO_PAGO,
+    )
 
 
 def get_parametros_repo() -> ParametrosRepository:

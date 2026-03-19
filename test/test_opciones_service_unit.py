@@ -203,15 +203,24 @@ class DummyCache:
 
 
 class DummyInformacion:
-    def __init__(self, sucursales: list[dict] | None = None, metodos_pago: list[dict] | None = None) -> None:
+    def __init__(
+        self,
+        sucursales: list[dict] | None = None,
+        formas_pago: list[dict] | None = None,
+        medios_catalogo: list[dict] | None = None,
+    ) -> None:
         self._sucursales = sucursales or []
-        self._metodos_pago = metodos_pago or []
+        self._formas_pago = formas_pago or []
+        self._medios_catalogo = medios_catalogo or []
 
     def obtener_sucursales(self, id_empresa: int) -> list[dict]:
         return self._sucursales
 
-    def obtener_metodos_pago(self, id_empresa: int) -> list[dict]:
-        return self._metodos_pago
+    def obtener_formas_pago(self) -> list[dict]:
+        return self._formas_pago
+
+    def obtener_medios_pago_catalogo(self) -> list[dict]:
+        return self._medios_catalogo
 
 
 class DummyParametros:
@@ -303,8 +312,7 @@ def _item_forma_medio_pago(
 
 def test_forma_pago_opciones_por_servicio():
     """
-    Las formas de pago (contrato ws_forma_pago.php) se proveen vía Información y el servicio
-    las devuelve en get_next/submit como opciones_actuales y payload_whatsapp_list, igual que sucursales.
+    Flujo: sucursal → forma (LISTAR_FORMAS) → medio (LISTAR_MEDIOS). Redis: id_forma_pago + id_medio_pago.
     """
     wa_id = "user2"
     id_from = 3
@@ -312,61 +320,68 @@ def test_forma_pago_opciones_por_servicio():
         _item_forma_medio_pago(id_=1, nombre="Contado"),
         _item_forma_medio_pago(id_=2, nombre="Crédito"),
     ]
+    medios = [
+        _item_forma_medio_pago(id_=10, nombre="Efectivo"),
+        _item_forma_medio_pago(id_=11, nombre="Transferencia"),
+    ]
     cache = DummyCache()
     info = DummyInformacion(
-        sucursales=[
-            {"id": 14, "nombre": "San Isidro"},
-        ],
-        metodos_pago=formas,  # forma_pago en Estado 2 usa obtener_metodos_pago (mismo contrato que LISTAR_FORMAS_PAGO)
+        sucursales=[{"id": 14, "nombre": "San Isidro"}],
+        formas_pago=formas,
+        medios_catalogo=medios,
     )
     service = OpcionesService(cache, info, parametros=None, ai=DummyAI())
     cache.insertar(wa_id, id_from, _build_registro_inicial(estado=4))
 
-    # get_next → sucursales. El envío a WSP se hace solo una vez en __main__.
     r1 = service.get_next(wa_id, id_from)
     assert r1["campo_pendiente"] == "sucursal"
     if r1.get("payload_whatsapp_list"):
-        assert r1["payload_whatsapp_list"].get("id_plataforma") == ID_PLATAFORMA, "payload_whatsapp_list debe tener id_plataforma: 6"
+        assert r1["payload_whatsapp_list"].get("id_plataforma") == ID_PLATAFORMA
 
-    # submit sucursal → el servicio debe devolver la siguiente lista (forma_pago)
     r2 = service.submit(wa_id, id_from, campo="sucursal", valor="San Isidro")
     assert r2["success"] is True
     assert r2["campo_pendiente"] == "forma_pago"
-    assert r2["opciones_actuales"] is not None
-    nombres = [o.get("nombre") for o in (r2["opciones_actuales"] or [])]
-    assert "Contado" in nombres
-    assert "Crédito" in nombres
+    nombres_f = [o.get("nombre") for o in (r2["opciones_actuales"] or [])]
+    assert "Contado" in nombres_f
     assert r2.get("payload_whatsapp_list") is not None
-    assert r2["payload_whatsapp_list"].get("id_plataforma") == ID_PLATAFORMA, "payload_whatsapp_list debe tener id_plataforma: 6"
-    # Ya no se envía método de pago por WSP (solo medios de pago).
 
-    # submit forma_pago
     r3 = service.submit(wa_id, id_from, campo="forma_pago", valor="Contado")
     assert r3["success"] is True
-    assert r3["campo_guardado"] == "forma_pago"
-    assert r3["id_detectada"] == 1
-    assert r3["nombre_detectado"] == "Contado"
+    assert r3["campo_pendiente"] == "medio_catalogo"
+    assert r3["estado2_completo"] is False
+    nombres_m = [o.get("nombre") for o in (r3["opciones_actuales"] or [])]
+    assert "Efectivo" in nombres_m
+
+    r4 = service.submit(wa_id, id_from, campo="medio_catalogo", valor="Efectivo")
+    assert r4["success"] is True
+    assert r4["estado2_completo"] is True
+    assert r4["campo_guardado"] == "medio_catalogo"
     reg = cache.consultar(wa_id, id_from)
     assert reg.get("forma_pago") == "Contado"
-    assert reg.get("id_metodo_pago") == 1
+    assert reg.get("id_forma_pago") == 1
+    assert reg.get("id_medio_pago") == 10
+    assert reg.get("nombre_medio_pago") == "Efectivo"
 
 
 def test_forma_pago_con_datos_reales_api():
-    """
-    Obtiene formas de pago desde ws_forma_pago.php (LISTAR_FORMAS_PAGO), las inyecta en el servicio
-    y ejecuta el flujo sucursal → forma_pago enviando la lista real a WhatsApp.
-    """
+    """Flujo real API: sucursal → formas → medios (si hay datos en ambos endpoints)."""
     resp_formas = listar_formas_pago_api()
+    resp_medios = listar_medios_pago_api()
     if not resp_formas.get("success") or not resp_formas.get("data"):
         print("  [aviso] LISTAR_FORMAS_PAGO sin datos; se omite envío con datos reales.")
         return
+    if not resp_medios.get("success") or not resp_medios.get("data"):
+        print("  [aviso] LISTAR_MEDIOS_PAGO sin datos; se omite segundo paso.")
+        return
     formas = resp_formas["data"]
+    medios = resp_medios["data"]
     wa_id = "user_real"
     id_from = 3
     cache = DummyCache()
     info = DummyInformacion(
         sucursales=[{"id": 14, "nombre": "San Isidro"}],
-        metodos_pago=formas,
+        formas_pago=formas,
+        medios_catalogo=medios,
     )
     service = OpcionesService(cache, info, parametros=None, ai=DummyAI())
     cache.insertar(wa_id, id_from, _build_registro_inicial(estado=4))
@@ -377,15 +392,17 @@ def test_forma_pago_con_datos_reales_api():
     r2 = service.submit(wa_id, id_from, campo="sucursal", valor="San Isidro")
     assert r2["success"] is True
     assert r2["campo_pendiente"] == "forma_pago"
-    assert r2.get("payload_whatsapp_list") is not None
-    # Ya no se envía método/forma de pago por WSP.
 
-    # Submit primera forma de pago del API
     primer_nombre = (formas[0].get("nombre") or str(formas[0].get("id")) or "").strip()
     if primer_nombre:
         r3 = service.submit(wa_id, id_from, campo="forma_pago", valor=primer_nombre)
         assert r3["success"] is True
-        assert r3["campo_guardado"] == "forma_pago"
+        assert r3["campo_pendiente"] == "medio_catalogo"
+        m0 = (medios[0].get("nombre") or str(medios[0].get("id")) or "").strip()
+        if m0:
+            r4 = service.submit(wa_id, id_from, campo="medio_catalogo", valor=m0)
+            assert r4["success"] is True
+            assert r4["estado2_completo"] is True
 
 
 # --- Contrato LISTAR_FORMAS_PAGO (ws_forma_pago.php) y LISTAR_MEDIOS_PAGO (ws_medio_pago.php) ---

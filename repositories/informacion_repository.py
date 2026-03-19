@@ -17,11 +17,29 @@ def _normalizar_sucursal(item: dict) -> dict | None:
     return {"id": sid, "nombre": nombre or str(sid)}
 
 
-class InformacionRepository:
-    """Acceso a ws_informacion_ia.php (sucursales públicas, etc.)."""
+def _normalizar_item_catalogo(item: dict) -> dict | None:
+    """Id + nombre desde ítem LISTAR_FORMAS_PAGO / LISTAR_MEDIOS_PAGO."""
+    if not isinstance(item, dict):
+        return None
+    iid = item.get("id")
+    if iid is None:
+        return None
+    nombre = (item.get("nombre") or item.get("title") or "").strip() or str(iid)
+    return {"id": iid, "nombre": nombre}
 
-    def __init__(self, base_url: str) -> None:
+
+class InformacionRepository:
+    """Acceso a ws_informacion_ia.php (sucursales) y catálogos n8n (formas/medios de pago)."""
+
+    def __init__(
+        self,
+        base_url: str,
+        url_forma_pago: str | None = None,
+        url_medio_pago: str | None = None,
+    ) -> None:
         self._base_url = base_url
+        self._url_forma_pago = (url_forma_pago or "").strip() or None
+        self._url_medio_pago = (url_medio_pago or "").strip() or None
 
     def obtener_sucursales_publicas(self, id_from: int) -> list[dict]:
         """
@@ -87,6 +105,41 @@ class InformacionRepository:
         except Exception:
             return []
         return _extraer_filas_metodos_pago(data)
+
+    def _listar_catalogo_n8n(self, url: str | None, cod_ope: str) -> list[dict]:
+        """POST JSON {codOpe} → {data: [{id, nombre}, ...]}."""
+        if not url:
+            return []
+        try:
+            res = requests.post(
+                url,
+                json={"codOpe": cod_ope},
+                headers={"Content-Type": "application/json"},
+                timeout=15,
+            )
+            if res.status_code != 200:
+                return []
+            parsed = res.json()
+            data = parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return []
+        raw = data.get("data") or []
+        if not isinstance(raw, list):
+            return []
+        out: list[dict] = []
+        for it in raw:
+            n = _normalizar_item_catalogo(it)
+            if n:
+                out.append(n)
+        return out
+
+    def obtener_formas_pago(self) -> list[dict]:
+        """LISTAR_FORMAS_PAGO (ws_forma_pago.php). Contado/Crédito u homólogos."""
+        return self._listar_catalogo_n8n(self._url_forma_pago, "LISTAR_FORMAS_PAGO")
+
+    def obtener_medios_pago_catalogo(self) -> list[dict]:
+        """LISTAR_MEDIOS_PAGO (ws_medio_pago.php). Efectivo, transferencia, etc."""
+        return self._listar_catalogo_n8n(self._url_medio_pago, "LISTAR_MEDIOS_PAGO")
 
 
 def _extraer_filas_metodos_pago(respuesta: dict) -> list[dict]:

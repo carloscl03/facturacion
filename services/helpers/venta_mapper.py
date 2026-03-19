@@ -48,17 +48,21 @@ def _serie_numero_comprobante(reg: Dict[str, Any]) -> Tuple[Any, Any]:
 
 
 def _id_medio_pago_desde_reg(reg: Dict[str, Any]) -> int:
-    """Lee id forma de pago desde Redis: id_medio_pago, id_metodo_pago (p. ej. int o string 'plin') o forma_pago."""
-    v = reg.get("id_medio_pago") or reg.get("id_metodo_pago")
-    if isinstance(v, int):
-        return v
-    if v is not None and str(v).strip():
+    """id_medio_pago del catálogo LISTAR_MEDIOS (efectivo, transferencia…). Legado: id_metodo_pago si aún no hay medio."""
+    v = reg.get("id_medio_pago")
+    if v is not None and str(v).strip() != "":
+        try:
+            return int(float(str(v).strip()))
+        except (TypeError, ValueError):
+            pass
+    v = reg.get("id_metodo_pago")
+    if v is not None and str(v).strip() != "":
         try:
             return int(float(str(v).strip()))
         except (TypeError, ValueError):
             return FORMA_PAGO_MAP.get(str(v).strip().lower(), 1)
-    forma = str(reg.get("forma_pago") or "").strip().lower()
-    return FORMA_PAGO_MAP.get(forma, 1)
+    nom = str(reg.get("nombre_medio_pago") or reg.get("forma_pago") or "").strip().lower()
+    return FORMA_PAGO_MAP.get(nom, 1)
 
 
 def nro_documento_comprobante(reg: Dict[str, Any]) -> str | None:
@@ -190,11 +194,15 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
     medio_pago = str(reg.get("medio_pago") or "").strip().lower()
     tipo_venta = medio_pago.capitalize() if medio_pago in ("contado", "credito") else None
 
-    # Preferir id ya guardado (p. ej. desde opciones Estado 2); si no, mapear por nombre.
     id_forma_pago = None
-    if reg.get("id_metodo_pago") is not None:
+    if reg.get("id_forma_pago") is not None:
         try:
-            id_forma_pago = int(reg.get("id_metodo_pago"))
+            id_forma_pago = int(float(str(reg.get("id_forma_pago")).strip()))
+        except (TypeError, ValueError):
+            pass
+    if id_forma_pago is None and reg.get("id_metodo_pago") is not None:
+        try:
+            id_forma_pago = int(float(str(reg.get("id_metodo_pago")).strip()))
         except (TypeError, ValueError):
             pass
     if id_forma_pago is None:

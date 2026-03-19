@@ -1,7 +1,6 @@
 """
-Estado 2: opciones (sucursal → centro de costo → método de pago).
-Solo aplica con estado >= 4. Opciones se devuelven en mensaje; el usuario responde con el nombre y se matchea por opciones_actuales en Redis.
-Cuando hay payload_whatsapp_list, se envía a ws_send_whatsapp_list para mostrar la lista en WhatsApp.
+Estado 2: listas WhatsApp (sucursal → centro solo compra → forma LISTAR_FORMAS → medio LISTAR_MEDIOS).
+Solo aplica con estado >= 4. Se guardan id+nombre en Redis; medio_pago (contado/crédito) de extracción no se pisa (nombre del catálogo en nombre_medio_pago).
 """
 from __future__ import annotations
 

@@ -25,14 +25,22 @@ def opciones_completas(registro: Dict[str, Any] | None) -> bool:
     """
     True si las opciones de estado 2 están completas:
     - id_sucursal
-    - forma_pago no vacía
-    medio_pago (contado/crédito) se pregunta en analizar, no en opciones.
+    - forma (id_forma_pago o forma_pago)
+    - medio catálogo (id_medio_pago o nombre_medio_pago)
+    Si operacion es compra, también id_centro_costo. medio_pago (contado/crédito) viene de extracción.
     """
     if not registro:
         return False
     has_suc = bool(registro.get("id_sucursal"))
-    has_fp = bool((registro.get("forma_pago") or "").strip())
-    return has_suc and has_fp
+    has_fp = bool((registro.get("forma_pago") or "").strip() or registro.get("id_forma_pago"))
+    has_medio = bool(
+        (registro.get("id_medio_pago") is not None and str(registro.get("id_medio_pago")).strip() != "")
+        or (registro.get("nombre_medio_pago") or "").strip()
+    )
+    base = has_suc and has_fp and has_medio
+    if operacion_desde_registro(registro) == "compra":
+        return base and bool(registro.get("id_centro_costo"))
+    return base
 
 
 def operacion_normalizada(origen: str | None) -> str | None:
