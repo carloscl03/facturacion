@@ -104,18 +104,26 @@ class SunatClient:
                 )
                 return SunatResult(success=False, error_mensaje=mensaje)
             headers["Authorization"] = f"Bearer {token}"
+        # N8N (ws_venta.php) puede demorar porque incluye generación SUNAT y SP.
+        # Un timeout bajo termina en gateways/proxies con 502 y/o cuerpo no-JSON.
+        timeout_s = 90 if cod_ope in ("REGISTRAR_VENTA", "REGISTRAR_VENTA_N8N") else 60
         try:
-            res = requests.post(self._url, json=payload, headers=headers, timeout=30)
+            res = requests.post(self._url, json=payload, headers=headers, timeout=timeout_s)
         except requests.RequestException as e:
             return SunatResult(success=False, error_mensaje=str(e))
 
         try:
             res_json = res.json()
         except Exception:
+            raw_preview = None
+            try:
+                raw_preview = (res.text or "")[:300] if res.text else None
+            except Exception:
+                raw_preview = None
             return SunatResult(
                 success=False,
                 error_mensaje=f"Respuesta no JSON (status {res.status_code}).",
-                error_debug={"status_code": res.status_code, "raw": res.text[:500] if res.text else None},
+                error_debug={"status_code": res.status_code, "raw": raw_preview},
             )
 
         # Caso N8N (ws_venta.php): pdf_url y sunat_estado están en la raíz

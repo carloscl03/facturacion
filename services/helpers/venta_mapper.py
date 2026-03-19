@@ -26,12 +26,12 @@ def _serie_numero_comprobante(reg: Dict[str, Any]) -> Tuple[Any, Any]:
         if "-" in num_str or (len(num_str) > 9 and not num_str.isdigit()):
             numero = None  # Evitar enviar "B005-00000008" como numero
     if serie is not None and str(serie).strip() and numero is not None:
-        # Asegurar que numero sea solo dígitos
-        if isinstance(numero, str) and numero.isdigit():
-            try:
-                numero = int(numero)
-            except ValueError:
-                pass
+        # Importante: preservar ceros a la izquierda si numero vino como string (ej: "00001").
+        # Para compras (ws_compra.php) el PHP hace bind a integer igualmente.
+        if isinstance(numero, str):
+            num_str = numero.strip()
+            if num_str.isdigit():
+                numero = num_str
         return (str(serie).strip(), numero)
     if num_doc and "-" in num_doc:
         parts = num_doc.split("-", 1)
@@ -39,34 +39,50 @@ def _serie_numero_comprobante(reg: Dict[str, Any]) -> Tuple[Any, Any]:
         num_part = (parts[1].strip() if len(parts) > 1 else "").strip()
         num_digitos = "".join(c for c in num_part if c.isdigit()) if num_part else ""
         if serie_out and num_digitos:
-            try:
-                numero_out = int(num_digitos)
-            except ValueError:
-                numero_out = num_digitos or None
-            return (serie_out, numero_out)
+            # Preservar ceros a la izquierda (ej: "00001").
+            return (serie_out, num_digitos)
     return (serie, numero)
 
 
-def _id_medio_pago_desde_reg(reg: Dict[str, Any]) -> int:
-    """id_medio_pago del catálogo LISTAR_MEDIOS (efectivo, transferencia…). Legado: id_metodo_pago si aún no hay medio."""
+def _id_medio_pago_desde_reg(reg: Dict[str, Any]) -> int | None:
+    """
+    id_medio_pago del catálogo LISTAR_MEDIOS (efectivo, transferencia, yape...).
+
+    Contrato PHP (ventan8n.txt / registrarVentaN8N): `id_medio_pago` es opcional y cuando no aplica
+    se espera `null` (ver test_pdf_sunat.py que envía id_medio_pago=None).
+    Por eso, si no podemos determinar el medio, devolvemos None y dejamos que el PHP lo convierta en null.
+    """
     v = reg.get("id_medio_pago")
     if v is not None and str(v).strip() != "":
         try:
             return int(float(str(v).strip()))
         except (TypeError, ValueError):
-            pass
+            return None
+
+    # Legado: algunos registros podrían venir con id_metodo_pago
     v = reg.get("id_metodo_pago")
     if v is not None and str(v).strip() != "":
         try:
             return int(float(str(v).strip()))
         except (TypeError, ValueError):
-            return FORMA_PAGO_MAP.get(str(v).strip().lower(), 1)
+            # Si viene como texto, intentamos mapear; si no, no forzamos default 1.
+            nom_legado = str(v).strip().lower()
+            if nom_legado in ("contado", "credito", ""):
+                return None
+            return FORMA_PAGO_MAP.get(nom_legado)
+
+    # Texto del medio (catálogo)
     nom = str(reg.get("medio_pago") or reg.get("nombre_medio_pago") or "").strip().lower()
-    if nom in ("contado", "credito"):
-        nom = ""
+    if nom in ("contado", "credito", ""):
+        return None
+
+    # Como último recurso, intentar mapear desde forma_pago (compatibilidad muy limitada).
     if not nom:
         nom = str(reg.get("forma_pago") or "").strip().lower()
-    return FORMA_PAGO_MAP.get(nom, 1)
+        if nom in ("contado", "credito", ""):
+            return None
+
+    return FORMA_PAGO_MAP.get(nom)
 
 
 def nro_documento_comprobante(reg: Dict[str, Any]) -> str | None:
