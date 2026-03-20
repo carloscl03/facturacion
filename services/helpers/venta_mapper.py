@@ -188,12 +188,16 @@ def construir_sintesis_actual(reg: Dict[str, Any]) -> str:
         lineas.append(f"💵 *Moneda:* {moneda_str}")
     if str(reg.get("fecha_emision") or "").strip():
         lineas.append(f"📅 *Emisión:* {reg.get('fecha_emision')}")
+    if str(reg.get("fecha_pago") or "").strip():
+        lineas.append(f"📅 *Pago:* {reg.get('fecha_pago')}")
     forma_pago_val = str(reg.get("forma_pago") or "").strip()
     if forma_pago_val:
         lineas.append(f"🏦 *Forma de pago:* {forma_pago_val}")
     mp_cat = str(reg.get("medio_pago") or "").strip()
-    if mp_cat and mp_cat.lower() not in ("contado", "credito"):
-        lineas.append(f"💰 *Medio de pago (catálogo):* {mp_cat}")
+    # Evitar que el texto muestre "(catálogo)" como etiqueta literal.
+    mp_cat_clean = mp_cat.replace("(catálogo)", "").replace("(catalogo)", "").strip()
+    if mp_cat_clean and mp_cat_clean.lower() not in ("contado", "credito"):
+        lineas.append(f"💰 *Medio de pago:* {mp_cat_clean}")
 
     lineas.append("━━━━━━━━━━━━━━━━━━━━")
     return "\n".join(lineas)
