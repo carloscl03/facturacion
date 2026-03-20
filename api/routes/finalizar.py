@@ -15,7 +15,7 @@ async def finalizar_operacion(
     wa_id: str,
     id_from: int,
     id_empresa: int | None = None,
-    id_plataforma: int = 6,
+    id_plataforma: int | None = None,
     cache_repo: CacheRepository = Depends(get_cache_repo),
     entity_repo: EntityRepository = Depends(get_entity_repo),
     sunat_client: SunatClient = Depends(get_sunat_client),

@@ -53,51 +53,96 @@ from services.helpers.venta_mapper import (
 
 
 def _enviar_texto_whatsapp(
-    id_empresa: int, phone: str, id_plataforma: int, mensaje: str
+    id_empresa: int, phone: str, id_plataforma: int | None, mensaje: str
 ) -> tuple[bool, str | None]:
     """Envía mensaje de texto por ws_send_whatsapp_oficial. Retorna (éxito, error)."""
     url = settings.URL_SEND_WHATSAPP_OFICIAL
     payload = {
         "id_empresa": id_empresa,
         "phone": phone,
-        "id_plataforma": id_plataforma,
         "type": "text",
         "message": mensaje,
     }
+    if id_plataforma is not None:
+        payload["id_plataforma"] = id_plataforma
     try:
         r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
         if r.status_code != 200:
+            # Fallback de compatibilidad: algunas empresas no tienen credenciales por id_plataforma.
+            if id_plataforma is not None and r.status_code in (400, 404):
+                payload.pop("id_plataforma", None)
+                r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+                if r2.status_code != 200:
+                    return False, f"HTTP {r2.status_code}"
+                data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
+                if not data2.get("success", True):
+                    return False, data2.get("error") or data2.get("message") or "API error"
+                return True, None
             return False, f"HTTP {r.status_code}"
         data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
         if not data.get("success", True):
-            return False, data.get("error") or data.get("message") or "API error"
+            err = (data.get("error") or data.get("message") or "API error")
+            if id_plataforma is not None and (
+                "credenciales" in str(err).lower() or "plataforma" in str(err).lower()
+            ):
+                payload.pop("id_plataforma", None)
+                r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+                if r2.status_code != 200:
+                    return False, f"HTTP {r2.status_code}"
+                data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
+                if not data2.get("success", True):
+                    return False, data2.get("error") or data2.get("message") or "API error"
+                return True, None
+            return False, err
         return True, None
     except requests.RequestException as e:
         return False, str(e)
 
 
 def _enviar_pdf_whatsapp(
-    id_empresa: int, phone: str, id_plataforma: int, document_url: str, filename: str, caption: str = ""
+    id_empresa: int, phone: str, id_plataforma: int | None, document_url: str, filename: str, caption: str = ""
 ) -> tuple[bool, str | None]:
     """Envía documento PDF por ws_send_whatsapp_oficial. Retorna (éxito, error)."""
     url = settings.URL_SEND_WHATSAPP_OFICIAL
     payload = {
         "id_empresa": id_empresa,
         "phone": phone,
-        "id_plataforma": id_plataforma,
         "type": "document",
         "document_url": document_url,
         "filename": filename,
     }
+    if id_plataforma is not None:
+        payload["id_plataforma"] = id_plataforma
     if caption:
         payload["message"] = caption
     try:
         r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
         if r.status_code != 200:
+            if id_plataforma is not None and r.status_code in (400, 404):
+                payload.pop("id_plataforma", None)
+                r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+                if r2.status_code != 200:
+                    return False, f"HTTP {r2.status_code}"
+                data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
+                if not data2.get("success", True):
+                    return False, data2.get("error") or data2.get("message") or "API error"
+                return True, None
             return False, f"HTTP {r.status_code}"
         data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
         if not data.get("success", True):
-            return False, data.get("error") or data.get("message") or "API error"
+            err = (data.get("error") or data.get("message") or "API error")
+            if id_plataforma is not None and (
+                "credenciales" in str(err).lower() or "plataforma" in str(err).lower()
+            ):
+                payload.pop("id_plataforma", None)
+                r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+                if r2.status_code != 200:
+                    return False, f"HTTP {r2.status_code}"
+                data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
+                if not data2.get("success", True):
+                    return False, data2.get("error") or data2.get("message") or "API error"
+                return True, None
+            return False, err
         return True, None
     except requests.RequestException as e:
         return False, str(e)
@@ -131,7 +176,7 @@ class FinalizarService:
             return {}
         return {k: type(v).__name__ for k, v in d.items()}
 
-    def ejecutar(self, wa_id: str, id_from: int, id_empresa: int, id_plataforma: int = 6) -> dict:
+    def ejecutar(self, wa_id: str, id_from: int, id_empresa: int, id_plataforma: int | None = 6) -> dict:
         debug: dict = {"paso": "inicio"}
 
         try:
@@ -260,7 +305,7 @@ class FinalizarService:
     # ------------------------------------------------------------------ #
 
     def _finalizar_venta(
-        self, wa_id: str, reg: dict, id_from: int, params: dict, id_empresa: int, id_plataforma: int = 6
+        self, wa_id: str, reg: dict, id_from: int, params: dict, id_empresa: int, id_plataforma: int | None = 6
     ) -> dict:
         id_cliente = params["id_cliente"]
 
@@ -395,7 +440,7 @@ class FinalizarService:
     # ------------------------------------------------------------------ #
 
     def _finalizar_compra(
-        self, wa_id: str, reg: dict, id_from: int, params: dict, debug: dict, id_empresa: int, id_plataforma: int = 6
+        self, wa_id: str, reg: dict, id_from: int, params: dict, debug: dict, id_empresa: int, id_plataforma: int | None = 6
     ) -> dict:
         """Construye payload REGISTRAR_COMPRA para ws_compra.php y devuelve resultado."""
         payload = construir_payload_compra(reg, params, id_from, id_usuario=ID_USUARIO_REGISTRO)
