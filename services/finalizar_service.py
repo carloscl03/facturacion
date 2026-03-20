@@ -465,7 +465,6 @@ class FinalizarService:
                 f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
                 f"🏢 *Proveedor:* {reg.get('entidad_nombre')}\n"
                 f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']}\n"
-                f"📝 *ID compra:* {id_compra}\n"
                 f"Estado guardado en el historial de compras."
             )
 

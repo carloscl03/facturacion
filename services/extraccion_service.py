@@ -148,7 +148,8 @@ class ExtraccionService:
         texto_completo = resumen_visual
         if diagnostico:
             texto_completo = f"{resumen_visual}\n\n{diagnostico}".strip()
-        # Si el identificador SÍ encontró el documento, agregar una línea corta
+        linea_identificacion = ""
+        # Si el identificador SÍ encontró el documento, preparar una línea corta
         # para que el usuario entienda claramente qué número quedó reconocido.
         if salida_identificador and salida_identificador.get("identificado"):
             campos_entidad = salida_identificador.get("campos_entidad") or {}
@@ -168,7 +169,6 @@ class ExtraccionService:
                 linea_identificacion = f"✅ Identidad reconocida: {nombre_ent}."
             else:
                 linea_identificacion = "✅ Documento de identidad reconocido."
-            texto_completo = f"{linea_identificacion}\n\n{texto_completo}".strip()
         if salida_identificador and not salida_identificador.get("identificado"):
             msg_id = (salida_identificador.get("mensaje") or "").strip()
             if msg_id:
@@ -179,6 +179,8 @@ class ExtraccionService:
         if diagnostico_fechas:
             payload_db["fecha_pago"] = None
             texto_completo = f"{texto_completo}\n\n{diagnostico_fechas}".strip() if texto_completo else diagnostico_fechas
+        if linea_identificacion:
+            texto_completo = f"{texto_completo}\n\n{linea_identificacion}".strip() if texto_completo else linea_identificacion
 
         payload_db["ultima_pregunta"] = ultima_pregunta_keyword or "inicio"
 
