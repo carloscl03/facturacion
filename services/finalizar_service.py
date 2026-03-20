@@ -432,6 +432,12 @@ class FinalizarService:
         )
         out["resumen_visual"] = sintesis
         out["whatsapp_output"] = {"texto": out["mensaje"]}
+        # En error también enviar texto por WhatsApp (antes solo se devolvía whatsapp_output).
+        ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, id_plataforma, out["mensaje"])
+        out["whatsapp_enviado"] = {
+            "texto": ok_texto,
+            "texto_error": err_texto,
+        }
         return out
 
     # ------------------------------------------------------------------ #
@@ -503,6 +509,12 @@ class FinalizarService:
         )
         out["resumen_visual"] = sintesis
         out["whatsapp_output"] = {"texto": out["mensaje"]}
+        # En error también enviar texto por WhatsApp (antes solo se devolvía whatsapp_output).
+        ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, id_plataforma, out["mensaje"])
+        out["whatsapp_enviado"] = {
+            "texto": ok_texto,
+            "texto_error": err_texto,
+        }
         return out
 
     # ------------------------------------------------------------------ #
