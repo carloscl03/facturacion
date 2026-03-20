@@ -169,16 +169,20 @@ class ExtraccionService:
                 linea_identificacion = f"✅ Identidad reconocida: {nombre_ent}."
             else:
                 linea_identificacion = "✅ Documento de identidad reconocido."
+        msg_identificacion_no_encontrado = ""
         if salida_identificador and not salida_identificador.get("identificado"):
-            msg_id = (salida_identificador.get("mensaje") or "").strip()
-            if msg_id:
-                texto_completo = f"{msg_id}\n\n{texto_completo}".strip()
+            msg_identificacion_no_encontrado = (salida_identificador.get("mensaje") or "").strip()
 
         # --- Validación: fecha_pago >= fecha_emision (si no cumple, preguntar revisión y no persistir fecha_pago inválida) ---
         diagnostico_fechas = self._validar_fechas_pago_emision(payload_db)
         if diagnostico_fechas:
             payload_db["fecha_pago"] = None
             texto_completo = f"{texto_completo}\n\n{diagnostico_fechas}".strip() if texto_completo else diagnostico_fechas
+        if msg_identificacion_no_encontrado:
+            texto_completo = (
+                f"{texto_completo}\n\n{msg_identificacion_no_encontrado}".strip()
+                if texto_completo else msg_identificacion_no_encontrado
+            )
         if linea_identificacion:
             texto_completo = f"{texto_completo}\n\n{linea_identificacion}".strip() if texto_completo else linea_identificacion
 
