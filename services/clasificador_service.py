@@ -1,8 +1,10 @@
 """
-Clasificador: mensaje + estado Redis entran a la IA. Actúa como orquestador.
+Clasificador: orquestador de intenciones.
+- Sin registro en Redis: sin IA — intención clara de venta/compra o mensaje JSON → extraccion; si no → casual.
+- Con registro: mensaje + estado vía IA (build_prompt_router) y candados posteriores.
 - wa_id e id_from obligatorios: siempre se consulta Redis; el estado devuelto es el leído de Redis (o 4 tras confirmar).
-- Transición 3→4: cuando estado es 3 y el mensaje es confirmación, el clasificador escribe estado 4 en Redis y devuelve destino confirmar-registro (no hace falta llamar a confirmar-registro por separado).
-- Casual: solo cuando no hay registro; con registro nunca se devuelve casual.
+- Transición 3→4: cuando estado es 3 y el mensaje es confirmación, el clasificador escribe estado 4 en Redis y devuelve destino confirmar-registro.
+- Con registro, la IA no debe devolver casual (se corrige a actualizar si lo hiciera).
 - Salidas: intencion, destino, estado, siguiente_estado, etc.
 """
 from __future__ import annotations
@@ -17,6 +19,89 @@ from services.helpers.registro_domain import (
     operacion_desde_registro,
     opciones_completas,
 )
+
+
+def _intencion_clara_venta_o_compra_sin_registro(mensaje: str) -> bool:
+    """
+    Sin registro en Redis: True si el usuario quiere iniciar venta/compra o envía datos (JSON).
+    Alineado con prompts/clasificador (intención firme) y ExtraccionService._detectar_contexto.
+    """
+    msg_raw = (mensaje or "").strip()
+    if not msg_raw:
+        return False
+    # JSON de comprobante / datos → extracción (misma regla que el prompt del router).
+    if msg_raw.startswith("{") or msg_raw.startswith("["):
+        return True
+    msg = msg_raw.lower()
+    # Frases típicas del prompt del clasificador (intención firme).
+    frases = (
+        "quiero registrar una venta",
+        "quiero hacer una compra",
+        "necesito una factura",
+        "dame de alta una compra",
+        "registrar venta",
+        "registrar compra",
+    )
+    if any(f in msg for f in frases):
+        return True
+    if any(
+        x in msg
+        for x in (
+            "venta",
+            "ventas",
+            "vender",
+            "vendiendo",
+            "es una venta",
+            "registrar venta",
+        )
+    ):
+        return True
+    if any(
+        x in msg
+        for x in (
+            "compra",
+            "compras",
+            "gasto",
+            "es una compra",
+            "registrar compra",
+        )
+    ):
+        return True
+    return False
+
+
+def _op_visible_desde_mensaje_sin_registro(mensaje: str) -> str:
+    """Inferencia ligera para op_visible cuando aún no hay registro."""
+    msg = (mensaje or "").lower()
+    if any(
+        x in msg
+        for x in (
+            "compra",
+            "compras",
+            "gasto",
+            "es una compra",
+            "registrar compra",
+            "proveedor",
+            "dame de alta una compra",
+        )
+    ):
+        return "compra"
+    if any(
+        x in msg
+        for x in (
+            "venta",
+            "ventas",
+            "vender",
+            "vendiendo",
+            "es una venta",
+            "registrar venta",
+            "factura",
+            "boleta",
+            "nota de venta",
+        )
+    ):
+        return "venta"
+    return "no definido"
 
 
 class ClasificadorService:
@@ -53,18 +138,34 @@ class ClasificadorService:
         except Exception:
             registro = None
 
-        if registro:
-            estado = obtener_estado(registro)
-            ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
-            operacion = operacion_desde_registro(registro)
-            opciones_completo = opciones_completas(registro)
-        else:
-            ultima_pregunta = ""
-            operacion = None
-            opciones_completo = False
+        # Sin registro: solo casual (charla) o actualizar (venta/compra clara o JSON). No se llama a la IA.
+        if not registro:
+            if _intencion_clara_venta_o_compra_sin_registro(mensaje):
+                return {
+                    "estado": 0,
+                    "intencion": "actualizar",
+                    "destino": "extraccion",
+                    "op_visible": _op_visible_desde_mensaje_sin_registro(mensaje),
+                    "opciones_ok": False,
+                    "siguiente_estado": False,
+                    "necesita_extraccion": True,
+                    "confianza": 1.0,
+                    "campo_detectado": "ninguno",
+                }
+            return self._respuesta_casual()
+
+        estado = obtener_estado(registro)
+        ultima_pregunta = (registro.get("ultima_pregunta") or "").strip()
+        operacion = operacion_desde_registro(registro)
+        opciones_completo = opciones_completas(registro)
 
         prompt = build_prompt_router(
-            mensaje, ultima_pregunta, estado, operacion, opciones_completo=opciones_completo
+            mensaje,
+            ultima_pregunta,
+            estado,
+            operacion,
+            opciones_completo=opciones_completo,
+            hay_registro_en_redis=True,
         )
 
         try:
