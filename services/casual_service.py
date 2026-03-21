@@ -1,11 +1,13 @@
 """
 Servicio casual: primer mensaje sin registro.
 Transforma el mensaje del usuario en un saludo corto contextual que invita a elegir entre
-Registrar compra o Registrar venta (selección en lista/botones).
-Con wa_id, id_empresa e id_plataforma construye payload_whatsapp_list y lo envía a
-ws_send_whatsapp_list (mismo flujo que /opciones).
+Registrar compra o Registrar venta (botones interactivos en WhatsApp).
+Con wa_id, id_empresa e id_plataforma construye payload para ws_send_whatsapp_buttons
+(mismo contrato que test/test_whatsapp_buttons.py).
 """
 from __future__ import annotations
+
+import os
 
 import requests
 from fastapi import HTTPException
@@ -14,53 +16,64 @@ from config import settings
 from prompts.casual import build_prompt_casual
 from services.ai_service import AIService
 
-# Opciones para la lista/botones: registrar compra y registrar venta
+# Opciones: dos botones (id/título; WhatsApp limita títulos cortos)
 OPCIONES_REGISTRO = [
     {"id": "compra", "title": "Registrar compra", "description": ""},
     {"id": "venta", "title": "Registrar venta", "description": ""},
 ]
 
-SECTION_TITLE = "Tipo de operación"
+FOOTER_BOTONES = "Selecciona una opción"
 
 
-def _build_payload_whatsapp_list(
+def _buttons_payload_rows() -> list[dict]:
+    """Solo id y title para ws_send_whatsapp_buttons.php."""
+    return [{"id": o["id"], "title": o["title"]} for o in OPCIONES_REGISTRO]
+
+
+def _build_payload_whatsapp_buttons(
     id_empresa: int,
     phone: str,
     id_plataforma: int,
     body_text: str,
+    footer_text: str = FOOTER_BOTONES,
 ) -> dict:
-    """Payload para ws_send_whatsapp_list.php (mismo formato que opciones/inventario)."""
+    """Payload para ws_send_whatsapp_buttons.php (test_whatsapp_buttons.py)."""
     return {
         "id_empresa": id_empresa,
         "id_plataforma": id_plataforma,
         "phone": phone,
         "body_text": body_text,
-        "button_text": "Ver opciones",
-        "header_text": SECTION_TITLE,
-        "footer_text": "Selecciona Registrar compra o Registrar venta",
-        "sections": [{"title": SECTION_TITLE, "rows": OPCIONES_REGISTRO}],
+        "footer_text": footer_text,
+        "buttons": _buttons_payload_rows(),
     }
 
 
-def _enviar_lista_whatsapp(payload_list: dict) -> tuple[bool, str | None, dict]:
+def _headers_whatsapp() -> dict[str, str]:
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    token = os.environ.get("MARAVIA_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _enviar_botones_whatsapp(payload_buttons: dict) -> tuple[bool, str | None, dict]:
     """
-    Envía payload_whatsapp_list a ws_send_whatsapp_list.
-    Retorna (éxito, mensaje_error, debug_whatsapp) con datos para diagnosticar fallos.
-    (Misma lógica que api.routes.opciones._enviar_lista_whatsapp.)
+    Envía payload a ws_send_whatsapp_buttons.
+    Retorna (éxito, mensaje_error, debug_whatsapp).
     """
-    url = settings.URL_SEND_WHATSAPP_LIST
+    url = settings.URL_SEND_WHATSAPP_BUTTONS
     debug_whatsapp = {
         "url_llamada": url,
         "status_code": None,
         "response_body_preview": None,
-        "donde_arreglar": "Ver url_llamada: si 404, la URL no existe o cambió en el backend. Revisar config (URL_SEND_WHATSAPP_LIST) o .env.",
+        "donde_arreglar": "Ver url_llamada: si 404, la URL no existe o cambió en el backend. Revisar config (URL_SEND_WHATSAPP_BUTTONS) o .env.",
     }
     try:
         r = requests.post(
             url,
-            json=payload_list,
-            headers={"Content-Type": "application/json"},
-            timeout=30,
+            json=payload_buttons,
+            headers=_headers_whatsapp(),
+            timeout=60,
         )
         debug_whatsapp["status_code"] = r.status_code
         try:
@@ -72,18 +85,17 @@ def _enviar_lista_whatsapp(payload_list: dict) -> tuple[bool, str | None, dict]:
                 if "credenciales" in body_lower and "whatsapp" in body_lower:
                     debug_whatsapp["donde_arreglar"] = (
                         "404: No hay credenciales de WhatsApp para el id_empresa enviado. "
-                        "Pasar id_empresa (query o body) con el id de la empresa que sí tenga credenciales (ej. 1). "
-                        "id_from se usa para contexto; id_empresa solo para enviar la lista a WhatsApp."
+                        "Pasar id_empresa (query o body) con el id de la empresa que sí tenga credenciales (ej. 1)."
                     )
                 else:
                     debug_whatsapp["donde_arreglar"] = (
-                        "404 Not Found: la URL del servicio de lista WhatsApp no existe. "
-                        "Comprobar URL_SEND_WHATSAPP_LIST en config/settings.py o variable de entorno. "
+                        "404 Not Found: la URL del servicio de botones WhatsApp no existe. "
+                        "Comprobar URL_SEND_WHATSAPP_BUTTONS en config/settings.py o variable de entorno. "
                         f"URL usada: {url}"
                     )
             elif r.status_code >= 500:
                 debug_whatsapp["donde_arreglar"] = (
-                    "Error del servidor (5xx): fallo en el backend de envío; revisar logs del servicio ws_send_whatsapp_list."
+                    "Error del servidor (5xx): fallo en el backend de envío; revisar logs de ws_send_whatsapp_buttons."
                 )
             elif r.status_code == 400:
                 debug_whatsapp["donde_arreglar"] = (
@@ -124,8 +136,7 @@ class CasualService:
         """
         mensaje: texto del usuario para el saludo contextual.
         wa_id, id_empresa, id_plataforma: si se envían wa_id e id_empresa, se construye
-        payload_whatsapp_list y se envía por POST a URL_SEND_WHATSAPP_LIST (como /opciones).
-        id_plataforma lo resuelve la ruta (query/body; fallback 6 solo allí).
+        payload_whatsapp_buttons y se envía por POST a URL_SEND_WHATSAPP_BUTTONS.
         """
         prompt = build_prompt_casual(mensaje or "")
         try:
@@ -135,10 +146,11 @@ class CasualService:
             whatsapp_output = {
                 "texto": texto,
                 "opciones_lista": OPCIONES_REGISTRO,
+                "opciones_botones": _buttons_payload_rows(),
             }
-            payload_whatsapp_list = None
+            payload_whatsapp_buttons = None
             if wa_id is not None and id_empresa is not None:
-                payload_whatsapp_list = _build_payload_whatsapp_list(
+                payload_whatsapp_buttons = _build_payload_whatsapp_buttons(
                     id_empresa=id_empresa,
                     phone=wa_id,
                     id_plataforma=id_plataforma,
@@ -148,15 +160,15 @@ class CasualService:
                 "status": "ok",
                 "destino": "casual",
                 "whatsapp_output": whatsapp_output,
-                "payload_whatsapp_list": payload_whatsapp_list,
+                "payload_whatsapp_buttons": payload_whatsapp_buttons,
             }
-            if payload_whatsapp_list:
-                enviado, error, debug_wa = _enviar_lista_whatsapp(payload_whatsapp_list)
-                out["whatsapp_list_enviado"] = enviado
+            if payload_whatsapp_buttons:
+                enviado, error, debug_wa = _enviar_botones_whatsapp(payload_whatsapp_buttons)
+                out["whatsapp_buttons_enviado"] = enviado
                 if error:
-                    out["whatsapp_list_error"] = error
-                out["whatsapp_list_debug"] = debug_wa
-                out["whatsapp_list_debug"]["id_empresa_usado_en_envio"] = payload_whatsapp_list["id_empresa"]
+                    out["whatsapp_buttons_error"] = error
+                out["whatsapp_buttons_debug"] = debug_wa
+                out["whatsapp_buttons_debug"]["id_empresa_usado_en_envio"] = payload_whatsapp_buttons["id_empresa"]
             return out
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))

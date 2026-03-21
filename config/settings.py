@@ -27,6 +27,10 @@ URL_PARAMETROS: str = "https://api.maravia.pe/servicio/n8n/ws_parametros.php"
 URL_COMPRA: str = "https://api.maravia.pe/servicio/n8n/ws_compra.php"
 URL_SEND_WHATSAPP_LIST: str = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_list.php"
 URL_SEND_WHATSAPP_OFICIAL: str = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_oficial.php"
+URL_SEND_WHATSAPP_BUTTONS: str = os.getenv(
+    "URL_SEND_WHATSAPP_BUTTONS",
+    "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_buttons.php",
+)
 # Id de empresa con credenciales WhatsApp para enviar listas (opcional). Si no se envía id_empresa_whatsapp en la request, se usa este.
 _ID_EMPRESA_WA = os.getenv("ID_EMPRESA_WHATSAPP", "")
 ID_EMPRESA_WHATSAPP: int | None = int(_ID_EMPRESA_WA) if _ID_EMPRESA_WA.isdigit() else None

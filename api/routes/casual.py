@@ -1,6 +1,7 @@
 """
 Ruta POST /casual: mensaje sin registro → saludo contextual que invita a elegir Compra o Venta.
-Con wa_id e id_empresa resuelto (query id_empresa > ID_EMPRESA_WHATSAPP > id_from) se envía la lista por WhatsApp.
+Con wa_id e id_empresa resuelto (query id_empresa > ID_EMPRESA_WHATSAPP > id_from) se envían botones por WhatsApp
+(ws_send_whatsapp_buttons).
 """
 from __future__ import annotations
 
@@ -44,8 +45,8 @@ async def casual(
 
     id_empresa: credenciales WhatsApp (fallback: ID_EMPRESA_WHATSAPP o id_from).
 
-    Si se envían wa_id y un id_empresa resuelto, se POSTea a ws_send_whatsapp_list
-    (whatsapp_list_enviado, whatsapp_list_debug en la respuesta).
+    Si se envían wa_id y un id_empresa resuelto, se POSTea a ws_send_whatsapp_buttons
+    (whatsapp_buttons_enviado, whatsapp_buttons_debug en la respuesta).
     """
     b = body or CasualBody()
     mensaje_final = mensaje if mensaje else (b.mensaje or "")
