@@ -9,6 +9,62 @@ class EntityRepository:
         self._url_proveedor = url_proveedor
         self._url_compra = url_compra
 
+    @staticmethod
+    def _mensaje_error_api(data: dict) -> str:
+        parts = [
+            data.get("message"),
+            data.get("error"),
+            data.get("details"),
+            data.get("mensaje"),
+        ]
+        body = data.get("data") or {}
+        if isinstance(body, dict):
+            parts.extend([body.get("message"), body.get("error")])
+        out = " | ".join(str(p) for p in parts if p is not None and str(p).strip())
+        return out or "Error desconocido (sin mensaje en JSON)"
+
+    @staticmethod
+    def _es_error_fk_tipo_documento(msg: str) -> bool:
+        m = (msg or "").lower()
+        return (
+            "persona_id_tipo_documento_fkey" in m
+            or "tipodocumentoempresa" in m
+            or "id_tipo_documento" in m
+            or "fkey" in m
+        )
+
+    @staticmethod
+    def _extraer_cliente_id(resp: dict) -> int | None:
+        if resp.get("cliente_id") is not None:
+            try:
+                return int(resp["cliente_id"])
+            except (TypeError, ValueError):
+                pass
+        body = resp.get("data") or {}
+        for k in ("cliente_id", "id"):
+            if body.get(k) is not None:
+                try:
+                    return int(body[k])
+                except (TypeError, ValueError):
+                    pass
+        return None
+
+    @staticmethod
+    def _extraer_proveedor_id(resp: dict) -> int | None:
+        if resp.get("proveedor_id") is not None:
+            try:
+                return int(resp["proveedor_id"])
+            except (TypeError, ValueError):
+                pass
+        body = resp.get("data") or {}
+        for k in ("proveedor_id", "id"):
+            if body.get(k) is not None:
+                try:
+                    return int(body[k])
+                except (TypeError, ValueError):
+                    pass
+        return None
+
     # ------------------------------------------------------------------ #
     # BÚSQUEDA
     # ------------------------------------------------------------------ #
@@ -62,43 +118,120 @@ class EntityRepository:
         nombre = str(reg.get("entidad_nombre") or "").strip() or "Sin nombre"
         es_ruc = id_tipo == 6
 
-        payload: dict = {"codOpe": "REGISTRAR_CLIENTE", "empresa_id": id_from}
+        payload_base: dict = {"codOpe": "REGISTRAR_CLIENTE", "empresa_id": id_from}
         if es_ruc:
-            payload["tipo_persona"] = 2
-            payload["razon_social"] = nombre
-            payload["id_tipo_documento"] = id_tipo
-            payload["ruc"] = numero_doc
+            payload_base["tipo_persona"] = 2
+            payload_base["razon_social"] = nombre
+            payload_base["ruc"] = numero_doc
         else:
-            payload["tipo_persona"] = 1
-            payload["nombres"] = nombre
-            payload["apellido_paterno"] = "."
-            payload["id_tipo_documento"] = id_tipo
-            payload["numero_documento"] = numero_doc
+            payload_base["tipo_persona"] = 1
+            payload_base["nombres"] = nombre
+            payload_base["apellido_paterno"] = "."
+            payload_base["numero_documento"] = numero_doc
 
         for k in ("telefono", "correo", "direccion", "nombre_comercial", "representante_legal"):
             if reg.get(k):
-                payload[k] = reg[k]
+                payload_base[k] = reg[k]
 
-        try:
-            r = requests.post(self._url_cliente, json=payload, timeout=15)
+        candidatos_tipo_doc = [id_tipo]
+        if es_ruc and 4 not in candidatos_tipo_doc:
+            # Compatibilidad con empresas donde RUC está mapeado con id_tipo_documento=4.
+            candidatos_tipo_doc.append(4)
+
+        ultimo_error: dict = {"success": False, "message": "No se pudo registrar cliente"}
+        for cand in candidatos_tipo_doc:
+            payload = {**payload_base, "id_tipo_documento": cand}
             try:
-                data = r.json()
-            except Exception:
-                data = {"success": False, "message": r.text or f"Respuesta no JSON (status {r.status_code})"}
-            if r.status_code >= 400:
-                data["success"] = False
-            if not data.get("success") and "message" not in data:
-                data["message"] = (
-                    data.get("error") or data.get("msg") or data.get("detail") or data.get("mensaje")
-                    or (r.text and r.text[:200])
-                    or f"Error HTTP {r.status_code}"
-                )
-            # Normalizar cliente_id por si viene en data.data o como id
-            if data.get("success") and "cliente_id" not in data:
-                data["cliente_id"] = (data.get("data") or {}).get("cliente_id") or data.get("data", {}).get("id") or data.get("id")
-            return data
-        except Exception as e:
-            return {"success": False, "message": str(e)}
+                r = requests.post(self._url_cliente, json=payload, timeout=15)
+                try:
+                    data = r.json()
+                except Exception:
+                    data = {"success": False, "message": r.text or f"Respuesta no JSON (status {r.status_code})"}
+                if r.status_code >= 400:
+                    data["success"] = False
+                if not data.get("success") and "message" not in data:
+                    data["message"] = (
+                        data.get("error") or data.get("msg") or data.get("detail") or data.get("mensaje")
+                        or (r.text and r.text[:200])
+                        or f"Error HTTP {r.status_code}"
+                    )
+                if data.get("success"):
+                    if "cliente_id" not in data:
+                        data["cliente_id"] = self._extraer_cliente_id(data)
+                    data["id_tipo_documento_usado"] = cand
+                    return data
+                ultimo_error = data
+                if not self._es_error_fk_tipo_documento(self._mensaje_error_api(data)):
+                    return data
+            except Exception as e:
+                ultimo_error = {"success": False, "message": str(e)}
+                break
+
+        return ultimo_error
+
+    def registrar_proveedor(self, reg: dict, id_from: int) -> dict:
+        """
+        Registra un proveedor simple.
+        - Persona Natural (tipo_persona=1): nombres, apellido_paterno, id_tipo_documento, numero_documento.
+        - Persona Jurídica (tipo_persona=2): razon_social, id_tipo_documento, ruc.
+        """
+        num_raw = str(reg.get("entidad_numero") or reg.get("entidad_numero_documento") or "").strip()
+        id_tipo = 6 if len(num_raw) == 11 else 1
+        nombre = str(reg.get("entidad_nombre") or "").strip() or "Sin nombre"
+        es_ruc = id_tipo == 6
+
+        payload_base: dict = {
+            "codOpe": "REGISTRAR_PROVEEDOR_SIMPLE",
+            "id_empresa": id_from,
+        }
+        if es_ruc:
+            payload_base["tipo_persona"] = 2
+            payload_base["razon_social"] = nombre
+            payload_base["ruc"] = num_raw
+        else:
+            payload_base["tipo_persona"] = 1
+            payload_base["nombres"] = nombre
+            payload_base["apellido_paterno"] = "."
+            payload_base["numero_documento"] = num_raw
+
+        for k in ("telefono", "correo", "direccion", "nombre_comercial", "representante_legal"):
+            if reg.get(k):
+                payload_base[k] = reg[k]
+
+        candidatos_tipo_doc = [id_tipo]
+        if es_ruc and 4 not in candidatos_tipo_doc:
+            candidatos_tipo_doc.append(4)
+
+        ultimo_error: dict = {"success": False, "message": "No se pudo registrar proveedor"}
+        for cand in candidatos_tipo_doc:
+            payload = {**payload_base, "id_tipo_documento": cand}
+            try:
+                r = requests.post(self._url_proveedor, json=payload, timeout=15)
+                try:
+                    data = r.json()
+                except Exception:
+                    data = {"success": False, "message": r.text or f"Respuesta no JSON (status {r.status_code})"}
+                if r.status_code >= 400:
+                    data["success"] = False
+                if not data.get("success") and "message" not in data:
+                    data["message"] = (
+                        data.get("error") or data.get("msg") or data.get("detail") or data.get("mensaje")
+                        or (r.text and r.text[:200])
+                        or f"Error HTTP {r.status_code}"
+                    )
+                if data.get("success"):
+                    if "proveedor_id" not in data:
+                        data["proveedor_id"] = self._extraer_proveedor_id(data)
+                    data["id_tipo_documento_usado"] = cand
+                    return data
+                ultimo_error = data
+                if not self._es_error_fk_tipo_documento(self._mensaje_error_api(data)):
+                    return data
+            except Exception as e:
+                ultimo_error = {"success": False, "message": str(e)}
+                break
+
+        return ultimo_error
 
     # ------------------------------------------------------------------ #
     # ACTUALIZACIÓN

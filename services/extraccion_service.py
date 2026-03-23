@@ -110,8 +110,17 @@ class ExtraccionService:
         if requiere_identificacion["activo"] and self._identificador:
             tipo_raw = requiere_identificacion["tipo_ope"] or payload_db.get("operacion") or "venta"
             tipo_busqueda = "ventas" if (tipo_raw or "").lower().strip() == "venta" else "compras" if (tipo_raw or "").lower().strip() == "compra" else tipo_raw
-            salida_identificador = self._identificador.buscar(
-                tipo_busqueda, requiere_identificacion["termino"], id_from,
+            nombre_para_registro = (
+                payload_db.get("entidad_nombre")
+                or payload_base.get("entidad_nombre")
+                or estado_actual.get("entidad_nombre")
+                or None
+            )
+            salida_identificador = self._identificador.buscar_o_crear(
+                tipo_busqueda,
+                requiere_identificacion["termino"],
+                id_from,
+                nombre_entidad=nombre_para_registro,
             )
             if salida_identificador and salida_identificador.get("identificado"):
                 campos_entidad = salida_identificador.get("campos_entidad") or {}

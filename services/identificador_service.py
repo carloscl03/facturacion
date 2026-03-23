@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from prompts.plantillas import formatear_ficha_identificacion
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
@@ -15,6 +13,10 @@ def _sin_nulos(d: dict) -> dict:
         for k, v in d.items()
         if v is not None and v != "" and v != "null" and (not isinstance(v, str) or v.strip())
     }
+
+
+def _solo_digitos(valor: str | None) -> str:
+    return "".join(c for c in str(valor or "") if c.isdigit())
 
 
 class IdentificadorService:
@@ -146,12 +148,97 @@ class IdentificadorService:
                 "campos_entidad": {},
             }
 
+    def buscar_o_crear(self, tipo_ope: str, termino: str, id_from: int, nombre_entidad: str | None = None) -> dict:
+        """
+        Flujo idempotente:
+        1) Busca por documento/nombre.
+        2) Si no existe y el término parece DNI/RUC (8/11), registra según tipo_ope.
+        3) Re-busca para devolver ficha completa e IDs oficiales.
+        """
+        encontrado = self.buscar(tipo_ope, termino, id_from)
+        if encontrado.get("identificado"):
+            encontrado["created"] = False
+            return encontrado
+
+        termino_doc = _solo_digitos(termino)
+        if len(termino_doc) not in (8, 11):
+            encontrado["created"] = False
+            return encontrado
+
+        tipo_norm = (tipo_ope or "").lower().strip()
+        es_compra = tipo_norm in ("compra", "compras")
+        es_venta = tipo_norm in ("venta", "ventas")
+        nombre_limpio = (nombre_entidad or "").strip() or f"Entidad {termino_doc[-4:]}"
+        payload_registro = {
+            "entidad_nombre": nombre_limpio,
+            "entidad_numero": termino_doc,
+        }
+
+        if es_compra:
+            alta = self._entities.registrar_proveedor(payload_registro, id_from)
+            id_alta = alta.get("proveedor_id")
+            rol = "proveedor"
+        elif es_venta:
+            alta = self._entities.registrar_cliente(payload_registro, id_from)
+            id_alta = alta.get("cliente_id")
+            rol = "cliente"
+        else:
+            return {
+                "identificado": False,
+                "created": False,
+                "mensaje": "No se pudo identificar el tipo de operación para crear la entidad.",
+                "datos_identificados": None,
+                "campos_entidad": {},
+            }
+
+        if not alta.get("success"):
+            err = alta.get("message") or alta.get("error") or "No se pudo registrar la entidad"
+            return {
+                "identificado": False,
+                "created": False,
+                "mensaje": f"❌ No pude registrar el {rol}: {err}",
+                "datos_identificados": None,
+                "campos_entidad": {},
+            }
+
+        rebusqueda = self.buscar(tipo_ope, termino_doc, id_from)
+        if rebusqueda.get("identificado"):
+            rebusqueda["created"] = True
+            return rebusqueda
+
+        # Fallback defensivo: alta OK pero la re-búsqueda no devolvió datos.
+        entidad_id = id_alta or alta.get("persona_id")
+        return {
+            "identificado": entidad_id is not None,
+            "created": True,
+            "mensaje": f"✅ Registré el {rol} correctamente.",
+            "datos_identificados": {
+                "nombre_entidad": nombre_limpio,
+                "doc_identidad": termino_doc,
+                "tipo_doc_txt": "RUC" if len(termino_doc) == 11 else "DNI",
+                "comercial": "_No registrado_",
+                "correo": "_No registrado_",
+                "telefono": "_No registrado_",
+                "direccion": "_No registrado_",
+                "rol_txt": "Proveedor" if es_compra else "Cliente",
+                "tipo_ope": tipo_ope,
+            },
+            "campos_entidad": _sin_nulos({
+                "entidad_nombre": nombre_limpio,
+                "entidad_numero": termino_doc,
+                "entidad_id": entidad_id,
+                "identificado": entidad_id is not None,
+                "cliente_id": id_alta if es_venta else None,
+                "proveedor_id": id_alta if es_compra else None,
+            }),
+        }
+
     # -------------------------------------------------------------- #
     # ejecutar(): wrapper legacy que busca + persiste en cache.
     # Se mantiene por compatibilidad con rutas/servicios existentes.
     # -------------------------------------------------------------- #
     def ejecutar(self, wa_id: str, tipo_ope: str, termino: str, id_from: int) -> dict:
-        resultado = self.buscar(tipo_ope, termino, id_from)
+        resultado = self.buscar_o_crear(tipo_ope, termino, id_from)
 
         if not resultado.get("identificado"):
             return {
