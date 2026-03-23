@@ -1,8 +1,9 @@
 """
 Finalizar operación (venta/compra).
 
-Orquesta validación, traducción de campos, registro/actualización de cliente
-y emisión de comprobante SUNAT delegando la lógica de dominio a helpers.
+Orquesta validación, traducción de campos y emisión/registro del comprobante
+(REGISTRAR_VENTA_N8N / REGISTRAR_COMPRA). No registra ni actualiza clientes ni
+proveedores: el cliente/proveedor debe existir e identificarse antes (entidad_id).
 
 En venta exitosa: envía 2 mensajes WhatsApp separados (texto + PDF).
 """
@@ -15,14 +16,10 @@ import requests
 
 from config import settings
 
-# Límite 700 PEN: si monto < 700 → identificación por documento (DNI/RUC) opcional (nota de venta).
-# Si monto >= 700 → documento obligatorio. No es restricción estricta sobre tipo de comprobante.
-MONTO_LIMITE_DOC_OPCIONAL_PEN = 700
-
 # Usuario con el que se registran ventas y compras (temporal; informado por Maravia).
 ID_USUARIO_REGISTRO = 3
 
-# Mapeo de errores conocidos de las APIs de registro (ws_compra.php, ws_cliente) a mensajes claros.
+# Mapeo de errores conocidos de la API de compras (ws_compra.php) a mensajes claros.
 MAPEO_ERRORES_API_COMPRA = {
     "Campo requerido: id_proveedor": "Falta indicar el proveedor.",
     "Campo requerido: fecha_emision": "Falta la fecha de emisión.",
@@ -33,11 +30,6 @@ MAPEO_ERRORES_API_COMPRA = {
     "JSON inválido o vacío": "Datos enviados inválidos. Reintente.",
     "No se pudo conectar a la base de datos": "Servicio temporalmente no disponible. Reintente más tarde.",
 }
-MAPEO_ERRORES_API_CLIENTE = {
-    "duplicate": "Ya existe un cliente con ese documento.",
-    "ya existe": "Ya existe un cliente con ese documento.",
-    "documento": "Revise el número de documento (DNI 8 dígitos, RUC 11 dígitos).",
-}
 
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
@@ -45,7 +37,6 @@ from services.eliminar_service import EliminarService
 from services.helpers.compra_mapper import construir_payload_compra
 from services.helpers.sunat_client import SunatClient
 from services.helpers.venta_mapper import (
-    construir_payload_venta,
     construir_payload_venta_n8n,
     construir_sintesis_actual,
     traducir_registro_a_parametros,
@@ -227,7 +218,7 @@ class FinalizarService:
                 },
             }
 
-        if errores and not (operacion == "venta" and registro.get("entidad_nombre") and params["entidad_numero"]):
+        if errores:
             try:
                 sintesis = construir_sintesis_actual(registro)
                 faltan = f"⚠️ *No se puede finalizar.*\n\nFaltan: **{', '.join(errores)}**."
@@ -283,18 +274,9 @@ class FinalizarService:
             errores.append("Tipo de documento (Factura/Boleta/Nota)")
         if not params["id_moneda"]:
             errores.append("Moneda (PEN/USD)")
-        # Regla 700 PEN solo afecta si exigimos documento: >= 700 → nombre + documento; < 700 → solo nombre (documento opcional).
+        # Venta: solo con cliente ya identificado en BD (entidad_id). No se registra cliente aquí.
         if operacion == "venta" and not params["id_cliente"]:
-            monto_pen = float(params.get("monto_total") or 0)
-            id_moneda_pen = params.get("id_moneda") == 1
-            if id_moneda_pen and monto_pen >= MONTO_LIMITE_DOC_OPCIONAL_PEN:
-                tiene_datos = str(reg.get("entidad_nombre") or "").strip() and params.get("entidad_numero")
-                if not tiene_datos:
-                    errores.append("Cliente (nombre y documento) para facturar")
-            else:
-                tiene_datos = str(reg.get("entidad_nombre") or "").strip()
-                if not tiene_datos:
-                    errores.append("Cliente (nombre) para el comprobante")
+            errores.append("Cliente identificado (complete la identificación antes de finalizar)")
         if operacion == "compra" and not reg.get("entidad_id"):
             errores.append("Proveedor (debe estar seleccionado para registrar la compra)")
         return errores
@@ -309,43 +291,12 @@ class FinalizarService:
     ) -> dict:
         id_cliente = params["id_cliente"]
 
-        if not id_cliente and str(reg.get("entidad_nombre") or "").strip() and str(reg.get("entidad_numero") or "").strip():
-            resp_cli = self._entities.registrar_cliente(reg, id_from)
-            id_cliente = resp_cli.get("cliente_id") or (resp_cli.get("data") or {}).get("cliente_id") or resp_cli.get("id")
-            if resp_cli.get("success") and id_cliente:
-                id_cliente = int(id_cliente) if id_cliente else None
-            else:
-                id_cliente = None
-            if not id_cliente:
-                msg = (
-                    resp_cli.get("message")
-                    or resp_cli.get("mensaje")
-                    or resp_cli.get("error")
-                    or resp_cli.get("msg")
-                    or resp_cli.get("detail")
-                    or "Error desconocido"
-                )
-                msg = _mensaje_error_mapeado(str(msg), MAPEO_ERRORES_API_CLIENTE)
-                # Si sigue siendo genérico, añadir pista con status o respuesta
-                if msg == "Error desconocido" and resp_cli:
-                    extra = []
-                    if resp_cli.get("success") is True:
-                        extra.append("API devolvió success=true pero sin cliente_id")
-                    if isinstance(resp_cli.get("data"), dict):
-                        extra.append(str(resp_cli.get("data"))[:150])
-                    if extra:
-                        msg = f"{msg} ({'; '.join(extra)})"
-                return {
-                    "status": "error",
-                    "mensaje": f"❌ No se pudo registrar el cliente: {msg}.",
-                }
-
-        if id_cliente and (reg.get("entidad_nombre") or reg.get("entidad_numero")):
-            self._entities.actualizar_cliente(id_cliente, reg, id_from)
-
         if not id_cliente:
             sintesis = construir_sintesis_actual(reg)
-            faltan = "⚠️ Falta el cliente (nombre y documento). Indica los datos para registrarlo."
+            faltan = (
+                "⚠️ Falta el cliente identificado en el sistema. "
+                "Completa la identificación (RUC/DNI o búsqueda) antes de finalizar; aquí solo se registra la venta."
+            )
             mensaje = f"{sintesis}\n\n{faltan}" if sintesis else faltan
             return {
                 "status": "incompleto",

@@ -248,7 +248,7 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
     entidad_numero = str(reg.get("entidad_numero") or "").strip()
     id_tipo_doc_entidad = 6 if len(entidad_numero) == 11 else 1
 
-    id_cliente = reg.get("entidad_id")
+    id_cliente = reg.get("entidad_id") or reg.get("id_identificado")
     if id_cliente is not None and id_cliente != "":
         try:
             id_cliente = int(id_cliente)
