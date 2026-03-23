@@ -64,7 +64,7 @@ def build_prompt_extractor(
     Mapeo de claves del JSON a campos de propuesta_cache:
     - Entidad: "cliente", "razon_social", "proveedor" → entidad_nombre; "ruc", "dni", "documento" → **entidad_numero** (obligatorio mapear para que el backend tenga el número). Si el JSON tiene "ruc" o "dni", además de guardarlo en entidad_numero debes poner **requiere_identificacion.activo = true** y **termino** = ese número.
     - Operación: "tipo_operacion", "cod_ope", "operacion" → operacion ("venta"/"compra").
-    - Comprobante: "tipo_comprobante", "comprobante" → tipo_documento ("factura"/"boleta"/"nota de venta"/"nota de compra"). Nunca usar "recibo".
+    - Comprobante: "tipo_comprobante", "comprobante", "nota" → tipo_documento ("factura"/"boleta"/"nota de venta"/"nota de compra"). Nunca usar "recibo".
     - Número del comprobante (serie-número): "serie", "numero", "numero_documento" → **numero_documento** (ej: "B005-00000008", "F001-00005678"). Este campo es SOLO para el comprobante (boleta/factura); NUNCA pongas aquí el DNI ni el RUC del cliente (eso va en entidad_numero).
     - Montos: "total", "monto_total" → monto_total; "subtotal", "base" → monto_sin_igv; "igv" → igv.
     - Productos: "productos", "items", "detalle" → productos (JSON array).
@@ -80,7 +80,7 @@ def build_prompt_extractor(
       Se infiere desde el documento de la entidad: RUC (11 dígitos) => factura, DNI (8 dígitos) => boleta.
       Además, si el usuario indica explícitamente "factura"/"boleta", se asume el tipo correspondiente aunque no se haya indicado aún el RUC/DNI.
       Si no se puede inferir desde el mensaje, deja null.
-    - Si el usuario indica "nota" sin especificar, usa la operación para inferir: en venta => "nota de venta"; en compra => "nota de compra".
+    - Si el usuario indica "nota" sin especificar, usa la operación para inferir: en venta => "nota de venta"; en compra => "nota de compra". Si la operación no está definida, no preguntes tipo de comprobante: pregunta solo si es venta o compra para resolver la nota.
     - Para "nota de venta" o "nota de compra": tratar como registro interno sin cálculo de IGV. No forzar ni preguntar por desglose de IGV/base; usa monto_total como dato principal.
     - **REGLA 700 (PEN) — solo afecta si pides documento:** Para ventas en soles (PEN): si el monto total es **menor a S/ 700**, la identificación por documento (DNI o RUC) es **opcional** (puede ser nota de venta; no preguntes por DNI/RUC si el usuario no lo da). Si el monto es **>= S/ 700**, el documento del cliente (DNI/RUC) es **obligatorio**. Esta regla solo define cuándo pedir o no documento; no sugieras ni preguntes cambiar de boleta a factura ni impongas tipo de comprobante por el monto.
     - numero_documento: formato serie-número del **comprobante** según SUNAT (ej: B005-00000008, F001-00005678). Solo si el usuario da el número de boleta/factura a emitir. No confundir con el documento del cliente: el DNI/RUC del cliente va siempre en entidad_numero.
@@ -128,7 +128,7 @@ def build_prompt_extractor(
        - si tipo_documento = "boleta" => pedir DNI (8 dígitos)
        - si tipo_documento = "nota de venta" o "nota de compra" => opcional: NO preguntes si el monto es < 700 PEN y el usuario no dio el documento
        - si tipo_documento = null => aplica regla 700 PEN: si monto_total >= 700 PEN => pedir RUC o DNI; si monto_total < 700 PEN => no preguntar (a menos que el usuario haya indicado explícitamente factura/boleta en el mensaje).
-    4. Tipo de documento: solo si tipo_documento es null y NO se puede inferir desde entidad_numero (RUC/DNI) ni desde el texto (factura/boleta/nota).
+    4. Tipo de documento: solo si tipo_documento es null y NO se puede inferir desde entidad_numero (RUC/DNI), ni desde el texto (factura/boleta/nota), ni desde la operación actual del registro. Si el usuario dijo "nota", NO preguntes tipo de comprobante; si falta operación, pregunta operación (venta/compra) y no el tipo.
     5. **Método de pago (contado o crédito):** Solo si **metodo_pago** es null o vacío (en Redis puede venir como metodo_pago o legado medio_pago solo si es contado/credito). La pregunta debe incluir **en el mismo renglón** la aclaración entre paréntesis, por ejemplo: "¿La operación es al contado o a crédito? **(contado o crédito)**" o "Indique si es al contado o a crédito **(contado o crédito)**." Si ya figura metodo_pago = "contado" o "credito", **NO** preguntes de nuevo.
     6. **Si metodo_pago = "credito":** si faltan dias_credito o nro_cuotas, pregúntalos. Para **días de crédito**, ofrece valores típicos en el texto: **15, 30, 45, 60, 90** días (ej. "¿A cuántos días? Puede ser 15, 30, 45, 60 o 90 días."). Para **nro_cuotas**, indica que es de **1 a 24** (ej. "¿En cuántas cuotas? (de 1 a 24)").
     7. Moneda: solo si moneda es null (preguntar "¿En soles (PEN) o dólares (USD)?"). Si moneda = PEN, no preguntes tipo de cambio.
