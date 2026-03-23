@@ -21,8 +21,8 @@ ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
    📦 *DETALLE DE [VENTA o COMPRA]:*
    🔹 Cant. [cantidad] x [nombre] — [precio]  — por cada ítem en productos
    💰 *RESUMEN ECONÓMICO:*
-   ├─ Subtotal: [monto_sin_igv]  — si monto_sin_igv > 0
-   ├─ IGV (18%): [igv]
+   ├─ Subtotal: [monto_sin_igv]  — solo si tipo_documento es factura/boleta y monto_sin_igv > 0
+   ├─ IGV (18%): [igv]  — solo si tipo_documento es factura/boleta
    └─ *TOTAL: [monto_total]*  — si monto_total > 0
    ━━━━━━━━━━━━━━━━━━━
 
@@ -36,7 +36,7 @@ ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
 
 Nota: **metodo_pago** = al contado o a crédito (extractor). **forma_pago** y **medio_pago** (con id_forma_pago / id_medio_pago) = catálogos del agente de opciones (Estado 2). Centro de costo solo en compra. No confundir método (contado/crédito) con forma ni medio de catálogo.
 
-REGLA CRÍTICA — DINÁMICO: Escribe solo las líneas para las que el campo tenga valor real. Si operacion está vacía, no pongas la línea de COMPRA/VENTA. Si tipo_documento está vacío, no pongas la línea del comprobante. Si monto_total es 0 y no hay productos, no pongas resumen económico. Campo vacío/null/0 = esa línea no aparece en el resumen.
+REGLA CRÍTICA — DINÁMICO: Escribe solo las líneas para las que el campo tenga valor real. Si operacion está vacía, no pongas la línea de COMPRA/VENTA. Si tipo_documento está vacío, no pongas la línea del comprobante. Si monto_total es 0 y no hay productos, no pongas resumen económico. Para tipo_documento = nota de venta o nota de compra, no mostrar subtotal ni IGV (solo total). Campo vacío/null/0 = esa línea no aparece en el resumen.
 """
 
 ESTRUCTURA_GUIA = """

@@ -27,11 +27,17 @@ def construir_detalles_compra(
     """
     productos = normalizar_productos_raw(reg.get("productos"))
     id_unidad = reg.get("id_unidad", id_unidad_default)
+    tipo_doc = str(reg.get("tipo_documento") or "").strip().lower()
+    es_nota = tipo_doc in ("nota de venta", "nota de compra")
 
     if not productos:
         mt = float(monto_total)
-        mb = float(monto_base or mt / 1.18)
-        mi = float(monto_igv or mt - mb)
+        if es_nota:
+            mb = float(monto_base or mt)
+            mi = 0.0
+        else:
+            mb = float(monto_base or mt / 1.18)
+            mi = float(monto_igv or mt - mb)
         # id_inventario/id_catalogo solo si vienen en el registro (null si no).
         return [
             {
@@ -60,8 +66,12 @@ def construir_detalles_compra(
         qty = float(p.get("cantidad", 1))
         pu = float(p.get("precio_unitario") or p.get("precio", 0))
         total_item = float(p.get("total_item", qty * pu))
-        subtotal = total_item / 1.18
-        igv = total_item - subtotal
+        if es_nota:
+            subtotal = total_item
+            igv = 0.0
+        else:
+            subtotal = total_item / 1.18
+            igv = total_item - subtotal
         concepto = str(p.get("nombre") or p.get("concepto") or "Item").strip() or "Producto"
         detalles.append(
             {

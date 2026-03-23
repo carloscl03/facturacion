@@ -389,8 +389,16 @@ class ExtraccionService:
                 if v is not None and str(v).strip():
                     entidad_numero = str(v).strip()
                     break
+        tipo_doc_raw = str(
+            propuesta.get("tipo_documento")
+            or estado_actual.get("tipo_documento")
+            or ""
+        ).strip().lower()
+        es_nota = tipo_doc_raw in ("nota de venta", "nota de compra")
+
         # --- IGV coherente (fallback determinístico) ---
         # Si el extractor/IA no llenó igv/base con exactitud, lo calculamos con IGV 18%.
+        # Para notas (venta/compra), no se calcula IGV.
         monto_total = float(propuesta.get("monto_total") or estado_actual.get("monto_total") or 0)
         monto_sin_igv = float(
             propuesta.get("monto_sin_igv")
@@ -404,7 +412,10 @@ class ExtraccionService:
             or estado_actual.get("monto_impuesto")
             or 0
         )
-        if monto_total > 0:
+        if es_nota:
+            monto_sin_igv = 0.0
+            igv_val = 0.0
+        elif monto_total > 0:
             # Si faltó base, la inferimos desde monto_total.
             if monto_sin_igv == 0:
                 monto_sin_igv = monto_total / 1.18

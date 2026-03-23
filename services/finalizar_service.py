@@ -280,7 +280,7 @@ class FinalizarService:
         if params["monto_total"] <= 0:
             errores.append("Monto total")
         if not params["id_tipo_comprobante"]:
-            errores.append("Tipo de documento (Factura/Boleta)")
+            errores.append("Tipo de documento (Factura/Boleta/Nota)")
         if not params["id_moneda"]:
             errores.append("Moneda (PEN/USD)")
         # Regla 700 PEN solo afecta si exigimos documento: >= 700 → nombre + documento; < 700 → solo nombre (documento opcional).

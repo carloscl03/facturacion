@@ -4,7 +4,7 @@ Test aislado: registrar una nota de venta vía REGISTRAR_VENTA_N8N (ws_venta.php
 Inspirado en test_pdf_sunat.py: mismo endpoint, headers y forma de imprimir la respuesta.
 
 Contrato (php/ventan8n.txt, función registrarVentaN8N):
-  - id_tipo_comprobante: en el backend Python (venta_mapper.TIPO_DOCUMENTO_MAP) «nota de venta» → 4.
+  - id_tipo_comprobante para este test se fija en 7 por consenso funcional del equipo.
   - generacion_comprobante debe ser 0: el flujo SUNAT en registrarVentaN8N solo aplica a tipos 1 (factura) y 2 (boleta).
   - Sin SUNAT: si envías serie y no número, PHP autogenera el correlativo con MAX+1 para esa serie.
 
@@ -41,8 +41,9 @@ ID_CLIENTE = int(os.environ.get("MARAVIA_ID_CLIENTE", "5"))
 
 FECHA_EMISION = os.environ.get("MARAVIA_FECHA_EMISION") or date.today().isoformat()
 
-# TIPO_DOCUMENTO_MAP en services/helpers/venta_mapper.py: "nota de venta" → 4
-ID_TIPO_NOTA_VENTA = 4
+# Consenso funcional: para nota de venta usar id_tipo_comprobante = 7.
+# Se deja hardcodeado para evitar ambigüedad entre catálogos/mapeos históricos.
+ID_TIPO_NOTA_VENTA = 7
 
 SERIE_NV = os.environ.get("MARAVIA_SERIE_NOTA_VENTA", "NV01")
 _num_env = os.environ.get("MARAVIA_NUMERO_NOTA_VENTA", "").strip()
@@ -98,7 +99,7 @@ def run() -> None:
         headers["Authorization"] = f"Bearer {token}"
 
     payload = _payload_nota_venta()
-    print("--- REQUEST (REGISTRAR_VENTA_N8N — nota de venta, id_tipo_comprobante=4) ---")
+    print("--- REQUEST (REGISTRAR_VENTA_N8N — nota de venta, id_tipo_comprobante=7) ---")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     print("\n--- POST", URL_VENTA, "---\n")
 

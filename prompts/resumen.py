@@ -22,7 +22,7 @@ def build_prompt_resumen(registro: dict) -> str:
     Incluye en el diagnóstico ÚNICAMENTE los campos obligatorios que estén vacíos o sin definir para poder avanzar al paso de *opciones*:
     1. Monto/Detalle (monto_total y productos)
     2. Cliente/Proveedor (entidad_nombre o entidad_id, y el documento si corresponde)
-    3. Tipo de documento (tipo_documento: factura, boleta, nota de venta)
+    3. Tipo de documento (tipo_documento: factura, boleta, nota de venta o nota de compra; nunca recibo)
     4. Moneda (moneda: PEN o USD)
     5. Método de pago (metodo_pago: contado o credito)
     6. Si metodo_pago = "credito": dias_credito y nro_cuotas

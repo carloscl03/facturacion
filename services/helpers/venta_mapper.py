@@ -102,8 +102,8 @@ def nro_documento_comprobante(reg: Dict[str, Any]) -> str | None:
 TIPO_DOCUMENTO_MAP = {
     "factura": 1,
     "boleta": 2,
-    "recibo": 3,
-    "nota de venta": 4,
+    "nota de venta": 7,
+    "nota de compra": 7,
 }
 
 MONEDA_MAP = {
