@@ -6,7 +6,11 @@ from prompts.extraccion import build_prompt_extractor
 from repositories.base import CacheRepository
 from services.ai_service import AIService
 from services.helpers.productos import productos_a_str
-from services.helpers.registro_domain import calcular_estado, operacion_desde_registro
+from services.helpers.registro_domain import (
+    calcular_estado,
+    normalizar_documento_entidad,
+    operacion_desde_registro,
+)
 from services.identificador_service import IdentificadorService
 
 
@@ -389,6 +393,8 @@ class ExtraccionService:
                 if v is not None and str(v).strip():
                     entidad_numero = str(v).strip()
                     break
+        # Evitar que serie-número de comprobante (p. ej. EB01-4) quede como RUC/DNI de la entidad.
+        entidad_numero = normalizar_documento_entidad(entidad_numero)
         tipo_doc_raw = str(
             propuesta.get("tipo_documento")
             or estado_actual.get("tipo_documento")
@@ -429,7 +435,7 @@ class ExtraccionService:
         return {
             "operacion": contexto_previo if contexto_previo else obtener("operacion", "cod_ope", None),
             "entidad_nombre": obtener("entidad_nombre", default=""),
-            "entidad_numero": entidad_numero or "",
+            "entidad_numero": entidad_numero,
             "tipo_documento": obtener("tipo_documento", default=None),
             "numero_documento": obtener("numero_documento", default=None),
             "moneda": obtener("moneda", default=None),

@@ -81,7 +81,7 @@ def build_prompt_analisis(
     El mensaje del usuario **puede contener un JSON** (objeto o array) dentro del texto, ya sea como bloque completo o embebido. Si detectas sintaxis JSON válida en el mensaje:
     1. **Parsea el JSON** e intenta extraer todo lo que sea útil para propuesta_cache.
     2. **Mapea** las claves del JSON a los campos de propuesta_cache según corresponda (nombres pueden variar). Ejemplos de mapeo:
-       - Entidad: "cliente", "cliente_nombre", "razon_social", "proveedor", "entidad_nombre" → entidad_nombre; "ruc", "dni", "numero_documento", "documento", "cliente_ruc" → entidad_numero_documento; "tipo_documento" (6 o "RUC") → entidad_id_tipo_documento (6=RUC, 1=DNI).
+       - Entidad: "cliente", "cliente_nombre", "razon_social", "proveedor", "entidad_nombre" → entidad_nombre; "ruc", "dni", "documento", "cliente_ruc" → entidad_numero_documento; la clave **numero_documento** solo mapéala a entidad_numero_documento si el valor son 8 u 11 dígitos (DNI/RUC); si parece serie de comprobante (ej. F001-00001), no lo mezcles con la entidad; "tipo_documento" (6 o "RUC") → entidad_id_tipo_documento (6=RUC, 1=DNI).
        - Operación: "tipo_operacion", "cod_ope", "operacion" ("ventas"/"compras") → cod_ope.
        - Comprobante: "tipo_comprobante", "comprobante" (1/2/"Factura"/"Boleta") → id_comprobante_tipo (1=Factura, 2=Boleta).
        - Montos: "total", "monto_total", "monto", "total_venta" → monto_total; "subtotal", "monto_base", "base" → monto_base; "igv", "monto_igv", "impuesto" → monto_impuesto.

@@ -45,6 +45,28 @@ def opciones_completas(registro: Dict[str, Any] | None) -> bool:
     return base
 
 
+def normalizar_documento_entidad(raw: Any) -> str:
+    """
+    Documento de identidad de cliente/proveedor (DNI 8 dígitos o RUC 11).
+    Rechaza valores que parecen serie-número de comprobante (p. ej. F001-00001, EB01-4)
+    para evitar que el extractor mezcle el número de boleta/factura/nota con el RUC/DNI.
+    """
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if not s or s.lower() in ("null", "none"):
+        return ""
+    # Serie de comprobante SUNAT: prefijo con letras + guión + correlativo
+    if "-" in s:
+        parte0 = s.split("-", 1)[0]
+        if any(c.isalpha() for c in parte0):
+            return ""
+    solo = "".join(c for c in s if c.isdigit())
+    if len(solo) in (8, 11):
+        return solo
+    return ""
+
+
 def operacion_normalizada(origen: str | None) -> str | None:
     """
     Normaliza una operación textual a 'venta' o 'compra'.

@@ -1,5 +1,7 @@
 import requests
 
+from services.helpers.registro_domain import normalizar_documento_entidad
+
 
 class EntityRepository:
     """Acceso a la API de clientes, proveedores y compras."""
@@ -112,7 +114,9 @@ class EntityRepository:
         - Persona Natural (tipo_persona=1): nombres, apellido_paterno, id_tipo_documento, numero_documento.
         - Persona Jurídica (tipo_persona=2): razon_social, id_tipo_documento, ruc.
         """
-        num_raw = str(reg.get("entidad_numero") or reg.get("entidad_numero_documento") or "").strip()
+        num_raw = normalizar_documento_entidad(
+            reg.get("entidad_numero") or reg.get("entidad_numero_documento")
+        )
         id_tipo = 6 if len(num_raw) == 11 else 1
         numero_doc = num_raw
         nombre = str(reg.get("entidad_nombre") or "").strip() or "Sin nombre"
@@ -175,7 +179,9 @@ class EntityRepository:
         - Persona Natural (tipo_persona=1): nombres, apellido_paterno, id_tipo_documento, numero_documento.
         - Persona Jurídica (tipo_persona=2): razon_social, id_tipo_documento, ruc.
         """
-        num_raw = str(reg.get("entidad_numero") or reg.get("entidad_numero_documento") or "").strip()
+        num_raw = normalizar_documento_entidad(
+            reg.get("entidad_numero") or reg.get("entidad_numero_documento")
+        )
         id_tipo = 6 if len(num_raw) == 11 else 1
         nombre = str(reg.get("entidad_nombre") or "").strip() or "Sin nombre"
         es_ruc = id_tipo == 6
@@ -254,7 +260,9 @@ class EntityRepository:
 
         if reg.get("entidad_nombre") and "nombres" not in payload and "razon_social" not in payload:
             payload["razon_social"] = reg["entidad_nombre"]
-        ent_num = reg.get("entidad_numero") or reg.get("entidad_numero_documento")
+        ent_num = normalizar_documento_entidad(
+            reg.get("entidad_numero") or reg.get("entidad_numero_documento")
+        )
         if ent_num:
             payload.setdefault("numero_documento", ent_num)
             payload.setdefault("ruc", ent_num)

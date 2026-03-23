@@ -1,5 +1,6 @@
 from services.helpers.registro_domain import (
     calcular_estado,
+    normalizar_documento_entidad,
     obtener_estado,
     operacion_desde_registro,
     operacion_normalizada,
@@ -29,6 +30,14 @@ def test_operacion_normalizada_variantes():
     assert operacion_normalizada("compra") == "compra"
     assert operacion_normalizada("otra") is None
     assert operacion_normalizada(None) is None
+
+
+def test_normalizar_documento_entidad_rechaza_serie_comprobante():
+    assert normalizar_documento_entidad("EB01-4") == ""
+    assert normalizar_documento_entidad("F001-00005678") == ""
+    assert normalizar_documento_entidad("10728842496") == "10728842496"
+    assert normalizar_documento_entidad("12345678") == "12345678"
+    assert normalizar_documento_entidad("") == ""
 
 
 def test_operacion_desde_registro_prioriza_operacion_y_cod_ope():

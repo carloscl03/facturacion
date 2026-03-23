@@ -62,7 +62,7 @@ def build_prompt_extractor(
     Si el mensaje contiene un JSON (objeto o array), trátalo como documento con muchos datos.
     Presta especial atención a las etiquetas/claves del JSON para llenar la mayor cantidad de campos.
     Mapeo de claves del JSON a campos de propuesta_cache:
-    - Entidad: "cliente", "razon_social", "proveedor" → entidad_nombre; "ruc", "dni", "documento" → **entidad_numero** (obligatorio mapear para que el backend tenga el número). Si el JSON tiene "ruc" o "dni", además de guardarlo en entidad_numero debes poner **requiere_identificacion.activo = true** y **termino** = ese número.
+    - Entidad: "cliente", "razon_social", "proveedor" → entidad_nombre; "ruc", "dni", "documento" → **entidad_numero** solo si es DNI/RUC (8 u 11 dígitos). Nunca uses "documento" ni "ruc"/"dni" para el número de comprobante (serie-número tipo EB01-4 o F001-00001: eso va solo en **numero_documento**). Si el JSON tiene "ruc" o "dni", además de guardarlo en entidad_numero debes poner **requiere_identificacion.activo = true** y **termino** = ese número.
     - Operación: "tipo_operacion", "cod_ope", "operacion" → operacion ("venta"/"compra").
     - Comprobante: "tipo_comprobante", "comprobante", "nota" → tipo_documento ("factura"/"boleta"/"nota de venta"/"nota de compra"). Nunca usar "recibo".
     - Número del comprobante (serie-número): "serie", "numero", "numero_documento" → **numero_documento** (ej: "B005-00000008", "F001-00005678"). Este campo es SOLO para el comprobante (boleta/factura); NUNCA pongas aquí el DNI ni el RUC del cliente (eso va en entidad_numero).
