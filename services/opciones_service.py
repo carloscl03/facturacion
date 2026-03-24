@@ -159,7 +159,7 @@ class OpcionesService:
                 "campo_pendiente": None,
                 "opciones_actuales": None,
                 "payload_whatsapp_list": None,
-                "mensaje": "Diga 'finalizar registro' para continuar.",
+                "mensaje": "Por favor, bríndame una confirmación para continuar",
                 "debug": debug_agente,
             }
 
@@ -344,16 +344,6 @@ class OpcionesService:
             except (TypeError, ValueError):
                 datos["id_forma_pago"] = valor_id
             datos["id_metodo_pago"] = None
-        elif campo == "medio_catalogo":
-            v = (str(valor_id) or str(valor) or "").strip()
-            if not v:
-                return {"success": False, "mensaje": "Valor de medio de pago vacío."}
-            datos["medio_pago"] = valor_nombre or v
-            datos["nombre_medio_pago"] = valor_nombre or v
-            try:
-                datos["id_medio_pago"] = int(float(str(valor_id).strip()))
-            except (TypeError, ValueError):
-                datos["id_medio_pago"] = valor_id
 
         siguiente = self._siguiente_campo_despues_de(registro, datos)
         id_tablas_next = id_from
@@ -375,7 +365,7 @@ class OpcionesService:
 
         titulo_siguiente = self._titulo_campo(siguiente) if siguiente else None
         texto_siguiente = (f"{titulo_siguiente}\n" + self._formatear_texto_lista(opciones_actuales_next)) if opciones_actuales_next else None
-        mensaje = "Diga 'finalizar registro' para continuar." if siguiente is None else (texto_siguiente or None)
+        mensaje = "Por favor, bríndame una confirmación para continuar" if siguiente is None else (texto_siguiente or None)
         payload_list = self._build_payload_whatsapp_list(
             id_empresa=id_from,
             phone=wa_id,
@@ -449,8 +439,6 @@ class OpcionesService:
             return self._parametros.obtener_centros_costo(wa_id)
         if campo == "forma_pago":
             return self._informacion.obtener_formas_pago()
-        if campo == "medio_catalogo":
-            return self._informacion.obtener_medios_pago_catalogo()
         return []
 
     def _lista_para_redis(self, campo: str, raw: list) -> list[dict]:
@@ -472,8 +460,6 @@ class OpcionesService:
             return "Centros de costo:"
         if campo == "forma_pago":
             return "Formas de pago:"
-        if campo == "medio_catalogo":
-            return "Medios de pago:"
         return "Opciones:"
 
     def _textos_whatsapp_list(self, campo: str) -> tuple[str, str, str, str, str]:
@@ -504,14 +490,6 @@ class OpcionesService:
                 "Selecciona una forma de pago",
                 "Ver formas de pago",
                 "Formas de pago",
-            )
-        if campo == "medio_catalogo":
-            return (
-                "Medios de pago disponibles: ",
-                "Medios de pago",
-                "Selecciona un medio de pago",
-                "Ver medios de pago",
-                "Medios de pago",
             )
         return (
             "Opciones disponibles: ",

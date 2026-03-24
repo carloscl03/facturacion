@@ -206,8 +206,8 @@ class ClasificadorService:
             destino = "extraccion"
             intencion = "actualizar"
 
-        # 3. Finalizar solo con estado >= 4 y opciones completas; si no, a resumen.
-        if destino == "finalizar-operacion" and (estado < 4 or not opciones_completo):
+        # 3. Finalizar solo con estado >= 5 (confirmación del estado 4 ya dada); si no, a resumen.
+        if destino == "finalizar-operacion" and estado < 5:
             destino = "generar-resumen"
             intencion = "resumen"
 
@@ -219,6 +219,17 @@ class ClasificadorService:
                 payload = {**registro, "estado": 4}
                 self._repo.actualizar(wa_id, id_from, payload)
                 estado = 4
+            except Exception:
+                pass
+
+        # 5. Confirmación 4→5: mensaje de confirmar + estado 4 + opciones completas → el clasificador escribe estado 5 y envía a finalizar.
+        if registro and siguiente_estado and estado == 4 and opciones_completo:
+            destino = "finalizar-operacion"
+            intencion = "finalizar"
+            try:
+                payload = {**registro, "estado": 5}
+                self._repo.actualizar(wa_id, id_from, payload)
+                estado = 5
             except Exception:
                 pass
 

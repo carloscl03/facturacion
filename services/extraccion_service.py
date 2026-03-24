@@ -148,11 +148,11 @@ class ExtraccionService:
                 # No encontrado: el mensaje del identificador se mostrará al usuario (más abajo)
                 pass
 
-        # --- Calcular estado (una sola asignación; no sobrescribir estado 4) ---
+        # --- Calcular estado (una sola asignación; no sobrescribir estado 4 ni 5) ---
         estado_calculado = calcular_estado(payload_db)
-        # Estado 4 solo lo pone confirmar_registro; extracción no debe pisarlo
-        if estado_actual.get("estado") == 4:
-            estado = 4
+        # Estado 4 solo lo pone confirmar_registro; estado 5 solo lo pone clasificador (4→5). Extracción no debe pisarlos.
+        if estado_actual.get("estado") in (4, 5):
+            estado = estado_actual.get("estado")
         else:
             estado = estado_calculado
         payload_db["estado"] = estado
