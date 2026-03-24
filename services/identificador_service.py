@@ -150,86 +150,152 @@ class IdentificadorService:
 
     def buscar_o_crear(self, tipo_ope: str, termino: str, id_from: int, nombre_entidad: str | None = None) -> dict:
         """
-        Flujo idempotente:
-        1) Busca por documento/nombre.
-        2) Si no existe y el término parece DNI/RUC (8/11), registra según tipo_ope.
-        3) Re-busca para devolver ficha completa e IDs oficiales.
+        Bifurcación según tipo de operación:
+
+        COMPRA → flujo proveedor:
+            1. Busca en API de proveedores.
+            2. Si existe  → "Proveedor encontrado" + proveedor_id.
+            3. Si no existe → registra como proveedor → "Proveedor registrado" + nuevo proveedor_id.
+
+        VENTA → flujo cliente (idéntico pero con API de clientes):
+            1. Busca en API de clientes.
+            2. Si existe  → "Cliente encontrado" + cliente_id.
+            3. Si no existe → registra como cliente → "Cliente registrado" + nuevo cliente_id.
         """
-        encontrado = self.buscar(tipo_ope, termino, id_from)
-        if encontrado.get("identificado"):
-            encontrado["created"] = False
-            return encontrado
-
-        termino_doc = _solo_digitos(termino)
-        if len(termino_doc) not in (8, 11):
-            encontrado["created"] = False
-            return encontrado
-
         tipo_norm = (tipo_ope or "").lower().strip()
         es_compra = tipo_norm in ("compra", "compras")
-        es_venta = tipo_norm in ("venta", "ventas")
-        nombre_limpio = (nombre_entidad or "").strip() or f"Entidad {termino_doc[-4:]}"
-        payload_registro = {
-            "entidad_nombre": nombre_limpio,
-            "entidad_numero": termino_doc,
-        }
+        es_venta  = tipo_norm in ("venta", "ventas")
 
+        if not es_compra and not es_venta:
+            return {
+                "identificado": False,
+                "created": False,
+                "mensaje": "Tipo de operación no reconocido (debe ser compra o venta).",
+                "datos_identificados": None,
+                "campos_entidad": {},
+            }
+
+        termino_doc = _solo_digitos(termino)
+        nombre_limpio = (nombre_entidad or "").strip() or f"Entidad {termino_doc[-4:]}" if termino_doc else "Sin nombre"
+
+        # ── COMPRA: flujo proveedor ──────────────────────────────────────
         if es_compra:
-            alta = self._entities.registrar_proveedor(payload_registro, id_from)
-            id_alta = alta.get("proveedor_id")
-            rol = "proveedor"
-        elif es_venta:
-            alta = self._entities.registrar_cliente(payload_registro, id_from)
-            id_alta = alta.get("cliente_id")
-            rol = "cliente"
-        else:
+            proveedor = self._entities.buscar_proveedor(id_from, termino)
+            if proveedor:
+                pr_id  = proveedor.get("proveedor_id")
+                p_id   = proveedor.get("persona_id")
+                nombre = (proveedor.get("razon_social") or proveedor.get("nombres") or nombre_limpio).strip()
+                doc    = (proveedor.get("ruc") or proveedor.get("numero_documento") or termino_doc).strip()
+                return {
+                    "identificado": True,
+                    "created": False,
+                    "mensaje": f"✅ Proveedor encontrado: {nombre} ({doc}).",
+                    "datos_identificados": {"nombre_entidad": nombre, "doc_identidad": doc, "rol_txt": "Proveedor", "tipo_ope": tipo_ope},
+                    "campos_entidad": _sin_nulos({
+                        "entidad_nombre": nombre,
+                        "entidad_numero": doc,
+                        "entidad_id": pr_id or p_id,
+                        "identificado": True,
+                        "persona_id": p_id,
+                        "proveedor_id": pr_id,
+                    }),
+                }
+
+            # No existe → registrar
+            if len(termino_doc) not in (8, 11):
+                return {
+                    "identificado": False,
+                    "created": False,
+                    "mensaje": "❌ El número indicado no corresponde a un DNI (8 dígitos) ni a un RUC (11 dígitos). ¿Puedes verificar el documento?",
+                    "datos_identificados": None,
+                    "campos_entidad": {},
+                }
+            alta = self._entities.registrar_proveedor(
+                {"entidad_nombre": nombre_limpio, "entidad_numero": termino_doc}, id_from
+            )
+            if not alta.get("success"):
+                err = alta.get("message") or alta.get("error") or "Error al registrar"
+                return {
+                    "identificado": False,
+                    "created": False,
+                    "mensaje": f"❌ No pude registrar el proveedor: {err}",
+                    "datos_identificados": None,
+                    "campos_entidad": {},
+                }
+            pr_id = alta.get("proveedor_id")
+            p_id  = alta.get("persona_id")
+            return {
+                "identificado": True,
+                "created": True,
+                "mensaje": f"✅ Proveedor registrado: {nombre_limpio} ({termino_doc}).",
+                "datos_identificados": {"nombre_entidad": nombre_limpio, "doc_identidad": termino_doc, "rol_txt": "Proveedor", "tipo_ope": tipo_ope},
+                "campos_entidad": _sin_nulos({
+                    "entidad_nombre": nombre_limpio,
+                    "entidad_numero": termino_doc,
+                    "entidad_id": pr_id or p_id,
+                    "identificado": True,
+                    "persona_id": p_id,
+                    "proveedor_id": pr_id,
+                }),
+            }
+
+        # ── VENTA: flujo cliente ─────────────────────────────────────────
+        cliente = self._entities.buscar_cliente(id_from, termino)
+        if cliente:
+            c_id   = cliente.get("cliente_id")
+            p_id   = cliente.get("persona_id")
+            nombre = (cliente.get("razon_social") or cliente.get("nombre_completo") or cliente.get("nombres") or nombre_limpio).strip()
+            doc    = (cliente.get("ruc") or cliente.get("numero_documento") or termino_doc).strip()
+            return {
+                "identificado": True,
+                "created": False,
+                "mensaje": f"✅ Cliente encontrado: {nombre} ({doc}).",
+                "datos_identificados": {"nombre_entidad": nombre, "doc_identidad": doc, "rol_txt": "Cliente", "tipo_ope": tipo_ope},
+                "campos_entidad": _sin_nulos({
+                    "entidad_nombre": nombre,
+                    "entidad_numero": doc,
+                    "entidad_id": c_id or p_id,
+                    "identificado": True,
+                    "persona_id": p_id,
+                    "cliente_id": c_id,
+                }),
+            }
+
+        # No existe → registrar
+        if len(termino_doc) not in (8, 11):
             return {
                 "identificado": False,
                 "created": False,
-                "mensaje": "No se pudo identificar el tipo de operación para crear la entidad.",
+                "mensaje": "❌ El número indicado no corresponde a un DNI (8 dígitos) ni a un RUC (11 dígitos). ¿Puedes verificar el documento?",
                 "datos_identificados": None,
                 "campos_entidad": {},
             }
-
+        alta = self._entities.registrar_cliente(
+            {"entidad_nombre": nombre_limpio, "entidad_numero": termino_doc}, id_from
+        )
         if not alta.get("success"):
-            err = alta.get("message") or alta.get("error") or "No se pudo registrar la entidad"
+            err = alta.get("message") or alta.get("error") or "Error al registrar"
             return {
                 "identificado": False,
                 "created": False,
-                "mensaje": f"❌ No pude registrar el {rol}: {err}",
+                "mensaje": f"❌ No pude registrar el cliente: {err}",
                 "datos_identificados": None,
                 "campos_entidad": {},
             }
-
-        rebusqueda = self.buscar(tipo_ope, termino_doc, id_from)
-        if rebusqueda.get("identificado"):
-            rebusqueda["created"] = True
-            return rebusqueda
-
-        # Fallback defensivo: alta OK pero la re-búsqueda no devolvió datos.
-        entidad_id = id_alta or alta.get("persona_id")
+        c_id = alta.get("cliente_id")
+        p_id = alta.get("persona_id")
         return {
-            "identificado": entidad_id is not None,
+            "identificado": True,
             "created": True,
-            "mensaje": f"✅ Registré el {rol} correctamente.",
-            "datos_identificados": {
-                "nombre_entidad": nombre_limpio,
-                "doc_identidad": termino_doc,
-                "tipo_doc_txt": "RUC" if len(termino_doc) == 11 else "DNI",
-                "comercial": "_No registrado_",
-                "correo": "_No registrado_",
-                "telefono": "_No registrado_",
-                "direccion": "_No registrado_",
-                "rol_txt": "Proveedor" if es_compra else "Cliente",
-                "tipo_ope": tipo_ope,
-            },
+            "mensaje": f"✅ Cliente registrado: {nombre_limpio} ({termino_doc}).",
+            "datos_identificados": {"nombre_entidad": nombre_limpio, "doc_identidad": termino_doc, "rol_txt": "Cliente", "tipo_ope": tipo_ope},
             "campos_entidad": _sin_nulos({
                 "entidad_nombre": nombre_limpio,
                 "entidad_numero": termino_doc,
-                "entidad_id": entidad_id,
-                "identificado": entidad_id is not None,
-                "cliente_id": id_alta if es_venta else None,
-                "proveedor_id": id_alta if es_compra else None,
+                "entidad_id": c_id or p_id,
+                "identificado": True,
+                "persona_id": p_id,
+                "cliente_id": c_id,
             }),
         }
 

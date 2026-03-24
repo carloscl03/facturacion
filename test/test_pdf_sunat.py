@@ -41,7 +41,7 @@ PAYLOAD_REGISTRAR_VENTA_N8N = {
     "empresa_id": EMPRESA_ID,
     "usuario_id": USUARIO_ID,
     "id_cliente": 5,
-    "id_tipo_comprobante": 1,
+    "id_tipo_comprobante": 7,   # 7 = Nota de venta (salta bloque SUNAT)
     "fecha_emision": FECHA_EMISION,
     "fecha_pago": FECHA_EMISION,
     "id_moneda": 1,
@@ -49,8 +49,8 @@ PAYLOAD_REGISTRAR_VENTA_N8N = {
     "id_medio_pago": None,
     "id_sucursal": 14,
     "tipo_venta": "Contado",
-    "observaciones": "Prueba Factura Postman",
-    "generacion_comprobante": 1,
+    "observaciones": "Prueba Nota de Venta - test aislamiento bug",
+    "generacion_comprobante": 0,  # Sin SUNAT: salta generarFacturaElectronica
     "detalle_items": [
         {
             "id_inventario": None,
