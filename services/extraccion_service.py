@@ -27,7 +27,7 @@ class ExtraccionService:
         self._identificador = identificador
         self._informacion_repo = informacion_repo
 
-    def ejecutar(self, wa_id: str, mensaje: str, id_from: int) -> dict:
+    def ejecutar(self, wa_id: str, mensaje: str, id_from: int, *, url: str | None = None) -> dict:
         lista = self._repo.consultar_lista(wa_id, id_from)
         estado_actual = lista[0] if lista else {}
         es_registro_nuevo = len(lista) == 0
@@ -185,6 +185,12 @@ class ExtraccionService:
 
         payload_db["ultima_pregunta"] = ultima_pregunta_keyword or "inicio"
 
+        # --- URL opcional (persistente; solo se escribe si viene, nunca se borra) ---
+        if url:
+            payload_db["url"] = url
+        elif estado_actual.get("url"):
+            payload_db["url"] = estado_actual["url"]
+
         # --- Persistir ---
         db_res = self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
 
@@ -287,6 +293,7 @@ class ExtraccionService:
             "id_metodo_pago",
             "nombre_medio_pago",
             "opciones_actuales",
+            "url",
         )
         for k in passthrough:
             if k not in payload_db and estado_actual.get(k) is not None:
