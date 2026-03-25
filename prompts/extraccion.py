@@ -107,7 +107,7 @@ def build_prompt_extractor(
 
     ### MENSAJE DE ENTENDIMIENTO (preámbulo):
     Frase corta que muestre que entendiste. Ej: "¡Dale! Ya anoté lo principal.", "Anotado: es una compra."
-    Si el usuario solo indica compra o venta sin más datos: guarda la operación, muestra 🛒 *COMPRA* o 📤 *VENTA* en la síntesis y sigue con "Me faltan algunos datos para completar:" + listado de preguntas por lo que falta. **No pidas confirmación de que es compra/venta.** La única confirmación que se pide es "¿Confirmar todo para continuar?" cuando todos los campos obligatorios estén llenos (antes de pasar a opciones).
+    Si el usuario solo indica compra o venta sin más datos: guarda la operación, muestra 🛒 *COMPRA* o 📤 *VENTA* en la síntesis y sigue con "Por favor, bríndame estos datos:" + listado de preguntas por lo que falta. **No pidas confirmación de que es compra/venta.** La única confirmación que se pide es "¿Confirmar todo para continuar?" cuando todos los campos obligatorios estén llenos (antes de pasar a opciones).
 
     ### RESUMEN VISUAL — PLANTILLA OFICIAL (solo campos con valor):
     Usa la siguiente PLANTILLA VISUAL para generar **resumen_visual**. Incluye ÚNICAMENTE las líneas cuyos campos tengan valor (fusionando Redis + propuesta_cache). Campo vacío, null o 0 = esa línea NO se escribe.
@@ -116,7 +116,7 @@ def build_prompt_extractor(
 
     ### DIAGNÓSTICO DE FALTANTES (lógica dinámica):
     **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. Todas las preguntas en lenguaje natural; una sola pregunta por campo vacío; mismo criterio para todos los campos (incluido método de pago contado/crédito).
-    **Estructura de la salida:** (1) Preámbulo (mensaje_entendimiento). (2) Síntesis visual = resumen_visual del ESTADO COMPLETO. (3) Si faltan datos: invitación ("Me faltan algunos datos para completar:") + listado de preguntas. (4) Si NO falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario sepa que puede decir *confirmar* y continuar; pedir confirmación **no** impide que el usuario envíe más datos (si envía datos, se procesarán como actualizar).
+    **Estructura de la salida:** (1) Preámbulo (mensaje_entendimiento). (2) Síntesis visual = resumen_visual del ESTADO COMPLETO. (3) Si faltan datos: invitación ("Por favor, bríndame estos datos:") + listado de preguntas. (4) Si NO falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario sepa que puede decir *confirmar* y continuar; pedir confirmación **no** impide que el usuario envíe más datos (si envía datos, se procesarán como actualizar).
     Fusiona datos en Redis + propuesta_cache. UNA pregunta por cada campo **realmente** vacío. **No repitas preguntas:** si un dato ya aparece en el resumen visual (p. ej. método de pago = Contado), NUNCA incluyas pregunta sobre ese dato.
     **NO preguntar por:** sucursal, forma de pago (transferencia/TC/TD/billetera) ni centro de costo (se gestionan en Estado 2 / opciones; centro de costo solo se pide en compra, no en venta).
 
@@ -186,7 +186,7 @@ def build_prompt_extractor(
         }},
         "mensaje_entendimiento": "Preámbulo corto (ej: ¡Dale! Ya anoté lo principal.).",
         "resumen_visual": "SÍNTESIS VISUAL DINÁMICA: solo líneas para campos con valor (vacío/null/0 = no escribir esa línea). Redis + propuesta fusionados.",
-        "diagnostico": "Si faltan datos: invitación (Me faltan algunos datos para completar:) + listado de preguntas 1️⃣ 2️⃣ 3️⃣ SOLO por campos realmente vacíos (nunca preguntes por lo ya definido; tipo de cambio solo si moneda no es PEN; no preguntes agregar más productos si ya hay productos). Si listo_para_finalizar: solo entonces cierra con ¿Confirmar todo para continuar? (el usuario puede decir confirmar o seguir actualizando).",
+        "diagnostico": "Si faltan datos: invitación (Por favor, bríndame estos datos:) + listado de preguntas 1️⃣ 2️⃣ 3️⃣ SOLO por campos realmente vacíos (nunca preguntes por lo ya definido; tipo de cambio solo si moneda no es PEN; no preguntes agregar más productos si ya hay productos). Si listo_para_finalizar: solo entonces cierra con ¿Confirmar todo para continuar? (el usuario puede decir confirmar o seguir actualizando).",
         "listo_para_finalizar": false,
         "cambiar_estado_a_4": false,
         "ultima_pregunta_keyword": "campo_estado",

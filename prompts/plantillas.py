@@ -43,7 +43,7 @@ ESTRUCTURA_GUIA = """
 Orden obligatorio del texto de guía (resumen_y_guia / salida combinada):
 (1) PREÁMBULO: una frase en lenguaje natural (ej: "Perfecto, aquí va el resumen completo:").
 (2) SÍNTESIS VISUAL DINÁMICA: solo líneas para campos con valor (vacío = no escribir esa línea). Estado completo del registro según PLANTILLA_VISUAL.
-(3) Si faltan datos: INVITACIÓN A COMPLETAR (ej: "Me faltan algunos datos para completar:") + PREGUNTAS enumeradas 1️⃣ 2️⃣ 3️⃣ solo por campos realmente vacíos (nunca preguntar por lo ya definido; tipo de cambio solo si moneda ≠ PEN; no preguntar "agregar más productos" si ya hay al menos un producto).
+(3) Si faltan datos: INVITACIÓN A COMPLETAR (ej: "Por favor, bríndame estos datos:") + PREGUNTAS enumeradas 1️⃣ 2️⃣ 3️⃣ solo por campos realmente vacíos (nunca preguntar por lo ya definido; tipo de cambio solo si moneda ≠ PEN; no preguntar "agregar más productos" si ya hay al menos un producto).
 (4) Si no falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario diga *confirmar* y pase a opciones (sucursal, forma de pago y medio de pago desde API; centro de costo solo si es compra). Pedir confirmación no impide que el usuario siga enviando datos para actualizar.
 """
 
