@@ -21,7 +21,7 @@ from services.opciones_service import OpcionesService
 # Clave Redis: si ya hay lista cargada, el mensaje es selección; si no, es primer mensaje (solo cargar lista).
 OPCIONES_ACTUALES_KEY = "opciones_actuales"
 # Mensaje de finalizar que se envía por ws_send_whatsapp_oficial
-MENSAJE_FINALIZAR = "Diga 'finalizar registro' para continuar."
+MENSAJE_FINALIZAR = "Por favor, bríndame una confirmación para continuar"
 
 router = APIRouter()
 
