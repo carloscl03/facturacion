@@ -153,7 +153,7 @@ def construir_payload_compra(
         "porcentaje_detraccion": float(reg.get("porcentaje_detraccion", 0)),
         "fecha_pago": params["fecha_pago"],
         "fecha_vencimiento": params.get("fecha_vencimiento") or params["fecha_pago"],
-        "enlace_documento": str(reg.get("enlace_documento") or "").strip() or None,
+        "enlace_documento": str(reg.get("url") or reg.get("enlace_documento") or "").strip() or None,
         "id_tipo_afectacion": int(reg["id_tipo_afectacion"]) if reg.get("id_tipo_afectacion") is not None else None,
         "observacion": str(reg.get("observacion") or "").strip() or None,
         "id_caja_banco": int(reg["id_caja_banco"]) if reg.get("id_caja_banco") is not None else None,
