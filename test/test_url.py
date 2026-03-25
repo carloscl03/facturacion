@@ -42,9 +42,9 @@ def registrar_venta_con_url():
         "id_medio_pago": None,
         "id_sucursal": 14,
         "tipo_venta": "Contado",
-        "observaciones": "Test URL - venta con enlace_documento",
+        "observaciones": "Test URL - venta con pdf_url",
         "generacion_comprobante": 0,
-        "enlace_documento": ENLACE_DOCUMENTO,
+        "pdf_url": ENLACE_DOCUMENTO,
         "detalle_items": [
             {
                 "id_inventario": None,
@@ -151,7 +151,7 @@ def run():
     # Test 1: Venta
     try:
         resp_venta = registrar_venta_con_url()
-        _imprimir_resultado("VENTA con enlace_documento", resp_venta)
+        _imprimir_resultado("VENTA con pdf_url", resp_venta)
     except Exception as e:
         print(f"\nError al llamar ws_venta: {e}")
 

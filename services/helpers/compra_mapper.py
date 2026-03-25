@@ -114,7 +114,8 @@ def construir_payload_compra(
         params["monto_igv"],
     )
 
-    tipo_compra = (params.get("tipo_venta") or "Contado").strip()
+    tipo_compra_raw = (params.get("tipo_venta") or "Contado").strip()
+    tipo_compra = "Crédito" if tipo_compra_raw.lower() == "credito" else "Contado"
     dias_credito = int(reg.get("dias_credito", 30))
     cuotas = int(reg.get("cuotas", 1))
     # Número del comprobante: solo enviar si es SERIE-NUMERO válido (ws_compra exige formato "F001-00001").
