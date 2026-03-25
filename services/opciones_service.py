@@ -455,12 +455,12 @@ class OpcionesService:
 
     def _titulo_campo(self, campo: str) -> str:
         if campo == "sucursal":
-            return "Sucursales:"
+            return "Por favor, bríndame la sucursal dentro de las siguientes opciones:"
         if campo == "centro_costo":
-            return "Centros de costo:"
+            return "Por favor, bríndame el centro de costo dentro de las siguientes opciones:"
         if campo == "forma_pago":
-            return "Formas de pago:"
-        return "Opciones:"
+            return "Por favor, bríndame la forma de pago dentro de las siguientes opciones:"
+        return "Por favor, elige una de las siguientes opciones:"
 
     def _textos_whatsapp_list(self, campo: str) -> tuple[str, str, str, str, str]:
         """
@@ -469,7 +469,7 @@ class OpcionesService:
         """
         if campo == "sucursal":
             return (
-                "Sucursales disponibles: ",
+                "Por favor, bríndame la sucursal dentro de las siguientes opciones:",
                 "Sucursales",
                 "Selecciona una sucursal",
                 "Ver sucursales",
@@ -477,7 +477,7 @@ class OpcionesService:
             )
         if campo == "centro_costo":
             return (
-                "Centros de costo disponibles: ",
+                "Por favor, bríndame el centro de costo dentro de las siguientes opciones:",
                 "Centros de costo",
                 "Selecciona un centro de costo",
                 "Ver centros de costo",
@@ -485,14 +485,14 @@ class OpcionesService:
             )
         if campo == "forma_pago":
             return (
-                "Formas de pago disponibles: ",
+                "Por favor, bríndame la forma de pago dentro de las siguientes opciones:",
                 "Formas de pago",
                 "Selecciona una forma de pago",
                 "Ver formas de pago",
                 "Formas de pago",
             )
         return (
-            "Opciones disponibles: ",
+            "Por favor, elige una de las siguientes opciones:",
             "Opciones",
             "Selecciona una opción",
             "Ver opciones",
