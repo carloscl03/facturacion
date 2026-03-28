@@ -33,8 +33,8 @@ def registrar_venta_con_url():
         "codOpe": "REGISTRAR_VENTA_N8N",
         "empresa_id": EMPRESA_ID,
         "usuario_id": USUARIO_ID,
-        "id_cliente": 5,
-        "id_tipo_comprobante": 7,
+        "id_cliente": 13,
+        "id_tipo_comprobante": 2,
         "fecha_emision": FECHA_EMISION,
         "fecha_pago": FECHA_EMISION,
         "id_moneda": 1,
@@ -42,9 +42,9 @@ def registrar_venta_con_url():
         "id_medio_pago": None,
         "id_sucursal": 14,
         "tipo_venta": "Contado",
-        "observaciones": "Test URL - venta con pdf_url",
-        "generacion_comprobante": 0,
-        "pdf_url": ENLACE_DOCUMENTO,
+        "observaciones": "Test URL - boleta con enlace_comprobante_pago",
+        "generacion_comprobante": 1,
+        "enlace_comprobante_pago": ENLACE_DOCUMENTO,
         "detalle_items": [
             {
                 "id_inventario": None,
@@ -151,7 +151,7 @@ def run():
     # Test 1: Venta
     try:
         resp_venta = registrar_venta_con_url()
-        _imprimir_resultado("VENTA con pdf_url", resp_venta)
+        _imprimir_resultado("VENTA con enlace_comprobante_pago", resp_venta)
     except Exception as e:
         print(f"\nError al llamar ws_venta: {e}")
 

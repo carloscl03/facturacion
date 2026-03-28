@@ -383,7 +383,7 @@ def construir_payload_venta_n8n(
         "id_sucursal": int(reg.get("id_sucursal") or 14),
         "tipo_venta": params.get("tipo_venta") or "Contado",
         "observaciones": str(reg.get("observaciones") or reg.get("observacion") or "").strip() or None,
-        "pdf_url": str(reg.get("url") or reg.get("enlace_documento") or "").strip() or None,
+        "enlace_comprobante_pago": str(reg.get("url") or reg.get("enlace_documento") or "").strip() or None,
         "generacion_comprobante": 1,
         "detalle_items": detalle_items,
     }
