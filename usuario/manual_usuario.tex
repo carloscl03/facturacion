@@ -1,0 +1,538 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tcolorbox}
+
+\geometry{margin=2.5cm}
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, urlcolor=blue!60!black}
+
+% Colores
+\definecolor{maravia}{RGB}{0, 102, 153}
+\definecolor{gris}{RGB}{245, 245, 245}
+\definecolor{verde}{RGB}{34, 139, 34}
+\definecolor{rojo}{RGB}{200, 50, 50}
+
+% Estilos de sección
+\titleformat{\section}{\Large\bfseries\color{maravia}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\large\bfseries\color{maravia!80!black}}{}{0em}{}
+
+% Encabezado
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{gray}MaravIA Bot --- Manual de Usuario}
+\fancyhead[R]{\small\color{gray}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Cajas de ejemplo
+\newtcolorbox{mensajebot}{colback=gris, colframe=maravia, title=Bot responde:, fonttitle=\bfseries\small}
+\newtcolorbox{mensajeusuario}{colback=green!5, colframe=verde!70!black, title=Usuario escribe:, fonttitle=\bfseries\small}
+\newtcolorbox{notaimportante}{colback=red!5, colframe=rojo, title=Importante, fonttitle=\bfseries\small}
+
+\begin{document}
+
+% ============================================================
+% PORTADA
+% ============================================================
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+{\Huge\bfseries\color{maravia} MaravIA Bot \par}
+\vspace{0.5cm}
+{\Large Manual de Usuario \par}
+\vspace{1cm}
+{\large Registro de Ventas y Compras por WhatsApp \par}
+\vspace{2cm}
+{\normalsize
+Sistema de registro contable conversacional \\
+mediante inteligencia artificial \\[1cm]
+Plataforma Maravia --- Per\'u
+\par}
+\vfill
+{\small Versi\'on 1.0 --- Marzo 2026 \par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+% INTRODUCCIÓN
+% ============================================================
+\section{Introducci\'on}
+
+MaravIA Bot es un asistente de WhatsApp que permite registrar operaciones contables (ventas y compras) de forma conversacional. El bot gu\'ia al usuario paso a paso para completar todos los datos necesarios y emitir el comprobante electr\'onico.
+
+\subsection{Requisitos}
+
+\begin{itemize}
+    \item Un n\'umero de WhatsApp vinculado a la plataforma Maravia
+    \item Acceso a la empresa configurada en el sistema
+    \item Los datos de la operaci\'on (cliente/proveedor, monto, tipo de documento, etc.)
+\end{itemize}
+
+% ============================================================
+% FLUJO GENERAL
+% ============================================================
+\section{Flujo general}
+
+El proceso de registro tiene \textbf{4 etapas} principales:
+
+\begin{enumerate}[label=\textbf{Etapa \arabic*:}, leftmargin=3.5cm]
+    \item \textbf{Inicio} --- Indicar si es una venta o una compra
+    \item \textbf{Datos del comprobante} --- Proporcionar cliente/proveedor, monto, tipo de documento, moneda y m\'etodo de pago
+    \item \textbf{Opciones operativas} --- Elegir sucursal, centro de costo (solo compras) y forma de pago
+    \item \textbf{Emisi\'on} --- Confirmar y emitir el comprobante
+\end{enumerate}
+
+El bot acepta m\'ultiples formatos de entrada:
+
+\begin{itemize}
+    \item \textbf{Texto}: mensajes escritos con los datos de la operaci\'on
+    \item \textbf{Audio}: notas de voz que el sistema transcribe autom\'aticamente
+    \item \textbf{Documento (PDF)}: se almacena como documento adjunto al registro
+    \item \textbf{Imagen}: se almacena como documento adjunto al registro
+\end{itemize}
+
+Si el usuario env\'ia un documento o imagen, este se guardar\'a autom\'aticamente como \textbf{documento adjunto} a la operaci\'on y se vincular\'a al comprobante al finalizar.
+
+El bot solo pregunta por datos que faltan. Si el usuario proporciona varios datos en un solo mensaje, el bot los registra todos y solo pregunta por lo pendiente.
+
+% ============================================================
+% REGISTRO DE VENTA
+% ============================================================
+\section{Registro de una venta}
+
+\subsection{Paso 1: Iniciar la conversaci\'on}
+
+\begin{mensajeusuario}
+Hola
+\end{mensajeusuario}
+
+\begin{mensajebot}
+\textit{El bot saluda y muestra dos botones:}
+\begin{itemize}[label=\textbullet]
+    \item Registrar compra
+    \item Registrar venta
+\end{itemize}
+\end{mensajebot}
+
+El usuario tambi\'en puede escribir directamente: \texttt{"Quiero registrar una venta"} sin necesidad de los botones.
+
+\subsection{Paso 2: Proporcionar los datos}
+
+El bot pedir\'a los datos que falten. Se pueden enviar en cualquier orden y en uno o varios mensajes.
+
+\subsubsection{Datos obligatorios}
+
+\begin{center}
+\begin{tabular}{>{\bfseries}l p{8cm}}
+\toprule
+Campo & Descripci\'on \\
+\midrule
+Cliente & Nombre o raz\'on social del cliente \\
+RUC / DNI & Documento del cliente (8 o 11 d\'igitos) \\
+Tipo de documento & Factura, boleta o nota de venta \\
+Monto & Monto total de la operaci\'on \\
+Moneda & Soles (PEN) o d\'olares (USD) \\
+M\'etodo de pago & Contado o cr\'edito \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{Identificaci\'on del cliente o proveedor}
+
+El bot necesita identificar al cliente (venta) o proveedor (compra) mediante su \textbf{RUC o DNI}. Existen tres escenarios:
+
+\begin{enumerate}
+    \item \textbf{El RUC/DNI ya est\'a registrado}: el bot devuelve autom\'aticamente el nombre asociado. No es necesario escribirlo.
+
+    \item \textbf{El RUC/DNI no est\'a registrado}: si env\'ias el n\'umero junto con el nombre de la persona o empresa, el bot lo registrar\'a autom\'aticamente para futuras operaciones.
+
+    \item \textbf{Error tipogr\'afico en el nombre}: si al registrar se cometi\'o un error en el nombre, la correcci\'on debe hacerse desde la \textbf{p\'agina web de Maravia} editando al cliente o proveedor directamente.
+\end{enumerate}
+
+\begin{mensajeusuario}
+El cliente es Juan P\'erez, DNI 12345678
+\end{mensajeusuario}
+
+\begin{mensajebot}
+\texttt{Cliente encontrado: Juan P\'erez (12345678).}
+\end{mensajebot}
+
+Si no est\'a registrado:
+
+\begin{mensajebot}
+\texttt{Cliente registrado: Juan P\'erez (12345678).}
+\end{mensajebot}
+
+\begin{notaimportante}
+Si el m\'etodo de pago es \textbf{cr\'edito}, el bot preguntar\'a adicionalmente:
+\begin{itemize}
+    \item \textbf{D\'ias de cr\'edito}: 15, 30, 45, 60 o 90 d\'ias
+    \item \textbf{N\'umero de cuotas}: de 1 a 24
+\end{itemize}
+Estas preguntas \textbf{no aparecen} si el m\'etodo es contado.
+\end{notaimportante}
+
+\subsubsection{Ejemplo de conversaci\'on}
+
+\begin{mensajeusuario}
+Venta de factura por 1500 soles a Empresa SAC, RUC 20123456789, contado
+\end{mensajeusuario}
+
+\begin{mensajebot}
+\textit{El bot registra todos los datos de una vez y muestra:}
+
+\medskip
+\texttt{Anotado.}
+
+\medskip
+\texttt{VENTA} \\
+\texttt{Factura} \\
+\texttt{Cliente: Empresa SAC} \\
+\texttt{RUC: 20123456789} \\
+\texttt{Total: S/ 1,500.00} \\
+\texttt{Moneda: PEN} \\
+\texttt{M\'etodo: Contado}
+
+\medskip
+\texttt{Cliente encontrado: Empresa SAC (20123456789).}
+
+\medskip
+\texttt{Confirmar todo para continuar?}
+\end{mensajebot}
+
+Si faltaran datos, el bot mostrar\'ia:
+
+\begin{mensajebot}
+\texttt{Por favor, br\'indame estos datos:} \\
+\texttt{1. Moneda: en soles (PEN) o d\'olares (USD)?} \\
+\texttt{2. M\'etodo de pago: contado o cr\'edito?}
+\end{mensajebot}
+
+\subsection{Paso 3: Confirmar el registro}
+
+Cuando todos los datos est\'an completos, el usuario confirma:
+
+\begin{mensajeusuario}
+Confirmo
+\end{mensajeusuario}
+
+Palabras aceptadas: \textit{s\'i, confirmo, dale, correcto, listo, ok, de acuerdo, va, perfecto, adelante, acepto, vale, est\'a bien, procede}.
+
+\subsection{Paso 4: Elegir opciones operativas}
+
+Tras confirmar, el bot presenta listas de WhatsApp para elegir:
+
+\begin{enumerate}
+    \item \textbf{Sucursal} --- Lista de sucursales de la empresa
+    \item \textbf{Forma de pago} --- Transferencia, efectivo, tarjeta, billetera virtual, etc.
+\end{enumerate}
+
+\begin{mensajebot}
+\texttt{Por favor, br\'indame la sucursal dentro de las siguientes opciones:} \\
+\texttt{- Sucursal Principal} \\
+\texttt{- Sucursal Norte} \\
+\texttt{- Sucursal Sur}
+\end{mensajebot}
+
+\begin{mensajeusuario}
+Sucursal Principal
+\end{mensajeusuario}
+
+Despu\'es de elegir todas las opciones:
+
+\begin{mensajebot}
+\texttt{Por favor, br\'indame una confirmaci\'on para continuar}
+\end{mensajebot}
+
+\subsection{Paso 5: Confirmaci\'on final y emisi\'on}
+
+\begin{mensajeusuario}
+Dale
+\end{mensajeusuario}
+
+\begin{mensajebot}
+\texttt{VENTA REGISTRADA EN SUNAT!}
+
+\medskip
+\texttt{Cliente: Empresa SAC} \\
+\texttt{Total: S/ 1,500.00} \\
+\texttt{Documento: F001-00001234}
+
+\medskip
+\texttt{Te enviamos el comprobante en el siguiente mensaje.}
+
+\medskip
+\textit{[Se env\'ia el PDF del comprobante]}
+\end{mensajebot}
+
+% ============================================================
+% REGISTRO DE COMPRA
+% ============================================================
+\section{Registro de una compra}
+
+El flujo de compra es similar al de venta con estas diferencias:
+
+\subsection{Diferencias con la venta}
+
+\begin{center}
+\begin{tabular}{>{\bfseries}l p{5cm} p{5cm}}
+\toprule
+Aspecto & Venta & Compra \\
+\midrule
+Entidad & Cliente & Proveedor \\
+Centro de costo & No se pide & S\'i se pide (paso extra) \\
+Al finalizar & Texto + PDF & Solo texto \\
+Tipo documento & Factura / Boleta / Nota de venta & Factura / Boleta / Nota de compra \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Opciones operativas en compra}
+
+En compras, las opciones son tres (una m\'as que en venta):
+
+\begin{enumerate}
+    \item \textbf{Sucursal}
+    \item \textbf{Centro de costo} (solo en compras)
+    \item \textbf{Forma de pago}
+\end{enumerate}
+
+\subsection{Ejemplo de compra}
+
+\begin{mensajeusuario}
+Compra de factura por 500 soles al proveedor Juan P\'erez, DNI 12345678, contado
+\end{mensajeusuario}
+
+\begin{mensajebot}
+\texttt{COMPRA} \\
+\texttt{Factura} \\
+\texttt{Proveedor: Juan P\'erez} \\
+\texttt{DNI: 12345678} \\
+\texttt{Total: S/ 500.00} \\
+\texttt{Moneda: PEN} \\
+\texttt{M\'etodo: Contado}
+
+\medskip
+\texttt{Confirmar todo para continuar?}
+\end{mensajebot}
+
+% ============================================================
+% NOTAS DE VENTA Y COMPRA
+% ============================================================
+\section{Notas de venta y notas de compra}
+
+Las notas son documentos internos con reglas especiales:
+
+\begin{itemize}
+    \item \textbf{No se calcula IGV}: el monto total es el dato principal, sin desglose de impuestos
+    \item \textbf{No se pide n\'umero de serie}: el sistema no pregunta por serie-n\'umero del comprobante
+    \item \textbf{Documento del cliente/proveedor}: si el monto es menor a S/ 700, el RUC/DNI es \textbf{opcional}
+\end{itemize}
+
+\begin{mensajeusuario}
+Nota de venta por 200 soles
+\end{mensajeusuario}
+
+\begin{mensajebot}
+\texttt{VENTA} \\
+\texttt{Nota de venta} \\
+\texttt{Total: S/ 200.00}
+
+\medskip
+\texttt{Por favor, br\'indame estos datos:} \\
+\texttt{1. Cliente: nombre o raz\'on social} \\
+\texttt{2. Moneda: soles (PEN) o d\'olares (USD)?} \\
+\texttt{3. M\'etodo de pago: contado o cr\'edito?}
+\end{mensajebot}
+
+Note que \textbf{no pregunta} por RUC/DNI (monto < 700) ni por n\'umero de serie.
+
+% ============================================================
+% MÉTODO DE PAGO
+% ============================================================
+\section{M\'etodo de pago: contado vs cr\'edito}
+
+\subsection{Contado}
+
+Si el usuario indica \texttt{contado}, el bot lo registra y \textbf{no hace preguntas adicionales} sobre d\'ias de cr\'edito ni cuotas.
+
+\subsection{Cr\'edito}
+
+Si el usuario indica \texttt{cr\'edito}, el bot preguntar\'a:
+
+\begin{mensajebot}
+\texttt{1. A cu\'antos d\'ias ser\'a el plazo? Puede ser 15, 30, 45, 60 o 90 d\'ias.} \\
+\texttt{2. En cu\'antas cuotas ser\'a el pago? (de 1 a 24)}
+\end{mensajebot}
+
+\begin{notaimportante}
+Una vez registrado el m\'etodo de pago, el bot \textbf{no volver\'a a preguntar} por este campo. Si necesita cambiarlo, simplemente escriba el nuevo valor (por ejemplo: \texttt{"cambiar a cr\'edito"}).
+\end{notaimportante}
+
+% ============================================================
+% DOCUMENTO ADJUNTO
+% ============================================================
+\section{Documento adjunto}
+
+Cuando el usuario env\'ia un \textbf{documento PDF} o una \textbf{imagen} por WhatsApp, el bot lo almacena autom\'aticamente como documento adjunto de la operaci\'on:
+
+\begin{itemize}
+    \item El archivo se guarda y \textbf{se preserva} durante todo el flujo, sin importar cu\'antos mensajes se env\'ien despu\'es
+    \item Se vincula autom\'aticamente al comprobante al finalizar la operaci\'on
+    \item Solo se elimina cuando se borra o cancela el registro completo
+    \item Si se env\'ia un nuevo documento, reemplaza al anterior
+\end{itemize}
+
+\begin{notaimportante}
+No es necesario enviar el documento en un momento espec\'ifico del flujo. Se puede enviar al inicio, durante la carga de datos o justo antes de confirmar.
+\end{notaimportante}
+
+% ============================================================
+% COMANDOS ÚTILES
+% ============================================================
+\section{Comandos y acciones disponibles}
+
+\begin{center}
+\begin{tabular}{>{\bfseries}l p{8cm}}
+\toprule
+Acci\'on & Qu\'e decir \\
+\midrule
+Ver resumen & ``Qu\'e llevo?'', ``Dame el resumen'', ``C\'omo va mi registro?'' \\
+Confirmar & ``S\'i'', ``Confirmo'', ``Dale'', ``Ok'', ``Listo'' \\
+Cancelar & ``Cancelar'', ``Borrar'', ``Empezar de cero'' \\
+Cambiar dato & Simplemente escribir el nuevo valor \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================
+% ERRORES Y REINTENTOS
+% ============================================================
+\section{Errores y reintentos}
+
+\subsection{Si el bot no responde}
+
+Si env\'ias un mensaje y \textbf{no recibes ninguna respuesta} (ni de \'exito ni de error), esto indica un \textbf{problema de conexi\'on}, no un fallo del bot. Simplemente \textbf{vuelve a enviar tu mensaje} y el bot continuar\'a el flujo normalmente desde donde qued\'o.
+
+\subsection{Errores al emitir}
+
+Si ocurre un error al emitir el comprobante (por ejemplo, un error de SUNAT o datos inv\'alidos), el bot:
+
+\begin{enumerate}
+    \item Muestra el mensaje de error espec\'ifico
+    \item Regresa al paso de edici\'on (antes de la confirmaci\'on)
+    \item Permite corregir los datos problem\'aticos
+    \item El usuario puede volver a confirmar e intentar nuevamente
+\end{enumerate}
+
+\begin{mensajebot}
+\texttt{Error SUNAT: La fecha de emisi\'on no puede ser anterior a 3 d\'ias.}
+
+\medskip
+\texttt{Reinici\'e el flujo al paso de edici\'on. Puedes actualizar los datos y volver a confirmar para intentar nuevamente.}
+\end{mensajebot}
+
+\begin{mensajeusuario}
+La fecha de emisi\'on es hoy
+\end{mensajeusuario}
+
+% ============================================================
+% PREGUNTAS FRECUENTES
+% ============================================================
+\section{Preguntas frecuentes}
+
+\begin{description}[style=nextline]
+    \item[Puedo enviar todos los datos en un solo mensaje?]
+    S\'i. El bot extrae autom\'aticamente todos los datos que encuentre en el mensaje y solo pregunta por lo que falta.
+
+    \item[Puedo cambiar un dato despu\'es de haberlo ingresado?]
+    S\'i. Simplemente escribe el nuevo valor (por ejemplo: ``el monto es 2000'' o ``cambiar moneda a d\'olares'').
+
+    \item[Qu\'e pasa si el bot no responde?]
+    Si no recibes un mensaje de error, probablemente se trat\'o de un \textbf{problema de conexi\'on}, no de un fallo del bot. Simplemente vuelve a enviar tu mensaje y el bot continuar\'a desde donde qued\'o.
+
+    \item[Qu\'e pasa si el RUC/DNI no est\'a registrado?]
+    Si env\'ias un RUC o DNI junto con el nombre de la persona o empresa, el bot lo \textbf{registrar\'a autom\'aticamente} como cliente (en ventas) o proveedor (en compras) para que el flujo sea m\'as r\'apido en futuras operaciones.
+
+    Si el RUC o DNI ya est\'a registrado, el bot devolver\'a autom\'aticamente el nombre asociado sin necesidad de que lo escribas.
+
+    \item[Qu\'e pasa si hay un error en el nombre del cliente o proveedor?]
+    Si hubo un error tipogr\'afico al registrar el nombre, este debe corregirse desde la \textbf{p\'agina web de Maravia} editando directamente al cliente o proveedor. El bot no permite editar entidades ya registradas.
+
+    \item[D\'onde queda registrada la operaci\'on?]
+    La venta queda registrada en la \textbf{tabla de ventas} y la compra en la \textbf{tabla de compras} del sistema Maravia, disponibles para consulta desde la plataforma web.
+
+    \item[Puedo registrar varias operaciones a la vez?]
+    No. Cada conversaci\'on maneja una operaci\'on a la vez. Debes finalizar o cancelar la actual antes de iniciar otra.
+
+    \item[C\'omo cancelo una operaci\'on?]
+    Escribe ``cancelar'', ``borrar'' o ``empezar de cero''. El registro se eliminar\'a por completo.
+\end{description}
+
+% ============================================================
+% REGISTRO EN EL SISTEMA
+% ============================================================
+\section{D\'onde queda registrada la operaci\'on}
+
+Al finalizar exitosamente:
+
+\begin{itemize}
+    \item Las \textbf{ventas} quedan registradas en la \textbf{tabla de ventas} del sistema Maravia, con su comprobante electr\'onico emitido ante SUNAT (cuando corresponda).
+    \item Las \textbf{compras} quedan registradas en la \textbf{tabla de compras} del sistema Maravia.
+\end{itemize}
+
+Ambas son consultables desde la \textbf{plataforma web de Maravia}. El registro temporal en el bot se elimina autom\'aticamente una vez que la operaci\'on se completa con \'exito.
+
+% ============================================================
+% DIAGRAMA DE FLUJO
+% ============================================================
+\section{Diagrama de flujo resumido}
+
+\begin{center}
+\begin{tcolorbox}[colback=gris, colframe=maravia, width=12cm]
+\begin{verbatim}
+    Usuario saluda
+         |
+    [Botones: Compra / Venta]
+         |
+    Proporciona datos
+    (monto, cliente, documento, moneda, metodo)
+         |
+    Bot pregunta por lo que falta
+    (repite hasta completar)
+         |
+    "Confirmar todo para continuar?"
+         |
+    Usuario confirma ---------> [OPCIONES]
+                                    |
+                              Sucursal
+                              Centro costo (compra)
+                              Forma de pago
+                                    |
+                        "Brindame una confirmacion"
+                                    |
+                        Usuario confirma
+                                    |
+                            [EMISION]
+                           /         \
+                      VENTA         COMPRA
+                   Texto+PDF      Solo texto
+                        \         /
+                     Registro eliminado
+                     (operacion completa)
+\end{verbatim}
+\end{tcolorbox}
+\end{center}
+
+\end{document}
