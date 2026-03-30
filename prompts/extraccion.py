@@ -77,9 +77,9 @@ def build_prompt_extractor(
     ### REGLAS DE EXTRACCIÓN:
     - operacion: solo "venta" o "compra". Si no se indica, null.
     - tipo_documento: "factura", "boleta", "nota de venta" o "nota de compra". Nunca usar "recibo".
-      Se infiere desde el documento de la entidad: RUC (11 dígitos) => factura, DNI (8 dígitos) => boleta.
-      Además, si el usuario indica explícitamente "factura"/"boleta", se asume el tipo correspondiente aunque no se haya indicado aún el RUC/DNI.
-      Si no se puede inferir desde el mensaje, deja null.
+      **NO inferir automáticamente desde el RUC/DNI.** Un RUC no implica factura (podría ser nota) y un DNI no implica boleta (podría ser nota). Solo asignar tipo_documento cuando el usuario lo indica explícitamente ("factura", "boleta", "nota").
+      Si el usuario indica explícitamente "factura"/"boleta", se asume el tipo correspondiente aunque no se haya indicado aún el RUC/DNI.
+      Si no se puede determinar desde el mensaje, deja null.
     - Si el usuario indica "nota" sin especificar, usa la operación para inferir: en venta => "nota de venta"; en compra => "nota de compra". Si la operación no está definida, no preguntes tipo de comprobante: pregunta solo si es venta o compra para resolver la nota.
     - Para "nota de venta" o "nota de compra": tratar como registro interno sin cálculo de IGV. No forzar ni preguntar por desglose de IGV/base; usa monto_total como dato principal.
     - **REGLA 700 (PEN) — solo afecta si pides documento:** Para ventas en soles (PEN): si el monto total es **menor a S/ 700**, la identificación por documento (DNI o RUC) es **opcional** (puede ser nota de venta; no preguntes por DNI/RUC si el usuario no lo da). Si el monto es **>= S/ 700**, el documento del cliente (DNI/RUC) es **obligatorio**. Esta regla solo define cuándo pedir o no documento; no sugieras ni preguntes cambiar de boleta a factura ni impongas tipo de comprobante por el monto.
@@ -96,14 +96,11 @@ def build_prompt_extractor(
     ### REGLA ESTRICTA — IDENTIFICACIÓN CON RUC/DNI:
     **Cuando detectes un RUC (11 dígitos) o un DNI (8 dígitos), venga de texto libre O de un JSON:**
     1. Siempre pon **requiere_identificacion.activo = true** y **termino** = ese número (solo dígitos). tipo_ope = "venta" o "compra" según la operación.
-       Además, infiere **tipo_documento** solo si no viene definido o no es una nota:
-       - RUC (11 dígitos) => "factura"
-       - DNI (8 dígitos) => "boleta"
-       (si tipo_documento ya es "nota de venta" o "nota de compra", NO sobrescribir con la inferencia RUC/DNI).
+       **NO inferir tipo_documento desde el RUC/DNI.** El documento de identidad solo identifica a la entidad, no determina el tipo de comprobante. Dejar tipo_documento como está (null si no fue indicado explícitamente por el usuario).
     2. En **propuesta_cache** guarda **entidad_numero** con ese número (y si el JSON trae "ruc" o "dni", mapea a entidad_numero).
     3. **Aunque el JSON también traiga razón social o nombre** (ej: "cliente", "razon_social"), debes igualmente activar requiere_identificacion cuando haya RUC o DNI: el backend debe llamar al servicio de identificación para obtener el **nombre exacto** y el **id** (cliente_id/proveedor_id). No omitas la identificación por tener ya un nombre en el JSON.
     4. Si no hay ningún número de 8 ni 11 dígitos, requiere_identificacion.activo = false y termino = "".
-    Resumen: Cualquier RUC o DNI detectado (texto o JSON) → activo=true, termino=número; el backend obtiene nombre oficial e id y los persiste. Si tipo_documento estaba null (o contradictorio), se infiere también (RUC=>factura, DNI=>boleta).
+    Resumen: Cualquier RUC o DNI detectado (texto o JSON) → activo=true, termino=número; el backend obtiene nombre oficial e id y los persiste. El tipo de comprobante se pregunta al usuario, no se infiere del documento.
 
     ### MENSAJE DE ENTENDIMIENTO (preámbulo):
     Frase corta que muestre que entendiste. Ej: "¡Dale! Ya anoté lo principal.", "Anotado: es una compra."
@@ -128,12 +125,15 @@ def build_prompt_extractor(
        - si tipo_documento = "boleta" => pedir DNI (8 dígitos)
        - si tipo_documento = "nota de venta" o "nota de compra" => opcional: NO preguntes si el monto es < 700 PEN y el usuario no dio el documento
        - si tipo_documento = null => aplica regla 700 PEN: si monto_total >= 700 PEN => pedir RUC o DNI; si monto_total < 700 PEN => no preguntar (a menos que el usuario haya indicado explícitamente factura/boleta en el mensaje).
-    4. Tipo de documento: solo si tipo_documento es null y NO se puede inferir desde entidad_numero (RUC/DNI), ni desde el texto (factura/boleta/nota), ni desde la operación actual del registro. Si el usuario dijo "nota", NO preguntes tipo de comprobante; si falta operación, pregunta operación (venta/compra) y no el tipo.
+    4. Tipo de documento: solo si tipo_documento es null. La pregunta debe ser **contextual** según el documento de la entidad:
+       - Si entidad_numero es RUC (11 dígitos) → preguntar "¿Factura o nota de [venta/compra]?"
+       - Si entidad_numero es DNI (8 dígitos) → preguntar "¿Boleta o nota de [venta/compra]?"
+       - Si no hay entidad_numero → preguntar "¿Factura, boleta o nota de [venta/compra]?"
+       Si el usuario ya dijo explícitamente el tipo en el mensaje (factura/boleta/nota), NO preguntes. Si dijo "nota", usa la operación para inferir nota de venta o nota de compra. Si falta operación, pregunta operación (venta/compra) y no el tipo.
     5. **Método de pago (contado o crédito) — CANDADO ESTRICTO:** Solo preguntar si **metodo_pago** es null o vacío. Si metodo_pago ya tiene valor ("contado" o "credito"), **NUNCA** volver a preguntar por este campo — tratarlo exactamente igual que cualquier otro campo ya definido (no se repregunta). En Redis puede venir como metodo_pago o legado medio_pago (solo si es contado/credito). La pregunta debe incluir **en el mismo renglón** la aclaración entre paréntesis, por ejemplo: "¿La operación es al contado o a crédito? **(contado o crédito)**".
     6. **Días de crédito y cuotas — SOLO si metodo_pago = "credito":** Estas preguntas **NO existen** si metodo_pago es "contado" o si metodo_pago aún no se definió. Solo cuando metodo_pago = "credito" Y faltan dias_credito o nro_cuotas, pregúntalos (cada uno por separado, solo si está vacío). Para **días de crédito**, ofrece valores típicos: **15, 30, 45, 60, 90** días. Para **nro_cuotas**, indica que es de **1 a 24**. Si metodo_pago != "credito", **NUNCA** incluyas preguntas sobre días de crédito ni cuotas.
-    7. Moneda: solo si moneda es null (preguntar "¿En soles (PEN) o dólares (USD)?"). Si moneda = PEN, no preguntes tipo de cambio.
-    8. **Tipo de cambio:** SOLO si moneda es distinta de PEN (ej. USD). Si moneda = PEN, **nunca** incluyas pregunta de tipo de cambio.
-    9. **Fechas:** fecha_pago debe ser >= fecha_emision. Si el usuario dio fecha_pago anterior a fecha_emision, no la aceptes: en el diagnóstico indica en lenguaje natural que debe revisar las fechas (ej. "La fecha de pago debe ser igual o posterior a la de emisión. ¿Puedes revisar las fechas?")
+    7. Moneda: solo si moneda es null (preguntar "¿En soles (PEN) o dólares (USD)?").
+    8. **Fechas:** fecha_pago debe ser >= fecha_emision. Si el usuario dio fecha_pago anterior a fecha_emision, no la aceptes: en el diagnóstico indica en lenguaje natural que debe revisar las fechas (ej. "La fecha de pago debe ser igual o posterior a la de emisión. ¿Puedes revisar las fechas?")
     **NO incluyas:** "¿Deseas agregar más productos?" ni preguntas similares cuando ya hay al menos un producto registrado. No preguntes por cosas ya definidas.
 
     **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad: para venta en PEN/compra se requiere proveedor/cliente identificado (entidad_nombre o entidad_id) y el documento de identidad solo si corresponde al tipo:
@@ -186,7 +186,7 @@ def build_prompt_extractor(
         }},
         "mensaje_entendimiento": "Preámbulo corto (ej: ¡Dale! Ya anoté lo principal.).",
         "resumen_visual": "SÍNTESIS VISUAL DINÁMICA: solo líneas para campos con valor (vacío/null/0 = no escribir esa línea). Redis + propuesta fusionados.",
-        "diagnostico": "Si faltan datos: invitación (Por favor, bríndame estos datos:) + listado de preguntas 1️⃣ 2️⃣ 3️⃣ SOLO por campos realmente vacíos (nunca preguntes por lo ya definido; tipo de cambio solo si moneda no es PEN; no preguntes agregar más productos si ya hay productos; dias_credito y nro_cuotas SOLO si metodo_pago es credito). Si listo_para_finalizar: solo entonces cierra con ¿Confirmar todo para continuar? (el usuario puede decir confirmar o seguir actualizando).",
+        "diagnostico": "Si faltan datos: invitación (Por favor, bríndame estos datos:) + listado de preguntas 1️⃣ 2️⃣ 3️⃣ SOLO por campos realmente vacíos (nunca preguntes por lo ya definido; no preguntes agregar más productos si ya hay productos; dias_credito y nro_cuotas SOLO si metodo_pago es credito). Si listo_para_finalizar: solo entonces cierra con ¿Confirmar todo para continuar? (el usuario puede decir confirmar o seguir actualizando).",
         "listo_para_finalizar": false,
         "cambiar_estado_a_4": false,
         "ultima_pregunta_keyword": "campo_estado",
