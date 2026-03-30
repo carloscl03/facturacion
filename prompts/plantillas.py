@@ -32,6 +32,7 @@ ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
    📅 *Emisión:* [fecha_emision]
    📅 *Pago:* [fecha_pago]
    Si metodo_pago = "credito" y hay valor: 📆 *Días crédito:* [dias_credito]  |  📋 *Cuotas:* [nro_cuotas] (cuotas: de 1 a 24)
+   📝 *Observación:* [observacion]  — solo si observacion tiene valor
    ━━━━━━━━━━━━━━━━━━━
 
 Nota: **metodo_pago** = al contado o a crédito (extractor). **forma_pago** y **medio_pago** (con id_forma_pago / id_medio_pago) = catálogos del agente de opciones (Estado 2). Centro de costo solo en compra. No confundir método (contado/crédito) con forma ni medio de catálogo.
