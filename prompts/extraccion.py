@@ -68,7 +68,7 @@ def build_prompt_extractor(
     - Número del comprobante (serie-número): "serie", "numero", "numero_documento" → **numero_documento** (ej: "B005-00000008", "F001-00005678"). Este campo es SOLO para el comprobante (boleta/factura); NUNCA pongas aquí el DNI ni el RUC del cliente (eso va en entidad_numero). **Si tipo_documento es "nota de venta" o "nota de compra", este campo NO aplica: NUNCA preguntar ni requerir numero_documento para notas.**
     - Montos: "total", "monto_total" → monto_total; "subtotal", "base" → monto_sin_igv; "igv" → igv.
     - Productos: "productos", "items", "detalle" → productos (JSON array).
-    - Moneda: "moneda" ("PEN"/"soles" → "PEN"; "USD"/"dolares" → "USD").
+    - Moneda: "moneda" ("PEN"/"soles"/"solcitos"/"mangos"/"luquitas" → "PEN"; "USD"/"dolares"/"dólares"/"verdes" → "USD").
     - Fechas: "fecha_emision", "fecha_pago" → formato DD-MM-YYYY.
     - Pago condición: "tipo_operacion", "medio_pago", "condicion_pago", "metodo_pago" → **metodo_pago** ("contado"/"credito"). Si "credito" → "dias_credito" (entero), "nro_cuotas" (entero de **1 a 24**).
     Si el JSON tiene datos, combina con texto libre (JSON tiene prioridad).
@@ -76,31 +76,34 @@ def build_prompt_extractor(
 
     ### REGLAS DE EXTRACCIÓN:
     - operacion: solo "venta" o "compra". Si no se indica, null.
-    - tipo_documento: "factura", "boleta", "nota de venta" o "nota de compra". Nunca usar "recibo".
-      **NO inferir automáticamente desde el RUC/DNI.** Un RUC no implica factura (podría ser nota) y un DNI no implica boleta (podría ser nota). Solo asignar tipo_documento cuando el usuario lo indica explícitamente ("factura", "boleta", "nota").
-      Si el usuario indica explícitamente "factura"/"boleta", se asume el tipo correspondiente aunque no se haya indicado aún el RUC/DNI.
+    - tipo_documento: "factura", "boleta", "nota de venta" o "nota de compra". Nunca usar "recibo" como valor. Si el usuario dice "recibo", interpretar como **boleta** (en Perú "recibo" coloquialmente se refiere a boleta de venta).
+      **NO inferir automáticamente desde el RUC/DNI.** Un RUC no implica factura (podría ser nota) y un DNI no implica boleta (podría ser nota). Solo asignar tipo_documento cuando el usuario lo indica explícitamente ("factura", "boleta", "nota", "recibo").
+      Si el usuario indica explícitamente "factura"/"boleta"/"recibo", se asume el tipo correspondiente aunque no se haya indicado aún el RUC/DNI.
       Si no se puede determinar desde el mensaje, deja null.
     - Si el usuario indica "nota" sin especificar, usa la operación para inferir: en venta => "nota de venta"; en compra => "nota de compra". Si la operación no está definida, no preguntes tipo de comprobante: pregunta solo si es venta o compra para resolver la nota.
     - Para "nota de venta" o "nota de compra": tratar como registro interno sin cálculo de IGV. No forzar ni preguntar por desglose de IGV/base; usa monto_total como dato principal.
     - **REGLA 700 (PEN) — solo aplica a facturas y boletas:** Para ventas en soles (PEN) con factura o boleta: si el monto total es **menor a S/ 700**, la identificación por documento (DNI o RUC) es **opcional**. Si el monto es **>= S/ 700**, el documento del cliente (DNI/RUC) es **obligatorio**. **Para notas de venta o notas de compra, el documento es SIEMPRE opcional** independientemente del monto (son registros internos). Esta regla solo define cuándo pedir o no documento; no sugieras ni preguntes cambiar de boleta a factura ni impongas tipo de comprobante por el monto.
     - numero_documento: formato serie-número del **comprobante** según SUNAT (ej: B005-00000008, F001-00005678). Solo si el usuario da el número de boleta/factura a emitir. No confundir con el documento del cliente: el DNI/RUC del cliente va siempre en entidad_numero. **CANDADO: si tipo_documento es "nota de venta" o "nota de compra", numero_documento NO aplica — NUNCA preguntar por serie/número en notas.**
     - moneda: "PEN" o "USD". No asumir.
-    - **metodo_pago** (método de pago = condición): solo "contado" o "credito". No confundir con **forma_pago** ni **medio_pago** del catálogo (esos los elige el usuario en Estado 2 / opciones con id). Si el JSON antiguo trae "medio_pago" con contado/credito, mapéalo a **metodo_pago**. Si no se indica, null.
+    - **metodo_pago** (método de pago = condición): solo "contado" o "credito". Sinónimos comunes: "efectivo", "cash", "al toque", "de una", "pago directo", "pago inmediato" → **contado**; "a plazos", "financiado", "a cuotas", "me fían" → **credito**. No confundir con **forma_pago** ni **medio_pago** del catálogo (esos los elige el usuario en Estado 2 / opciones con id). Si el JSON antiguo trae "medio_pago" con contado/credito, mapéalo a **metodo_pago**. Si no se indica, null. **Si metodo_pago cambia de "credito" a "contado", limpiar dias_credito y nro_cuotas** (ponerlos en null en propuesta_cache para que el backend los borre).
     - dias_credito: entero. Obligatorio si metodo_pago = "credito". **Valores típicos a ofrecer en la pregunta:** 15, 30, 45, 60, 90 días (el usuario puede indicar otro número si lo dice explícitamente).
     - nro_cuotas: entero entre **1 y 24** (compras máximo 24 cuotas). Obligatorio si metodo_pago = "credito".
     - observacion: texto libre opcional. Solo extraer si el usuario voluntariamente indica una anotación u observación para el registro (ej: "anota que es para el proyecto X", "observación: pedido urgente"). **NO preguntar proactivamente** por este campo; solo capturarlo si el usuario lo ofrece.
     - Fechas: formato DD-MM-YYYY siempre. **VALIDACIÓN:** fecha_pago debe ser >= fecha_emision. Si el usuario indica una fecha_pago anterior a fecha_emision, no la aceptes: en el diagnóstico indica que la fecha de pago debe ser igual o posterior a la fecha de emisión.
-    - Para factura/boleta: IGV 18% incluido en monto_total (desglosar monto_sin_igv e igv).
+    - Para factura/boleta: por defecto el IGV 18% está **incluido** en monto_total (desglosar monto_sin_igv e igv desde monto_total). Pero si el usuario dice explícitamente "más IGV", "sin IGV", "más impuesto" o "base": interpretar el monto dado como **monto_sin_igv** (base) y calcular monto_total = monto_sin_igv × 1.18, igv = monto_sin_igv × 0.18.
       Para nota de venta/nota de compra: no calcular IGV (monto_sin_igv e igv pueden quedar en 0).
-    - entidad_numero: DNI tiene 8 dígitos, RUC tiene 11 dígitos. El tipo se infiere por la longitud.
+    - entidad_numero: DNI tiene 8 dígitos, RUC tiene 11 dígitos. El tipo se infiere por la longitud. **Solo considerar como RUC/DNI cuando el contexto indique documento de identidad** (ej: "RUC", "DNI", "documento", "su número es"). No confundir con teléfonos, códigos de producto, números de serie u otros números de 8 u 11 dígitos que aparezcan en contexto diferente.
 
-    ### FLUJO NOTA SIN DOCUMENTO:
+    ### FLUJO NOTA SIN DOCUMENTO (acción directa, sin pedir permiso):
     Si el usuario indica que **no tiene o no sabe** el RUC/DNI del cliente o proveedor (ej: "no tengo su RUC", "no sé el DNI", "no cuento con el documento"):
-    1. Si tipo_documento aún no está definido o es factura/boleta: **sugerir** en el diagnóstico cambiar a nota: "¿Quieres guardarlo como nota de [venta/compra]? El nombre quedará en las observaciones."
-       Si tipo_documento ya es nota: no sugerir nada, simplemente no pedir el documento (es opcional en notas). Si hay entidad_nombre y no hay observacion, copiar nombre a observacion como referencia.
-    2. Si el usuario **acepta** la sugerencia (ej: "sí", "dale", "como nota"): cambiar tipo_documento a "nota de venta" o "nota de compra" según la operación. Si hay entidad_nombre, copiarlo a **observacion** con prefijo (ej: "Ref: Empresa SAC"). **No borrar** entidad_nombre ni entidad_id de sus campos originales — se mantienen por si se necesitan.
-    3. La **observacion** debe aparecer en propuesta_cache y se verá en el resumen visual (línea 📝 *Observación:*). Si el usuario ya tenía una observacion previa, concatenar: "[observacion anterior] | Ref: [nombre]".
-    4. Esto no significa que todas las notas carezcan de entidad. Una nota puede tener entidad identificada perfectamente. Este flujo es solo un atajo cuando el usuario no tiene el documento.
+    1. **Actuar de inmediato en el mismo turno** — no sugerir ni pedir confirmación:
+       - Cambiar tipo_documento a "nota de venta" o "nota de compra" según la operación (si ya era nota, dejarlo).
+       - Si hay entidad_nombre, copiarlo a **observacion** con prefijo (ej: "Ref: Empresa SAC"). Si ya había observacion previa, concatenar: "[observacion anterior] | Ref: [nombre]".
+       - **No borrar** entidad_nombre ni entidad_id de sus campos originales — se mantienen por si se necesitan.
+    2. En el **mensaje_entendimiento**, informar brevemente lo que se hizo: "Entendido, lo registro como nota de [venta/compra]. El nombre queda como referencia en observaciones." No preguntar si está de acuerdo — ya se hizo.
+    3. La **observacion** debe aparecer en propuesta_cache y se verá en el resumen visual (línea 📝 *Observación:*).
+    4. Continuar con el diagnóstico normal: mostrar resumen + preguntar solo lo que falte (ya no falta RUC/DNI porque es nota).
+    5. Esto no significa que todas las notas carezcan de entidad. Una nota puede tener entidad identificada perfectamente. Este flujo es solo un atajo cuando el usuario no tiene el documento.
 
     ### REGLA ESTRICTA — IDENTIFICACIÓN CON RUC/DNI:
     **Cuando detectes un RUC (11 dígitos) o un DNI (8 dígitos), venga de texto libre O de un JSON:**
@@ -127,7 +130,7 @@ def build_prompt_extractor(
     **NO preguntar por:** sucursal, forma de pago (transferencia/TC/TD/billetera) ni centro de costo (se gestionan en Estado 2 / opciones; centro de costo solo se pide en compra, no en venta).
 
     Campos a incluir SOLO si están vacíos (si ya tienen valor, NO preguntes):
-    1. Monto/Detalle: solo si monto_total = 0 y productos vacío.
+    1. Monto/Detalle: solo si monto_total = 0 y productos vacío. Preguntar en lenguaje natural: "¿Cuál es el monto?" o "¿Qué productos o servicios incluye?". No revelar lógica interna. Si el usuario responde con un monto directo (ej: "1500"), usarlo como monto_total. Si responde con productos (ej: "3 cajas de papel a 50 cada una"), calcular monto_total desde los productos (cantidad × precio).
     2. Cliente (venta) o Proveedor (compra): solo si no hay entidad_nombre ni entidad_id.
     3. Tipo de documento: solo si tipo_documento es null. La pregunta debe ser **contextual** según el documento de la entidad:
        - Si entidad_numero es RUC (11 dígitos) → preguntar "¿Factura o nota de [venta/compra]?"
@@ -135,8 +138,8 @@ def build_prompt_extractor(
        - Si no hay entidad_numero → preguntar "¿Factura, boleta o nota de [venta/compra]?"
        Si el usuario ya dijo explícitamente el tipo en el mensaje (factura/boleta/nota), NO preguntes. Si dijo "nota", usa la operación para inferir nota de venta o nota de compra. Si falta operación, pregunta operación (venta/compra) y no el tipo.
     4. RUC/DNI de la entidad: pregunta si entidad_numero está vacío **o no coincide con la longitud esperada** y el tipo de documento lo requiere:
-       - si tipo_documento = "factura" => se necesita RUC (11 dígitos). Si entidad_numero tiene 8 dígitos (DNI), indicar: "Para factura se necesita RUC (11 dígitos). El documento actual es un DNI. ¿Puedes proporcionar el RUC?"
-       - si tipo_documento = "boleta" => se necesita DNI (8 dígitos). Si entidad_numero tiene 11 dígitos (RUC), indicar: "Para boleta se necesita DNI (8 dígitos). El documento actual es un RUC. ¿Puedes proporcionar el DNI?"
+       - si tipo_documento = "factura" => se necesita RUC (11 dígitos). Si entidad_numero tiene 8 dígitos (DNI), indicar: "Para factura se necesita RUC (11 dígitos). El documento actual es un DNI. ¿Deseas cambiar a boleta, o puedes proporcionar el RUC?"
+       - si tipo_documento = "boleta" => se necesita DNI (8 dígitos). Si entidad_numero tiene 11 dígitos (RUC), indicar: "Un RUC corresponde a una empresa. Para empresas se emite factura. ¿Deseas cambiar a factura, o prefieres registrarlo como nota de [venta/compra]?"
        - si tipo_documento = "nota de venta" o "nota de compra" => SIEMPRE opcional: NO preguntes por RUC/DNI (las notas son registros internos; el documento nunca es obligatorio en notas)
        - si tipo_documento = null (no debería llegar aquí si el punto 3 se preguntó, pero como fallback) => aplica regla 700 PEN: si monto_total >= 700 PEN => pedir RUC o DNI; si monto_total < 700 PEN => no preguntar.
     5. Moneda: solo si moneda es null (preguntar "¿En soles (PEN) o dólares (USD)?").

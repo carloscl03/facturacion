@@ -67,6 +67,11 @@ class ExtraccionService:
         payload_db = {k: v for k, v in payload_base.items() if self._es_valor_valido(v)}
         self._preservar_campos_opciones_y_catalogo(estado_actual, payload_db)
 
+        # Limpiar dias_credito y nro_cuotas si metodo_pago cambió a contado
+        if payload_db.get("metodo_pago") == "contado":
+            payload_db["dias_credito"] = ""
+            payload_db["nro_cuotas"] = ""
+
         # Fijar operación (compra/venta): solo persistir "operacion" en Redis (sin cod_ope)
         op_val = operacion or (str(payload_base.get("operacion") or "").strip().lower())
         if op_val == "compras":
@@ -361,22 +366,27 @@ class ExtraccionService:
             if s in ("contado", "credito"):
                 metodo_pago = s
 
-        dias_credito_raw = propuesta.get("dias_credito") or estado_actual.get("dias_credito")
-        dias_credito = None
-        if dias_credito_raw is not None and str(dias_credito_raw).strip() != "":
-            try:
-                dias_credito = int(float(dias_credito_raw))
-            except (TypeError, ValueError):
-                pass
+        # Si metodo_pago cambió a contado, limpiar dias_credito y nro_cuotas
+        if metodo_pago == "contado":
+            dias_credito = None
+            nro_cuotas = None
+        else:
+            dias_credito_raw = propuesta.get("dias_credito") or estado_actual.get("dias_credito")
+            dias_credito = None
+            if dias_credito_raw is not None and str(dias_credito_raw).strip() != "":
+                try:
+                    dias_credito = int(float(dias_credito_raw))
+                except (TypeError, ValueError):
+                    pass
 
-        nro_cuotas_raw = propuesta.get("nro_cuotas") or estado_actual.get("nro_cuotas")
-        nro_cuotas = None
-        if nro_cuotas_raw is not None and str(nro_cuotas_raw).strip() != "":
-            try:
-                nro_cuotas = int(float(nro_cuotas_raw))
-                nro_cuotas = max(1, min(24, nro_cuotas))
-            except (TypeError, ValueError):
-                pass
+            nro_cuotas_raw = propuesta.get("nro_cuotas") or estado_actual.get("nro_cuotas")
+            nro_cuotas = None
+            if nro_cuotas_raw is not None and str(nro_cuotas_raw).strip() != "":
+                try:
+                    nro_cuotas = int(float(nro_cuotas_raw))
+                    nro_cuotas = max(1, min(24, nro_cuotas))
+                except (TypeError, ValueError):
+                    pass
 
         entidad_numero = obtener("entidad_numero", "entidad_numero_documento", "")
         if not (entidad_numero and str(entidad_numero).strip()):
