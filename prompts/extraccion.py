@@ -88,10 +88,17 @@ def build_prompt_extractor(
     - **metodo_pago** (método de pago = condición): solo "contado" o "credito". No confundir con **forma_pago** ni **medio_pago** del catálogo (esos los elige el usuario en Estado 2 / opciones con id). Si el JSON antiguo trae "medio_pago" con contado/credito, mapéalo a **metodo_pago**. Si no se indica, null.
     - dias_credito: entero. Obligatorio si metodo_pago = "credito". **Valores típicos a ofrecer en la pregunta:** 15, 30, 45, 60, 90 días (el usuario puede indicar otro número si lo dice explícitamente).
     - nro_cuotas: entero entre **1 y 24** (compras máximo 24 cuotas). Obligatorio si metodo_pago = "credito".
+    - observacion: texto libre opcional. Solo extraer si el usuario voluntariamente indica una anotación u observación para el registro (ej: "anota que es para el proyecto X", "observación: pedido urgente"). **NO preguntar proactivamente** por este campo; solo capturarlo si el usuario lo ofrece.
     - Fechas: formato DD-MM-YYYY siempre. **VALIDACIÓN:** fecha_pago debe ser >= fecha_emision. Si el usuario indica una fecha_pago anterior a fecha_emision, no la aceptes: en el diagnóstico indica que la fecha de pago debe ser igual o posterior a la fecha de emisión.
     - Para factura/boleta: IGV 18% incluido en monto_total (desglosar monto_sin_igv e igv).
       Para nota de venta/nota de compra: no calcular IGV (monto_sin_igv e igv pueden quedar en 0).
     - entidad_numero: DNI tiene 8 dígitos, RUC tiene 11 dígitos. El tipo se infiere por la longitud.
+
+    ### FLUJO NOTA SIN DOCUMENTO:
+    Si el usuario indica que **no tiene o no sabe** el RUC/DNI del cliente o proveedor (ej: "no tengo su RUC", "no sé el DNI", "no cuento con el documento"):
+    1. **Sugerir** en el diagnóstico cambiar a nota de [venta/compra]: "¿Quieres guardarlo como nota de [venta/compra]? El nombre quedará en las observaciones."
+    2. Si el usuario **acepta** (en este mensaje o en uno posterior): cambiar tipo_documento a "nota de venta" o "nota de compra" según la operación. Si hay entidad_nombre, copiarlo a **observacion** como referencia (ej: "Ref: Empresa SAC"). **No borrar** entidad_nombre de su campo original — se mantiene por si se necesita.
+    3. Esto no significa que todas las notas carezcan de entidad. Una nota puede tener entidad identificada perfectamente. Este flujo es solo un atajo cuando el usuario no tiene el documento.
 
     ### REGLA ESTRICTA — IDENTIFICACIÓN CON RUC/DNI:
     **Cuando detectes un RUC (11 dígitos) o un DNI (8 dígitos), venga de texto libre O de un JSON:**
@@ -182,7 +189,8 @@ def build_prompt_extractor(
             "igv": float,
             "productos": [{{ "nombre": str, "cantidad": float, "precio": float }}],
             "fecha_emision": "DD-MM-YYYY o null",
-            "fecha_pago": "DD-MM-YYYY o null (debe ser >= fecha_emision)"
+            "fecha_pago": "DD-MM-YYYY o null (debe ser >= fecha_emision)",
+            "observacion": "texto libre o null — solo si el usuario indica voluntariamente una anotación, o si se activa el flujo nota sin documento (Ref: nombre entidad)"
         }},
         "mensaje_entendimiento": "Preámbulo corto (ej: ¡Dale! Ya anoté lo principal.).",
         "resumen_visual": "SÍNTESIS VISUAL DINÁMICA: solo líneas para campos con valor (vacío/null/0 = no escribir esa línea). Redis + propuesta fusionados.",

@@ -294,6 +294,7 @@ class ExtraccionService:
             "nombre_medio_pago",
             "opciones_actuales",
             "url",
+            "observacion",
         )
         for k in passthrough:
             if k not in payload_db and estado_actual.get(k) is not None:
@@ -443,4 +444,5 @@ class ExtraccionService:
             "productos": productos_str,
             "fecha_emision": obtener("fecha_emision", default=None),
             "fecha_pago": obtener("fecha_pago", default=None),
+            "observacion": obtener("observacion", default=None),
         }
