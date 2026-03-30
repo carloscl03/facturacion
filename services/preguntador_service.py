@@ -2,6 +2,7 @@ from prompts.plantillas import formatear_resumen_registro
 from prompts.preguntador import build_prompt_pregunta, build_prompt_preguntador_v2
 from repositories.base import CacheRepository
 from services.ai_service import AIService
+from services.whatsapp_sender import enviar_texto as _enviar_texto
 
 # Emojis numéricos para listar preguntas obligatorias (1️⃣ 2️⃣ …)
 EMOJI_NUM = ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣")
@@ -34,6 +35,8 @@ class PreguntadorService:
         id_from: int,
         texto_desde_registrador: str | None = None,
         datos_registrados: dict | None = None,
+        id_empresa: int | None = None,
+        id_plataforma: int | None = None,
     ) -> dict:
         registro = self._repo.consultar(wa_id, id_from)
         bloques_previos = []
@@ -48,6 +51,8 @@ class PreguntadorService:
             pregunta = "¡Hola! Soy MaravIA. Para empezar con el registro, selecciona el tipo de operación:"
             if bloques_previos:
                 pregunta = "\n\n".join(bloques_previos) + "\n\n" + pregunta
+            if id_empresa is not None:
+                _enviar_texto(id_empresa, wa_id, pregunta, id_plataforma)
             return {
                 "pregunta_casual": pregunta,
                 "requiere_botones": True,
@@ -60,6 +65,9 @@ class PreguntadorService:
         pregunta_casual = resultado["resumen_y_guia"]
         if bloques_previos:
             pregunta_casual = "\n\n".join(bloques_previos) + "\n\n" + pregunta_casual
+
+        if id_empresa is not None:
+            _enviar_texto(id_empresa, wa_id, pregunta_casual, id_plataforma)
 
         return {
             "pregunta_casual": pregunta_casual,
@@ -84,6 +92,8 @@ class PreguntadorV2Service:
         id_from: int,
         texto_desde_registrador: str | None = None,
         datos_registrados: dict | None = None,
+        id_empresa: int | None = None,
+        id_plataforma: int | None = None,
     ) -> dict:
         registro = self._repo.consultar(wa_id, id_from)
         bloques_previos = []
@@ -98,6 +108,8 @@ class PreguntadorV2Service:
             texto = "¡Hola! Soy MaravIA. 🤖 ¿Qué operación deseas registrar hoy? Puedes enviarme una foto de un comprobante o decirme, por ejemplo: 'Venta de 2 laptops a Inversiones Sur'."
             if bloques_previos:
                 texto = "\n\n".join(bloques_previos) + "\n\n" + texto
+            if id_empresa is not None:
+                _enviar_texto(id_empresa, wa_id, texto, id_plataforma)
             return {
                 "status": "ok",
                 "whatsapp_output": {
@@ -127,6 +139,9 @@ class PreguntadorV2Service:
             texto_final = "\n\n".join(bloques_previos) + "\n\n" + texto_final
 
         listo_para_finalizar = bool(resultado.get("listo_para_finalizar") is True)
+
+        if id_empresa is not None:
+            _enviar_texto(id_empresa, wa_id, texto_final, id_plataforma)
 
         return {
             "status": "ok",

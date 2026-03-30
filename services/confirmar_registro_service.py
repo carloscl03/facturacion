@@ -5,6 +5,7 @@ Pasa a estado 4 y el orquestador debe llamar a opciones (sucursal, forma de pago
 from __future__ import annotations
 
 from repositories.base import CacheRepository
+from services.whatsapp_sender import enviar_texto as _enviar_texto
 
 
 def _datos_obligatorios_completos(registro: dict | None) -> bool:
@@ -28,7 +29,7 @@ class ConfirmarRegistroService:
     def __init__(self, repo: CacheRepository) -> None:
         self._repo = repo
 
-    def ejecutar(self, wa_id: str, id_from: int) -> dict:
+    def ejecutar(self, wa_id: str, id_from: int, *, id_empresa: int | None = None, id_plataforma: int | None = None) -> dict:
         registro = self._repo.consultar(wa_id, id_from) if wa_id and id_from else None
         if not registro:
             _debug_registro = {
@@ -81,9 +82,12 @@ class ConfirmarRegistroService:
         }
         if getattr(self._repo, "guardar_debug", None):
             self._repo.guardar_debug(wa_id, id_from, "registro", _debug_registro)
+        mensaje = "Registro confirmado. Siguiente: elegir sucursal, forma de pago y medio de pago."
+        if id_empresa is not None:
+            _enviar_texto(id_empresa, wa_id, mensaje, id_plataforma)
         return {
             "success": True,
             "estado": 4,
             "siguiente_paso": "opciones",
-            "mensaje": "Registro confirmado. Siguiente: elegir sucursal, forma de pago y medio de pago.",
+            "mensaje": mensaje,
         }

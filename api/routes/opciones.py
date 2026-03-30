@@ -4,8 +4,6 @@ Solo aplica con estado >= 4. **forma_pago** / **medio_pago** + ids vienen aquí.
 """
 from __future__ import annotations
 
-import requests
-
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
 
@@ -17,6 +15,7 @@ from repositories.parametros_repository import ParametrosRepository
 from services.ai_service import AIService
 from services.helpers.opciones_domain import normalizar_opciones_actuales, siguiente_campo_pendiente
 from services.opciones_service import OpcionesService
+from services.whatsapp_sender import enviar_lista as _enviar_lista_whatsapp_shared, enviar_texto as _enviar_texto_shared
 
 # Clave Redis: si ya hay lista cargada, el mensaje es selección; si no, es primer mensaje (solo cargar lista).
 OPCIONES_ACTUALES_KEY = "opciones_actuales"
@@ -139,116 +138,14 @@ async def opciones(
         return resp
 
     def _enviar_lista_whatsapp(payload_list: dict) -> tuple[bool, str | None, dict]:
-        """
-        Envía payload_whatsapp_list a ws_send_whatsapp_list.
-        Retorna (éxito, mensaje_error, debug_whatsapp) con datos para diagnosticar fallos.
-        """
-        url = settings.URL_SEND_WHATSAPP_LIST
-        debug_whatsapp = {
-            "url_llamada": url,
-            "status_code": None,
-            "response_body_preview": None,
-            "donde_arreglar": "Ver url_llamada: si 404, la URL no existe o cambió en el backend. Revisar config (URL_SEND_WHATSAPP_LIST) o .env.",
-        }
-        try:
-            r = requests.post(
-                url,
-                json=payload_list,
-                headers={"Content-Type": "application/json"},
-                timeout=30,
-            )
-            debug_whatsapp["status_code"] = r.status_code
-            # Preview del body (útil si la API devuelve error en JSON)
-            try:
-                if r.text:
-                    preview = r.text[:500] if len(r.text) <= 500 else r.text[:500] + "..."
-                    debug_whatsapp["response_body_preview"] = preview
-                body_lower = (r.text or "").lower()
-                if r.status_code == 404:
-                    if "credenciales" in body_lower and "whatsapp" in body_lower:
-                        debug_whatsapp["donde_arreglar"] = (
-                            "404: No hay credenciales de WhatsApp para el id_empresa enviado. "
-                            "Pasar id_empresa (query o body) con el id de la empresa que sí tenga credenciales (ej. 1). "
-                            "id_from se usa para cache y tablas; id_empresa solo para enviar la lista a WhatsApp."
-                        )
-                    else:
-                        debug_whatsapp["donde_arreglar"] = (
-                            "404 Not Found: la URL del servicio de lista WhatsApp no existe. "
-                            "Comprobar URL_SEND_WHATSAPP_LIST en config/settings.py o variable de entorno. "
-                            f"URL usada: {url}"
-                        )
-                elif r.status_code >= 500:
-                    debug_whatsapp["donde_arreglar"] = "Error del servidor (5xx): fallo en el backend de envío; revisar logs del servicio ws_send_whatsapp_list."
-                elif r.status_code == 400:
-                    debug_whatsapp["donde_arreglar"] = "400 Bad Request: el payload puede tener campos incorrectos; revisar response_body_preview."
-            except Exception:
-                pass
-            if r.status_code != 200:
-                return False, f"HTTP {r.status_code}", debug_whatsapp
-            data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-            if not data.get("success", True):
-                err = data.get("error") or data.get("message") or "API error"
-                debug_whatsapp["donde_arreglar"] = f"API devolvió success=false: {err}. Revisar credenciales (id_empresa) o formato del payload."
-                return False, err, debug_whatsapp
-            debug_whatsapp["donde_arreglar"] = None  # Éxito
-            return True, None, debug_whatsapp
-        except requests.RequestException as e:
-            debug_whatsapp["donde_arreglar"] = f"Error de conexión/timeout: {e}. Comprobar que la URL sea accesible desde este servidor: {url}"
-            return False, str(e), debug_whatsapp
+        return _enviar_lista_whatsapp_shared(payload_list)
 
     def _enviar_mensaje_oficial(
         id_empresa: int, phone: str, id_plataforma: int, mensaje: str
     ) -> tuple[bool, str | None, dict]:
-        """Envía el mensaje de finalizar por ws_send_whatsapp_oficial. Retorna (éxito, error, debug_oficial)."""
-        url = settings.URL_SEND_WHATSAPP_OFICIAL
-        payload = {
-            "id_empresa": id_empresa,
-            "phone": phone,
-            "id_plataforma": id_plataforma,
-            "tipo": "texto",
-            "mensaje": mensaje,
-            "texto": mensaje,
-            "message": mensaje,
-            "body": mensaje,
-        }
-        debug_oficial = {
-            "url_llamada": url,
-            "payload_enviado": payload,
-            "status_code": None,
-            "response_body_preview": None,
-            "donde_arreglar": None,
-        }
-        try:
-            r = requests.post(
-                url,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=30,
-            )
-            debug_oficial["status_code"] = r.status_code
-            if r.text:
-                preview = r.text[:500] if len(r.text) <= 500 else r.text[:500] + "..."
-                debug_oficial["response_body_preview"] = preview
-            if r.status_code == 400:
-                debug_oficial["donde_arreglar"] = (
-                    "400 Bad Request: revisar response_body_preview para ver qué campo falta o está mal. "
-                    "Comprobar que la API espere id_empresa, phone, id_plataforma (y mensaje si aplica) con esos nombres."
-                )
-            elif r.status_code == 404:
-                debug_oficial["donde_arreglar"] = "404: URL no existe o credenciales no encontradas para id_empresa. Revisar response_body_preview."
-            elif r.status_code >= 500:
-                debug_oficial["donde_arreglar"] = "Error 5xx del servidor de envío; revisar logs del backend ws_send_whatsapp_oficial."
-            if r.status_code != 200:
-                return False, f"HTTP {r.status_code}", debug_oficial
-            data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-            if not data.get("success", True):
-                err = data.get("error") or data.get("message") or "API error"
-                debug_oficial["donde_arreglar"] = f"API success=false: {err}. Revisar response_body_preview."
-                return False, err, debug_oficial
-            return True, None, debug_oficial
-        except requests.RequestException as e:
-            debug_oficial["donde_arreglar"] = f"Error de conexión: {e}. Comprobar que la URL sea accesible: {url}"
-            return False, str(e), debug_oficial
+        ok, err = _enviar_texto_shared(id_empresa, phone, mensaje, id_plataforma)
+        debug_oficial = {"envio_directo": True, "ok": ok, "error": err}
+        return ok, err, debug_oficial
 
     service = OpcionesService(cache, informacion, parametros, ai=ai)
     if action_final == "submit":

@@ -12,9 +12,8 @@ from __future__ import annotations
 import os
 from urllib.parse import urlparse
 
-import requests
-
 from config import settings
+from services.whatsapp_sender import enviar_texto as _enviar_texto_whatsapp, enviar_pdf as _enviar_pdf_whatsapp
 
 # Usuario con el que se registran ventas y compras (temporal; informado por Maravia).
 ID_USUARIO_REGISTRO = 3
@@ -41,102 +40,6 @@ from services.helpers.venta_mapper import (
     construir_sintesis_actual,
     traducir_registro_a_parametros,
 )
-
-
-def _enviar_texto_whatsapp(
-    id_empresa: int, phone: str, id_plataforma: int | None, mensaje: str
-) -> tuple[bool, str | None]:
-    """Envía mensaje de texto por ws_send_whatsapp_oficial. Retorna (éxito, error)."""
-    url = settings.URL_SEND_WHATSAPP_OFICIAL
-    payload = {
-        "id_empresa": id_empresa,
-        "phone": phone,
-        "type": "text",
-        "message": mensaje,
-    }
-    if id_plataforma is not None:
-        payload["id_plataforma"] = id_plataforma
-    try:
-        r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
-        if r.status_code != 200:
-            # Fallback de compatibilidad: algunas empresas no tienen credenciales por id_plataforma.
-            if id_plataforma is not None and r.status_code in (400, 404):
-                payload.pop("id_plataforma", None)
-                r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
-                if r2.status_code != 200:
-                    return False, f"HTTP {r2.status_code}"
-                data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
-                if not data2.get("success", True):
-                    return False, data2.get("error") or data2.get("message") or "API error"
-                return True, None
-            return False, f"HTTP {r.status_code}"
-        data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-        if not data.get("success", True):
-            err = (data.get("error") or data.get("message") or "API error")
-            if id_plataforma is not None and (
-                "credenciales" in str(err).lower() or "plataforma" in str(err).lower()
-            ):
-                payload.pop("id_plataforma", None)
-                r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
-                if r2.status_code != 200:
-                    return False, f"HTTP {r2.status_code}"
-                data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
-                if not data2.get("success", True):
-                    return False, data2.get("error") or data2.get("message") or "API error"
-                return True, None
-            return False, err
-        return True, None
-    except requests.RequestException as e:
-        return False, str(e)
-
-
-def _enviar_pdf_whatsapp(
-    id_empresa: int, phone: str, id_plataforma: int | None, document_url: str, filename: str, caption: str = ""
-) -> tuple[bool, str | None]:
-    """Envía documento PDF por ws_send_whatsapp_oficial. Retorna (éxito, error)."""
-    url = settings.URL_SEND_WHATSAPP_OFICIAL
-    payload = {
-        "id_empresa": id_empresa,
-        "phone": phone,
-        "type": "document",
-        "document_url": document_url,
-        "filename": filename,
-    }
-    if id_plataforma is not None:
-        payload["id_plataforma"] = id_plataforma
-    if caption:
-        payload["message"] = caption
-    try:
-        r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
-        if r.status_code != 200:
-            if id_plataforma is not None and r.status_code in (400, 404):
-                payload.pop("id_plataforma", None)
-                r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
-                if r2.status_code != 200:
-                    return False, f"HTTP {r2.status_code}"
-                data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
-                if not data2.get("success", True):
-                    return False, data2.get("error") or data2.get("message") or "API error"
-                return True, None
-            return False, f"HTTP {r.status_code}"
-        data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-        if not data.get("success", True):
-            err = (data.get("error") or data.get("message") or "API error")
-            if id_plataforma is not None and (
-                "credenciales" in str(err).lower() or "plataforma" in str(err).lower()
-            ):
-                payload.pop("id_plataforma", None)
-                r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
-                if r2.status_code != 200:
-                    return False, f"HTTP {r2.status_code}"
-                data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
-                if not data2.get("success", True):
-                    return False, data2.get("error") or data2.get("message") or "API error"
-                return True, None
-            return False, err
-        return True, None
-    except requests.RequestException as e:
-        return False, str(e)
 
 
 def _mensaje_error_mapeado(mensaje: str, mapeo: dict) -> str:
@@ -335,7 +238,7 @@ class FinalizarService:
             )
 
             # Mensaje 1: texto (id_empresa para credenciales WhatsApp, no id_from)
-            ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, id_plataforma, mensaje_texto)
+            ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, mensaje_texto, id_plataforma)
 
             # Mensaje 2: PDF (solo venta genera PDF)
             ok_pdf, err_pdf = False, None
@@ -344,10 +247,10 @@ class FinalizarService:
                 ok_pdf, err_pdf = _enviar_pdf_whatsapp(
                     id_empresa=id_empresa,
                     phone=wa_id,
-                    id_plataforma=id_plataforma,
                     document_url=resultado.url_pdf,
                     filename=filename,
                     caption="Tu comprobante de pago electrónico.",
+                    id_plataforma=id_plataforma,
                 )
 
             return {
@@ -384,7 +287,7 @@ class FinalizarService:
         out["resumen_visual"] = sintesis
         out["whatsapp_output"] = {"texto": out["mensaje"]}
         # En error también enviar texto por WhatsApp (antes solo se devolvía whatsapp_output).
-        ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, id_plataforma, out["mensaje"])
+        ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, out["mensaje"], id_plataforma)
         out["whatsapp_enviado"] = {
             "texto": ok_texto,
             "texto_error": err_texto,
@@ -420,7 +323,7 @@ class FinalizarService:
             )
 
             # Enviar mensaje por WhatsApp (compra no genera PDF)
-            ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, id_plataforma, mensaje_texto)
+            ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, mensaje_texto, id_plataforma)
 
             return {
                 "status": "finalizado",
@@ -460,7 +363,7 @@ class FinalizarService:
         out["resumen_visual"] = sintesis
         out["whatsapp_output"] = {"texto": out["mensaje"]}
         # En error también enviar texto por WhatsApp (antes solo se devolvía whatsapp_output).
-        ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, id_plataforma, out["mensaje"])
+        ok_texto, err_texto = _enviar_texto_whatsapp(id_empresa, wa_id, out["mensaje"], id_plataforma)
         out["whatsapp_enviado"] = {
             "texto": ok_texto,
             "texto_error": err_texto,

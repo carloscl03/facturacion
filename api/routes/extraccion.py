@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from api.deps import get_ai_service, get_cache_repo, get_identificador_service, get_informacion_repo
+from config import settings
 from repositories.base import CacheRepository
 from repositories.informacion_repository import InformacionRepository
 from services.ai_service import AIService
@@ -16,9 +17,15 @@ async def procesar_extraccion(
     mensaje: str,
     id_from: int,
     url: str | None = None,
+    id_empresa: int | None = None,
+    id_plataforma: int | None = None,
     repo: CacheRepository = Depends(get_cache_repo),
     ai: AIService = Depends(get_ai_service),
     identificador: IdentificadorService = Depends(get_identificador_service),
     informacion_repo: InformacionRepository = Depends(get_informacion_repo),
 ):
-    return ExtraccionService(repo, ai, identificador, informacion_repo).ejecutar(wa_id, mensaje, id_from, url=url)
+    id_empresa_final = id_empresa if id_empresa is not None else (settings.ID_EMPRESA_WHATSAPP or id_from)
+    return ExtraccionService(repo, ai, identificador, informacion_repo).ejecutar(
+        wa_id, mensaje, id_from, url=url,
+        id_empresa=id_empresa_final, id_plataforma=id_plataforma,
+    )

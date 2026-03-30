@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from prompts.informador import build_prompt_info
 from repositories.base import CacheRepository
 from services.ai_service import AIService
+from services.whatsapp_sender import enviar_texto as _enviar_texto
 
 
 class InformadorService:
@@ -12,18 +13,19 @@ class InformadorService:
         self._repo = repo
         self._ai = ai
 
-    def ejecutar(self, mensaje: str, wa_id: str | None, id_from: int | None) -> dict:
+    def ejecutar(self, mensaje: str, wa_id: str | None, id_from: int | None, *, id_empresa: int | None = None, id_plataforma: int | None = None) -> dict:
         estado_registro, resumen_debug = self._obtener_estado_y_debug(wa_id, id_from)
         prompt = build_prompt_info(mensaje, estado_registro, resumen_debug)
 
         try:
             texto = self._ai.completar_texto(prompt)
+            texto_final = texto or "Puedes indicarme, por ejemplo: cliente con RUC o DNI, productos con cantidad y precio, tipo de comprobante (Factura/Boleta) y si el pago es al contado o crédito."
+            if id_empresa is not None and wa_id:
+                _enviar_texto(id_empresa, wa_id, texto_final, id_plataforma)
             return {
                 "status": "ok",
                 "destino": "informador",
-                "whatsapp_output": {
-                    "texto": texto or "Puedes indicarme, por ejemplo: cliente con RUC o DNI, productos con cantidad y precio, tipo de comprobante (Factura/Boleta) y si el pago es al contado o crédito."
-                },
+                "whatsapp_output": {"texto": texto_final},
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))

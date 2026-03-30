@@ -12,6 +12,7 @@ from services.helpers.registro_domain import (
     operacion_desde_registro,
 )
 from services.identificador_service import IdentificadorService
+from services.whatsapp_sender import enviar_texto as _enviar_texto
 
 
 class ExtraccionService:
@@ -27,7 +28,7 @@ class ExtraccionService:
         self._identificador = identificador
         self._informacion_repo = informacion_repo
 
-    def ejecutar(self, wa_id: str, mensaje: str, id_from: int, *, url: str | None = None) -> dict:
+    def ejecutar(self, wa_id: str, mensaje: str, id_from: int, *, url: str | None = None, id_empresa: int | None = None, id_plataforma: int | None = None) -> dict:
         lista = self._repo.consultar_lista(wa_id, id_from)
         estado_actual = lista[0] if lista else {}
         es_registro_nuevo = len(lista) == 0
@@ -219,6 +220,12 @@ class ExtraccionService:
 
         # La transición 3 → 4 la hace exclusivamente el flujo confirmar-registro (clasificador devuelve siguiente_estado y el orquestador llama a confirmar-registro).
 
+        # --- Enviar texto por WhatsApp directamente ---
+        whatsapp_enviado = None
+        if texto_completo and id_empresa is not None:
+            ok, err = _enviar_texto(id_empresa, wa_id, texto_completo, id_plataforma)
+            whatsapp_enviado = {"texto": ok, "texto_error": err}
+
         out: dict = {
             "status": "sincronizado",
             "estado": estado,
@@ -228,6 +235,8 @@ class ExtraccionService:
             "whatsapp_output": {"texto": texto_completo},
             "requiere_identificacion": requiere_identificacion,
         }
+        if whatsapp_enviado is not None:
+            out["whatsapp_enviado"] = whatsapp_enviado
         if salida_identificador:
             out["salida_identificador"] = salida_identificador
             if salida_identificador.get("identificado"):
