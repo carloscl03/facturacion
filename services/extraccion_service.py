@@ -5,14 +5,19 @@ import json
 from prompts.extraccion import build_prompt_extractor
 from repositories.base import CacheRepository
 from services.ai_service import AIService
-from services.helpers.productos import productos_a_str
+from services.helpers.productos import (
+    build_payload_lista_productos,
+    enriquecer_producto_con_catalogo,
+    normalizar_productos_raw,
+    productos_a_str,
+)
 from services.helpers.registro_domain import (
     calcular_estado,
     normalizar_documento_entidad,
     operacion_desde_registro,
 )
 from services.identificador_service import IdentificadorService
-from services.whatsapp_sender import enviar_texto as _enviar_texto
+from services.whatsapp_sender import enviar_lista as _enviar_lista, enviar_texto as _enviar_texto
 
 
 class ExtraccionService:
@@ -33,8 +38,12 @@ class ExtraccionService:
         estado_actual = lista[0] if lista else {}
         es_registro_nuevo = len(lista) == 0
 
+        # --- Resolver producto_pendiente si el usuario está seleccionando ---
+        pendiente = self._resolver_producto_pendiente(estado_actual, mensaje, wa_id, id_from, id_empresa, id_plataforma)
+        if pendiente is not None:
+            return pendiente
+
         # Leer operación de registro (operacion o cod_ope por compatibilidad con backend)
-        operacion = operacion_desde_registro(estado_actual)
 
         contexto_previo = self._detectar_contexto(mensaje, estado_actual)
 
@@ -197,6 +206,22 @@ class ExtraccionService:
         elif estado_actual.get("url"):
             payload_db["url"] = estado_actual["url"]
 
+        # --- Búsqueda en catálogo para productos extraídos ---
+        catalogo_resultado = self._buscar_productos_en_catalogo(
+            payload_db, estado_actual, id_from, wa_id,
+            id_empresa, id_plataforma,
+        )
+        if catalogo_resultado is not None:
+            # Hay producto_pendiente: se guardó en Redis y se envió lista WhatsApp.
+            # Persistir primero el resto de datos y luego retornar.
+            self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
+            return catalogo_resultado
+
+        # Feedback visual de productos identificados en catálogo
+        feedback_catalogo = payload_db.pop("_feedback_catalogo", None)
+        if feedback_catalogo:
+            texto_completo = f"{texto_completo}\n\n{feedback_catalogo}".strip() if texto_completo else feedback_catalogo
+
         # --- Persistir ---
         db_res = self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
 
@@ -250,6 +275,167 @@ class ExtraccionService:
                    f"{'clientes' if requiere_identificacion['tipo_ope'] == 'venta' else 'proveedores'}...",
             }
         return out
+
+    # ------------------------------------------------------------------ #
+    # Catálogo de productos
+    # ------------------------------------------------------------------ #
+
+    def _resolver_producto_pendiente(
+        self, estado_actual: dict, mensaje: str, wa_id: str, id_from: int,
+        id_empresa: int | None, id_plataforma: int | None,
+    ) -> dict | None:
+        """
+        Si hay producto_pendiente en Redis, el mensaje del usuario es la selección.
+        Resuelve la selección, enriquece el producto y limpia producto_pendiente.
+        Retorna dict de respuesta si se resolvió, None si no había pendiente.
+        """
+        pendiente_raw = estado_actual.get("producto_pendiente")
+        if not pendiente_raw:
+            return None
+        try:
+            pendiente = json.loads(pendiente_raw) if isinstance(pendiente_raw, str) else pendiente_raw
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(pendiente, dict) or not pendiente.get("candidatos"):
+            return None
+
+        candidatos = pendiente["candidatos"]
+        indice = pendiente.get("indice", 0)
+        cantidad = float(pendiente.get("cantidad", 1))
+        msg = mensaje.strip()
+
+        # Buscar match: por id exacto o por nombre (substring)
+        seleccionado = None
+        for c in candidatos:
+            if str(c.get("id_catalogo")) == msg:
+                seleccionado = c
+                break
+        if not seleccionado:
+            msg_lower = msg.lower()
+            for c in candidatos:
+                if msg_lower in (c.get("nombre") or "").lower():
+                    seleccionado = c
+                    break
+        if not seleccionado:
+            # No matchea: reenviar la lista
+            if id_empresa is not None:
+                nombre_buscado = pendiente.get("nombre_buscado", "producto")
+                payload_lista = build_payload_lista_productos(
+                    id_empresa, wa_id, id_plataforma or 6, candidatos, nombre_buscado,
+                )
+                _enviar_lista(payload_lista)
+            return {
+                "status": "producto_pendiente",
+                "mensaje": "No encontré esa opción. Por favor selecciona de la lista.",
+                "whatsapp_output": {"texto": "No encontré esa opción. Por favor selecciona de la lista."},
+            }
+
+        # Enriquecer producto con datos del catálogo
+        productos_actuales = normalizar_productos_raw(estado_actual.get("productos"))
+        producto_base = productos_actuales[indice] if indice < len(productos_actuales) else {"cantidad": cantidad}
+        producto_base["cantidad"] = cantidad
+        producto_enriquecido = enriquecer_producto_con_catalogo(producto_base, seleccionado)
+
+        if indice < len(productos_actuales):
+            productos_actuales[indice] = producto_enriquecido
+        else:
+            productos_actuales.append(producto_enriquecido)
+
+        # Recalcular monto_total desde productos
+        monto_total = sum(float(p.get("total_item") or 0) for p in productos_actuales)
+
+        update = {
+            "productos": productos_a_str(productos_actuales),
+            "monto_total": round(monto_total, 2),
+            "producto_pendiente": None,
+        }
+        self._repo.actualizar(wa_id, id_from, update)
+
+        texto = (
+            f"✅ Seleccionado: *{seleccionado['nombre']}*\n"
+            f"💰 Precio: S/ {seleccionado['precio_unitario']:.2f} × {int(cantidad)} = S/ {producto_enriquecido['total_item']:.2f}"
+        )
+        if id_empresa is not None:
+            _enviar_texto(id_empresa, wa_id, texto, id_plataforma)
+
+        return {
+            "status": "producto_seleccionado",
+            "producto": producto_enriquecido,
+            "whatsapp_output": {"texto": texto},
+        }
+
+    def _buscar_productos_en_catalogo(
+        self, payload_db: dict, estado_actual: dict, id_from: int, wa_id: str,
+        id_empresa: int | None, id_plataforma: int | None,
+    ) -> dict | None:
+        """
+        Busca cada producto extraído en el catálogo.
+        - 1 match: auto-fill y agrega línea de feedback a texto_completo.
+        - N matches: guarda producto_pendiente y envía lista WhatsApp. Retorna dict.
+        - 0 matches: no hace nada.
+        Retorna dict si se envió lista (flujo interrumpido), None si no.
+        """
+        if not self._informacion_repo:
+            return None
+
+        productos_str = payload_db.get("productos")
+        productos = normalizar_productos_raw(productos_str)
+        if not productos:
+            return None
+
+        # Solo buscar productos que no tengan id_catalogo ya asignado
+        hubo_cambio = False
+        lineas_feedback: list[str] = []
+        for i, prod in enumerate(productos):
+            if prod.get("id_catalogo"):
+                continue
+            nombre = (prod.get("nombre") or "").strip()
+            if not nombre:
+                continue
+
+            candidatos = self._informacion_repo.buscar_catalogo(id_from, nombre)
+            if not candidatos:
+                continue
+
+            if len(candidatos) == 1:
+                productos[i] = enriquecer_producto_con_catalogo(prod, candidatos[0])
+                hubo_cambio = True
+                c = candidatos[0]
+                lineas_feedback.append(f"✅ *{c['nombre']}* — S/ {c['precio_unitario']:.2f}")
+            else:
+                # Múltiples: guardar pendiente y enviar lista
+                pendiente = {
+                    "indice": i,
+                    "cantidad": float(prod.get("cantidad", 1)),
+                    "nombre_buscado": nombre,
+                    "candidatos": candidatos,
+                }
+                payload_db["producto_pendiente"] = json.dumps(pendiente, ensure_ascii=False)
+                payload_db["productos"] = productos_a_str(productos)
+
+                if id_empresa is not None:
+                    payload_lista = build_payload_lista_productos(
+                        id_empresa, wa_id, id_plataforma or 6, candidatos, nombre,
+                    )
+                    _enviar_lista(payload_lista)
+                    _enviar_texto(id_empresa, wa_id, f"Encontré {len(candidatos)} productos para \"{nombre}\". Selecciona uno de la lista.", id_plataforma)
+
+                return {
+                    "status": "producto_pendiente",
+                    "candidatos": candidatos,
+                    "whatsapp_output": {"texto": f"Encontré {len(candidatos)} productos para \"{nombre}\". Selecciona uno de la lista."},
+                }
+
+        if hubo_cambio:
+            payload_db["productos"] = productos_a_str(productos)
+            # Recalcular monto_total si los productos cambiaron
+            monto_total = sum(float(p.get("total_item") or 0) for p in productos)
+            if monto_total > 0:
+                payload_db["monto_total"] = round(monto_total, 2)
+            # Guardar feedback para concatenar al texto_completo
+            payload_db["_feedback_catalogo"] = "\n".join(lineas_feedback)
+
+        return None
 
     # ------------------------------------------------------------------ #
     # Helpers

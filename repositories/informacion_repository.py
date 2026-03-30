@@ -28,6 +28,9 @@ def _normalizar_item_catalogo(item: dict) -> dict | None:
     return {"id": iid, "nombre": nombre}
 
 
+URL_OBTENER_CATALOGO = "https://api.maravia.pe/servicio/n8n_asistente/ws_obtenerCatalogo.php"
+
+
 class InformacionRepository:
     """Acceso a ws_informacion_ia.php (sucursales) y catálogos n8n (formas/medios de pago)."""
 
@@ -131,6 +134,45 @@ class InformacionRepository:
             n = _normalizar_item_catalogo(it)
             if n:
                 out.append(n)
+        return out
+
+    def buscar_catalogo(self, id_empresa: int, nombre: str) -> list[dict]:
+        """
+        GET ws_obtenerCatalogo.php — busca productos por nombre.
+        Retorna lista de dicts con id, nombre, sku, precio_unitario,
+        id_unidad_medida, stock_total (ya parseados).
+        """
+        try:
+            resp = requests.get(
+                URL_OBTENER_CATALOGO,
+                params={"id_empresa": id_empresa, "nombre": nombre},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+        except Exception:
+            return []
+        if not data.get("success"):
+            return []
+        raw = data.get("catalogos") or []
+        if not isinstance(raw, list):
+            return []
+        out: list[dict] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            pid = item.get("id")
+            if pid is None:
+                continue
+            out.append({
+                "id_catalogo": int(pid),
+                "nombre": (item.get("nombre") or "").strip(),
+                "sku": (item.get("sku") or ""),
+                "precio_unitario": float(item.get("precio_unitario") or 0),
+                "id_unidad_medida": int(item.get("id_unidad_medida") or 1),
+                "stock_total": float(item.get("stock_total") or 0),
+            })
         return out
 
     def obtener_formas_pago(self) -> list[dict]:
