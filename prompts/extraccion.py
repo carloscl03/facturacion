@@ -141,6 +141,12 @@ def build_prompt_extractor(
 
     ### DIAGNÓSTICO DE FALTANTES (lógica dinámica):
     **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. Todas las preguntas en lenguaje natural; una sola pregunta por campo vacío; mismo criterio para todos los campos (incluido método de pago contado/crédito).
+    **CANDADO ABSOLUTO — NO REPREGUNTAR CAMPOS CON VALOR:**
+    - Si entidad_nombre tiene valor Y entidad_numero tiene 8 u 11 dígitos → NO preguntar por RUC/DNI. El documento ES válido. No cuestionar.
+    - Si metodo_pago = "contado" → NO preguntar por días de crédito, cuotas, ni nada relacionado con crédito. CERO preguntas sobre crédito.
+    - Si tipo_documento tiene valor → NO preguntar por tipo de documento.
+    - Si moneda tiene valor → NO preguntar por moneda.
+    - Si un campo aparece en el resumen visual con valor → PROHIBIDO generar pregunta sobre ese campo.
     **Estructura de la salida:** (1) Preámbulo (mensaje_entendimiento). (2) Síntesis visual = resumen_visual del ESTADO COMPLETO. (3) Si faltan datos: invitación ("Por favor, bríndame estos datos:") + listado de preguntas. (4) Si NO falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario sepa que puede decir *confirmar* y continuar; pedir confirmación **no** impide que el usuario envíe más datos (si envía datos, se procesarán como actualizar).
     Fusiona datos en Redis + propuesta_cache. UNA pregunta por cada campo **realmente** vacío. **No repitas preguntas:** si un dato ya aparece en el resumen visual (p. ej. método de pago = Contado), NUNCA incluyas pregunta sobre ese dato.
     **NO preguntar por:** sucursal, forma de pago (transferencia/TC/TD/billetera) ni centro de costo (se gestionan en Estado 2 / opciones; centro de costo solo se pide en compra, no en venta).
@@ -153,7 +159,7 @@ def build_prompt_extractor(
        - Si entidad_numero es DNI (8 dígitos) → preguntar "¿Boleta o nota de [venta/compra]?"
        - Si no hay entidad_numero → preguntar "¿Factura, boleta, recibo por honorarios o nota de [venta/compra]?"
        Si el usuario ya dijo explícitamente el tipo en el mensaje (factura/boleta/honorarios/nota), NO preguntes. Si dijo "nota", usa la operación para inferir nota de venta o nota de compra. Si falta operación, pregunta operación (venta/compra) y no el tipo.
-    4. RUC/DNI de la entidad: pregunta si entidad_numero está vacío **o no coincide con la longitud esperada** y el tipo de documento lo requiere:
+    4. RUC/DNI de la entidad: **Si entidad_nombre ya tiene valor y entidad_numero tiene 8 u 11 dígitos, NO preguntar — el documento ya fue validado e identificado.** Solo preguntar si entidad_numero está vacío **o no coincide con la longitud esperada** y el tipo de documento lo requiere:
        - si tipo_documento = "factura" => se necesita RUC (11 dígitos). Si entidad_numero tiene 8 dígitos (DNI), indicar: "Para factura se necesita RUC (11 dígitos). El documento actual es un DNI. ¿Deseas cambiar a boleta, o puedes proporcionar el RUC?"
        - si tipo_documento = "boleta" => se necesita DNI (8 dígitos). Si entidad_numero tiene 11 dígitos (RUC), indicar: "Un RUC corresponde a una empresa. Para empresas se emite factura. ¿Deseas cambiar a factura, o prefieres registrarlo como nota de [venta/compra]?"
        - si tipo_documento = "recibo por honorarios" => se necesita RUC (11 dígitos) del emisor del servicio. Si entidad_numero tiene 8 dígitos (DNI), indicar: "Para recibo por honorarios se necesita RUC del profesional (11 dígitos)."
