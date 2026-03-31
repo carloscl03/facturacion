@@ -368,6 +368,7 @@ class ExtraccionService:
     ) -> dict | None:
         """
         Busca cada producto extraído en el catálogo.
+        - Ya enriquecido (id_catalogo en estado_actual): copiar datos, no re-buscar.
         - 1 match: auto-fill y agrega línea de feedback a texto_completo.
         - N matches: guarda producto_pendiente y envía lista WhatsApp. Retorna dict.
         - 0 matches: no hace nada.
@@ -381,7 +382,15 @@ class ExtraccionService:
         if not productos:
             return None
 
-        # Solo buscar productos que no tengan id_catalogo ya asignado
+        # Productos ya enriquecidos en estado_actual (por selección previa)
+        productos_estado = normalizar_productos_raw(estado_actual.get("productos"))
+        estado_por_nombre: dict[str, dict] = {}
+        for p in productos_estado:
+            if p.get("id_catalogo"):
+                nombre_lower = (p.get("nombre") or "").strip().lower()
+                if nombre_lower:
+                    estado_por_nombre[nombre_lower] = p
+
         hubo_cambio = False
         lineas_feedback: list[str] = []
         for i, prod in enumerate(productos):
@@ -389,6 +398,13 @@ class ExtraccionService:
                 continue
             nombre = (prod.get("nombre") or "").strip()
             if not nombre:
+                continue
+
+            # Si ya fue enriquecido en una selección anterior, reutilizar
+            enriched = estado_por_nombre.get(nombre.lower())
+            if enriched:
+                productos[i] = enriquecer_producto_con_catalogo(prod, enriched)
+                hubo_cambio = True
                 continue
 
             candidatos = self._informacion_repo.buscar_catalogo(id_from, nombre)
@@ -416,12 +432,11 @@ class ExtraccionService:
                         id_empresa, wa_id, id_plataforma or 6, candidatos, nombre,
                     )
                     _enviar_lista(payload_lista)
-                    _enviar_texto(id_empresa, wa_id, f"Encontré {len(candidatos)} productos para \"{nombre}\". Selecciona uno de la lista.", id_plataforma)
 
                 return {
                     "status": "producto_pendiente",
                     "candidatos": candidatos,
-                    "whatsapp_output": {"texto": f"Encontré {len(candidatos)} productos para \"{nombre}\". Selecciona uno de la lista."},
+                    "whatsapp_output": {"texto": f"Selecciona un producto de la lista."},
                 }
 
         if hubo_cambio:

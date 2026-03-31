@@ -58,6 +58,12 @@ def build_prompt_extractor(
     "{ultima_pregunta_bot or 'inicio'}"
     {estado_ctx}
 
+    ### TEXTO ENTRE COMILLAS (nombre exacto):
+    Si el usuario escribe un texto entre comillas (simples o dobles), trátalo como un **término exacto e indivisible**.
+    Es un nombre de producto, cliente o concepto que debe registrarse tal cual, sin separar palabras.
+    Ejemplos: "Laptop Gamer X1" → un solo producto llamado "Laptop Gamer X1", no tres productos separados.
+    'Cámara de seguridad HD' → un solo producto.
+
     ### MENSAJE CON JSON (PRIORIDAD):
     Si el mensaje contiene un JSON (objeto o array), trátalo como documento con muchos datos.
     Presta especial atención a las etiquetas/claves del JSON para llenar la mayor cantidad de campos.
