@@ -44,6 +44,7 @@ class ExtraccionService:
             return pendiente
 
         # Leer operación de registro (operacion o cod_ope por compatibilidad con backend)
+        operacion = operacion_desde_registro(estado_actual)
 
         contexto_previo = self._detectar_contexto(mensaje, estado_actual)
 
