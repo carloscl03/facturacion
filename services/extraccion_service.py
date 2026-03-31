@@ -78,6 +78,20 @@ class ExtraccionService:
         payload_db = {k: v for k, v in payload_base.items() if self._es_valor_valido(v)}
         self._preservar_campos_opciones_y_catalogo(estado_actual, payload_db)
 
+        # Proteger tipo_documento ya definido: si Redis ya tiene uno y la IA propone otro
+        # diferente sin que el usuario lo haya mencionado explícitamente, preservar el de Redis.
+        tipo_doc_redis = (estado_actual.get("tipo_documento") or "").strip().lower()
+        tipo_doc_propuesta = (propuesta.get("tipo_documento") or "").strip().lower()
+        if tipo_doc_redis and tipo_doc_propuesta and tipo_doc_propuesta != tipo_doc_redis:
+            # Solo aceptar el cambio si el usuario mencionó el nuevo tipo en el mensaje
+            msg_lower = mensaje.lower()
+            tipo_mencionado = any(t in msg_lower for t in (
+                "factura", "boleta", "nota de venta", "nota de compra", "nota",
+                "honorarios", "recibo por honorarios",
+            ))
+            if not tipo_mencionado:
+                payload_db["tipo_documento"] = estado_actual["tipo_documento"]
+
         # Limpiar dias_credito y nro_cuotas si metodo_pago cambió a contado
         if payload_db.get("metodo_pago") == "contado":
             payload_db["dias_credito"] = ""
@@ -537,6 +551,7 @@ class ExtraccionService:
         if not estado_actual:
             return
         passthrough = (
+            "tipo_documento",
             "forma_pago",
             "id_forma_pago",
             "id_medio_pago",
