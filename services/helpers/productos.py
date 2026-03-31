@@ -161,10 +161,10 @@ def construir_detalle_desde_registro(
 
     id_unidad = reg.get("id_unidad", id_unidad_default)
     tipo_doc = str(reg.get("tipo_documento") or "").strip().lower()
-    es_nota = tipo_doc in ("nota de venta", "nota de compra")
+    sin_igv = tipo_doc in ("nota de venta", "nota de compra", "recibo por honorarios")
     if not productos:
         mt = float(monto_total)
-        if es_nota:
+        if sin_igv:
             mb = float(monto_base or mt)
             mi = 0.0
         else:
@@ -192,7 +192,7 @@ def construir_detalle_desde_registro(
         qty = float(p.get("cantidad", 1))
         pu = float(p.get("precio_unitario") or p.get("precio", 0))
         total_item = float(p.get("total_item", qty * pu))
-        if es_nota:
+        if sin_igv:
             subtotal = total_item
             igv = 0.0
         else:

@@ -669,6 +669,7 @@ class ExtraccionService:
             or ""
         ).strip().lower()
         es_nota = tipo_doc_raw in ("nota de venta", "nota de compra")
+        es_honorarios = tipo_doc_raw == "recibo por honorarios"
 
         # --- IGV coherente (fallback determinístico) ---
         # Si el extractor/IA no llenó igv/base con exactitud, lo calculamos con IGV 18%.
@@ -686,7 +687,7 @@ class ExtraccionService:
             or estado_actual.get("monto_impuesto")
             or 0
         )
-        if es_nota:
+        if es_nota or es_honorarios:
             monto_sin_igv = 0.0
             igv_val = 0.0
         elif monto_total > 0:
