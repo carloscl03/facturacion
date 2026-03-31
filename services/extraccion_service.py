@@ -329,16 +329,22 @@ class ExtraccionService:
         indice = pendiente.get("indice", 0)
         cantidad = float(pendiente.get("cantidad", 1))
         msg = mensaje.strip()
-
-        # Buscar match: por id exacto, o nombre del candidato dentro del mensaje
-        seleccionado = None
         msg_lower = msg.lower()
+
+        print(f"[producto_pendiente] mensaje recibido: {repr(msg)}", flush=True)
+        print(f"[producto_pendiente] candidatos: {[c.get('nombre') for c in candidatos]}", flush=True)
+
+        # Estrategia de match (del más específico al más agresivo):
+        seleccionado = None
+
+        # 1. Id exacto (WhatsApp puede enviar el id de la fila)
         for c in candidatos:
             if str(c.get("id_catalogo")) == msg:
                 seleccionado = c
                 break
+
+        # 2. Nombre del candidato dentro del mensaje (más largo primero)
         if not seleccionado:
-            # Buscar el candidato cuyo nombre aparezca en el mensaje (más largo primero para evitar falsos positivos)
             candidatos_ordenados = sorted(candidatos, key=lambda x: len(x.get("nombre") or ""), reverse=True)
             for c in candidatos_ordenados:
                 nombre_c = (c.get("nombre") or "").strip().lower()
@@ -346,9 +352,23 @@ class ExtraccionService:
                     seleccionado = c
                     break
 
+        # 3. Alguna palabra significativa del mensaje coincide con un candidato
         if not seleccionado:
-            # No matchea ningún candidato: limpiar pendiente y dejar que el flujo
-            # normal procese el mensaje (puede ser un mensaje nuevo con otros datos).
+            palabras_msg = [p for p in msg_lower.split() if len(p) > 2 and not p.startswith("s/")]
+            for c in candidatos:
+                nombre_c = (c.get("nombre") or "").strip().lower()
+                for palabra in palabras_msg:
+                    if palabra in nombre_c:
+                        seleccionado = c
+                        break
+                if seleccionado:
+                    break
+
+        if seleccionado:
+            print(f"[producto_pendiente] match: {seleccionado.get('nombre')}", flush=True)
+        else:
+            print(f"[producto_pendiente] SIN match, limpiando pendiente", flush=True)
+            # No matchea: limpiar pendiente y dejar que el flujo normal procese
             self._repo.actualizar(wa_id, id_from, {"producto_pendiente": ""})
             estado_actual.pop("producto_pendiente", None)
             return None
