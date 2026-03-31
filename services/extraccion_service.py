@@ -286,9 +286,12 @@ class ExtraccionService:
         id_empresa: int | None, id_plataforma: int | None,
     ) -> dict | None:
         """
-        Si hay producto_pendiente en Redis, el mensaje del usuario es la selección.
-        Resuelve la selección, enriquece el producto y limpia producto_pendiente.
-        Retorna dict de respuesta si se resolvió, None si no había pendiente.
+        Si hay producto_pendiente en Redis, intenta resolver la selección del usuario.
+        - Si matchea un candidato: enriquece el producto, limpia pendiente, retorna None
+          para que el flujo normal continúe (la IA generará resumen + preguntas).
+        - Si no matchea: es un mensaje nuevo → limpiar pendiente y dejar que el flujo
+          normal lo procese (podría ser otro producto, más datos, etc.).
+        Retorna None siempre (nunca corta el flujo).
         """
         pendiente_raw = estado_actual.get("producto_pendiente")
         if not pendiente_raw:
@@ -317,19 +320,13 @@ class ExtraccionService:
                 if msg_lower in (c.get("nombre") or "").lower():
                     seleccionado = c
                     break
+
         if not seleccionado:
-            # No matchea: reenviar la lista
-            if id_empresa is not None:
-                nombre_buscado = pendiente.get("nombre_buscado", "producto")
-                payload_lista = build_payload_lista_productos(
-                    id_empresa, wa_id, id_plataforma or 6, candidatos, nombre_buscado,
-                )
-                _enviar_lista(payload_lista)
-            return {
-                "status": "producto_pendiente",
-                "mensaje": "No encontré esa opción. Por favor selecciona de la lista.",
-                "whatsapp_output": {"texto": "No encontré esa opción. Por favor selecciona de la lista."},
-            }
+            # No matchea ningún candidato: limpiar pendiente y dejar que el flujo
+            # normal procese el mensaje (puede ser un mensaje nuevo con otros datos).
+            self._repo.actualizar(wa_id, id_from, {"producto_pendiente": None})
+            estado_actual.pop("producto_pendiente", None)
+            return None
 
         # Enriquecer producto con datos del catálogo
         productos_actuales = normalizar_productos_raw(estado_actual.get("productos"))
@@ -345,25 +342,21 @@ class ExtraccionService:
         # Recalcular monto_total desde productos
         monto_total = sum(float(p.get("total_item") or 0) for p in productos_actuales)
 
+        # Persistir en Redis y actualizar estado_actual para que el flujo normal
+        # vea los productos enriquecidos
         update = {
             "productos": productos_a_str(productos_actuales),
             "monto_total": round(monto_total, 2),
             "producto_pendiente": None,
         }
         self._repo.actualizar(wa_id, id_from, update)
+        estado_actual["productos"] = update["productos"]
+        estado_actual["monto_total"] = update["monto_total"]
+        estado_actual.pop("producto_pendiente", None)
 
-        texto = (
-            f"✅ Seleccionado: *{seleccionado['nombre']}*\n"
-            f"💰 Precio: S/ {seleccionado['precio_unitario']:.2f} × {int(cantidad)} = S/ {producto_enriquecido['total_item']:.2f}"
-        )
-        if id_empresa is not None:
-            _enviar_texto(id_empresa, wa_id, texto, id_plataforma)
-
-        return {
-            "status": "producto_seleccionado",
-            "producto": producto_enriquecido,
-            "whatsapp_output": {"texto": texto},
-        }
+        # Retornar None para que el flujo normal continúe:
+        # la IA generará resumen visual con el producto enriquecido + preguntas faltantes
+        return None
 
     def _buscar_productos_en_catalogo(
         self, payload_db: dict, estado_actual: dict, id_from: int, wa_id: str,
