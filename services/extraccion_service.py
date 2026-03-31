@@ -218,10 +218,14 @@ class ExtraccionService:
             self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
             return catalogo_resultado
 
-        # Feedback visual de productos identificados en catálogo
-        feedback_catalogo = payload_db.pop("_feedback_catalogo", None)
-        if feedback_catalogo:
-            texto_completo = f"{texto_completo}\n\n{feedback_catalogo}".strip() if texto_completo else feedback_catalogo
+        # Feedback visual: agregar ✅ al lado de productos identificados en catálogo
+        payload_db.pop("_feedback_catalogo", None)
+        productos_enriquecidos = normalizar_productos_raw(payload_db.get("productos"))
+        for prod in productos_enriquecidos:
+            if prod.get("id_catalogo") and texto_completo:
+                nombre = (prod.get("nombre") or "").strip()
+                if nombre and nombre in texto_completo and f"{nombre}✅" not in texto_completo and f"{nombre} ✅" not in texto_completo:
+                    texto_completo = texto_completo.replace(nombre, f"{nombre} ✅", 1)
 
         # --- Persistir ---
         db_res = self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
@@ -324,7 +328,7 @@ class ExtraccionService:
         if not seleccionado:
             # No matchea ningún candidato: limpiar pendiente y dejar que el flujo
             # normal procese el mensaje (puede ser un mensaje nuevo con otros datos).
-            self._repo.actualizar(wa_id, id_from, {"producto_pendiente": None})
+            self._repo.actualizar(wa_id, id_from, {"producto_pendiente": ""})
             estado_actual.pop("producto_pendiente", None)
             return None
 
@@ -347,7 +351,7 @@ class ExtraccionService:
         update = {
             "productos": productos_a_str(productos_actuales),
             "monto_total": round(monto_total, 2),
-            "producto_pendiente": None,
+            "producto_pendiente": "",
         }
         self._repo.actualizar(wa_id, id_from, update)
         estado_actual["productos"] = update["productos"]
