@@ -164,7 +164,7 @@ def construir_sintesis_actual(reg: Dict[str, Any]) -> str:
     if monto > 0:
         moneda = str(reg.get("moneda") or "PEN").upper()
         simbolo = MONEDA_SIMBOLO.get(moneda, "S/")
-        lineas.append(f"💰 *Total:* {simbolo} {monto}")
+        lineas.append(f"💰 *Total:* {simbolo} {monto:.2f}")
 
     prod = reg.get("productos")
     if isinstance(prod, list) and prod:

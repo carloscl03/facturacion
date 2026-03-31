@@ -19,11 +19,12 @@ ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
 
 2) DETALLE Y MONEDAS
    📦 *DETALLE DE [VENTA o COMPRA]:*
-   🔹 Cant. [cantidad] x [nombre] — [precio]  — por cada ítem en productos
+   🔹 Cant. [cantidad] x [nombre] — [precio con 2 decimales]  — por cada ítem en productos
    💰 *RESUMEN ECONÓMICO:*
-   ├─ Subtotal: [monto_sin_igv]  — solo si tipo_documento es factura/boleta y monto_sin_igv > 0
-   ├─ IGV (18%): [igv]  — solo si tipo_documento es factura/boleta
-   └─ *TOTAL: [monto_total]*  — si monto_total > 0
+   ├─ Subtotal: [monto_sin_igv con 2 decimales]  — solo si tipo_documento es factura/boleta y monto_sin_igv > 0
+   ├─ IGV (18%): [igv con 2 decimales]  — solo si tipo_documento es factura/boleta
+   └─ *TOTAL: [monto_total con 2 decimales]*  — si monto_total > 0
+   REGLA: todos los montos SIEMPRE con exactamente 2 decimales (ej: 111.00, no 111 ni 111.0)
    ━━━━━━━━━━━━━━━━━━━
 
 3) PAGO Y LOGÍSTICA (solo si están definidos)

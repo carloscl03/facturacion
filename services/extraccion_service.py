@@ -398,8 +398,11 @@ class ExtraccionService:
         else:
             productos_actuales.append(producto_enriquecido)
 
-        # Recalcular monto_total desde productos
-        monto_total = sum(float(p.get("total_item") or 0) for p in productos_actuales)
+        # Recalcular monto_total desde todos los productos
+        monto_total = sum(
+            float(p.get("total_item") or 0) or (float(p.get("cantidad", 1)) * float(p.get("precio_unitario") or p.get("precio") or 0))
+            for p in productos_actuales
+        )
 
         # Persistir en Redis y actualizar estado_actual para que el flujo normal
         # vea los productos enriquecidos
@@ -496,8 +499,11 @@ class ExtraccionService:
 
         if hubo_cambio:
             payload_db["productos"] = productos_a_str(productos)
-            # Recalcular monto_total si los productos cambiaron
-            monto_total = sum(float(p.get("total_item") or 0) for p in productos)
+            # Recalcular monto_total desde todos los productos
+            monto_total = sum(
+                float(p.get("total_item") or 0) or (float(p.get("cantidad", 1)) * float(p.get("precio_unitario") or p.get("precio") or 0))
+                for p in productos
+            )
             if monto_total > 0:
                 payload_db["monto_total"] = round(monto_total, 2)
             # Guardar feedback para concatenar al texto_completo
@@ -620,6 +626,13 @@ class ExtraccionService:
                             break
         productos_str = productos_a_str(productos_existentes)
 
+        # Recalcular monto_total desde la suma de productos (si hay productos con precio)
+        suma_productos = sum(
+            float(p.get("total_item") or 0) or (float(p.get("cantidad", 1)) * float(p.get("precio_unitario") or p.get("precio") or 0))
+            for p in productos_existentes
+        )
+        monto_total_override = suma_productos if suma_productos > 0 else None
+
         def obtener(campo_nuevo, campo_viejo=None, default=None):
             nuevo = propuesta.get(campo_nuevo)
             viejo = estado_actual.get(campo_nuevo)
@@ -689,7 +702,7 @@ class ExtraccionService:
         # --- IGV coherente (fallback determinístico) ---
         # Si el extractor/IA no llenó igv/base con exactitud, lo calculamos con IGV 18%.
         # Para notas (venta/compra), no se calcula IGV.
-        monto_total = float(propuesta.get("monto_total") or estado_actual.get("monto_total") or 0)
+        monto_total = float(monto_total_override or propuesta.get("monto_total") or estado_actual.get("monto_total") or 0)
         monto_sin_igv = float(
             propuesta.get("monto_sin_igv")
             or estado_actual.get("monto_sin_igv")

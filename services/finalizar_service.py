@@ -232,7 +232,7 @@ class FinalizarService:
                 f"{sintesis}\n\n"
                 f"✨ *¡VENTA REGISTRADA EN SUNAT!*\n\n"
                 f"👤 *Cliente:* {reg.get('entidad_nombre')}\n"
-                f"💰 *Total:* {params['moneda_simbolo']} {params['monto_total']}\n"
+                f"💰 *Total:* {params['moneda_simbolo']} {params['monto_total']:.2f}\n"
                 f"📄 *Documento:* {resultado.serie_numero}\n\n"
                 f"Te enviamos el comprobante en el siguiente mensaje."
             )
@@ -318,7 +318,7 @@ class FinalizarService:
                 f"{sintesis}\n\n"
                 f"✅ *COMPRA REGISTRADA EXITOSAMENTE*\n\n"
                 f"🏢 *Proveedor:* {reg.get('entidad_nombre')}\n"
-                f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']}\n"
+                f"💰 *Monto:* {params['moneda_simbolo']} {params['monto_total']:.2f}\n"
                 f"Estado guardado en el historial de compras."
             )
 
