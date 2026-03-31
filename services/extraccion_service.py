@@ -532,7 +532,10 @@ class ExtraccionService:
 
     @staticmethod
     def _construir_payload(propuesta: dict, estado_actual: dict, contexto_previo: str | None) -> dict:
-        productos_raw = propuesta.get("productos") or propuesta.get("productos_json") or []
+        # Productos: priorizar propuesta, pero si viene vacía preservar los de Redis
+        productos_raw = propuesta.get("productos") or propuesta.get("productos_json") or None
+        if not productos_raw:
+            productos_raw = estado_actual.get("productos") or []
         productos_str = productos_a_str(productos_raw)
 
         def obtener(campo_nuevo, campo_viejo=None, default=None):
