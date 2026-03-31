@@ -175,7 +175,7 @@ async def opciones(
             if id_empresa_wa_final is not None:
                 out["whatsapp_list_debug"]["id_empresa_usado_en_envio"] = payload_list["id_empresa"]
         if out.get("estado2_completo") and (out.get("mensaje") or "").strip() == MENSAJE_FINALIZAR:
-            id_empresa_envio = id_empresa_wa_final if id_empresa_wa_final is not None else id_from
+            id_empresa_envio = id_empresa_wa_final if id_empresa_wa_final is not None else (settings.ID_EMPRESA_WHATSAPP or id_from)
             enviado_of, error_of, debug_of = _enviar_mensaje_oficial(id_empresa_envio, wa_id, id_plataforma_final, MENSAJE_FINALIZAR)
             out["whatsapp_oficial_enviado"] = enviado_of
             if error_of:
@@ -201,7 +201,7 @@ async def opciones(
         if id_empresa_wa_final is not None:
             out["whatsapp_list_debug"]["id_empresa_usado_en_envio"] = payload_list["id_empresa"]
     if out.get("estado2_completo") and (out.get("mensaje") or "").strip() == MENSAJE_FINALIZAR:
-        id_empresa_envio = id_empresa_wa_final if id_empresa_wa_final is not None else id_from
+        id_empresa_envio = id_empresa_wa_final if id_empresa_wa_final is not None else (settings.ID_EMPRESA_WHATSAPP or id_from)
         enviado_of, error_of, debug_of = _enviar_mensaje_oficial(id_empresa_envio, wa_id, id_plataforma_final, MENSAJE_FINALIZAR)
         out["whatsapp_oficial_enviado"] = enviado_of
         if error_of:

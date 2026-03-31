@@ -7,14 +7,11 @@ Con wa_id, id_empresa e id_plataforma construye payload para ws_send_whatsapp_bu
 """
 from __future__ import annotations
 
-import os
-
-import requests
 from fastapi import HTTPException
 
-from config import settings
 from prompts.casual import build_prompt_casual
 from services.ai_service import AIService
+from services.whatsapp_sender import enviar_botones as _enviar_botones_whatsapp
 
 # Opciones: dos botones (id/título; WhatsApp limita títulos cortos)
 OPCIONES_REGISTRO = [
@@ -46,79 +43,6 @@ def _build_payload_whatsapp_buttons(
         "footer_text": footer_text,
         "buttons": _buttons_payload_rows(),
     }
-
-
-def _headers_whatsapp() -> dict[str, str]:
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    token = os.environ.get("MARAVIA_TOKEN", "").strip()
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
-def _enviar_botones_whatsapp(payload_buttons: dict) -> tuple[bool, str | None, dict]:
-    """
-    Envía payload a ws_send_whatsapp_buttons.
-    Retorna (éxito, mensaje_error, debug_whatsapp).
-    """
-    url = settings.URL_SEND_WHATSAPP_BUTTONS
-    debug_whatsapp = {
-        "url_llamada": url,
-        "status_code": None,
-        "response_body_preview": None,
-        "donde_arreglar": "Ver url_llamada: si 404, la URL no existe o cambió en el backend. Revisar config (URL_SEND_WHATSAPP_BUTTONS) o .env.",
-    }
-    try:
-        r = requests.post(
-            url,
-            json=payload_buttons,
-            headers=_headers_whatsapp(),
-            timeout=60,
-        )
-        debug_whatsapp["status_code"] = r.status_code
-        try:
-            if r.text:
-                preview = r.text[:500] if len(r.text) <= 500 else r.text[:500] + "..."
-                debug_whatsapp["response_body_preview"] = preview
-            body_lower = (r.text or "").lower()
-            if r.status_code == 404:
-                if "credenciales" in body_lower and "whatsapp" in body_lower:
-                    debug_whatsapp["donde_arreglar"] = (
-                        "404: No hay credenciales de WhatsApp para el id_empresa enviado. "
-                        "Pasar id_empresa (query o body) con el id de la empresa que sí tenga credenciales (ej. 1)."
-                    )
-                else:
-                    debug_whatsapp["donde_arreglar"] = (
-                        "404 Not Found: la URL del servicio de botones WhatsApp no existe. "
-                        "Comprobar URL_SEND_WHATSAPP_BUTTONS en config/settings.py o variable de entorno. "
-                        f"URL usada: {url}"
-                    )
-            elif r.status_code >= 500:
-                debug_whatsapp["donde_arreglar"] = (
-                    "Error del servidor (5xx): fallo en el backend de envío; revisar logs de ws_send_whatsapp_buttons."
-                )
-            elif r.status_code == 400:
-                debug_whatsapp["donde_arreglar"] = (
-                    "400 Bad Request: el payload puede tener campos incorrectos; revisar response_body_preview."
-                )
-        except Exception:
-            pass
-        if r.status_code != 200:
-            return False, f"HTTP {r.status_code}", debug_whatsapp
-        data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-        if not data.get("success", True):
-            err = data.get("error") or data.get("message") or "API error"
-            debug_whatsapp["donde_arreglar"] = (
-                f"API devolvió success=false: {err}. Revisar credenciales (id_empresa) o formato del payload."
-            )
-            return False, err, debug_whatsapp
-        debug_whatsapp["donde_arreglar"] = None
-        return True, None, debug_whatsapp
-    except requests.RequestException as e:
-        debug_whatsapp["donde_arreglar"] = (
-            f"Error de conexión/timeout: {e}. Comprobar que la URL sea accesible desde este servidor: {url}"
-        )
-        return False, str(e), debug_whatsapp
 
 
 class CasualService:
