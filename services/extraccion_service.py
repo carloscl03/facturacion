@@ -218,14 +218,32 @@ class ExtraccionService:
             self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)
             return catalogo_resultado
 
-        # Feedback visual: agregar ✅ al lado de productos identificados en catálogo
+        # Feedback visual: en las líneas de detalle (🔹), agregar ✅ y corregir precio
+        # con los datos reales del catálogo (la IA genera el visual antes del enriquecimiento)
         payload_db.pop("_feedback_catalogo", None)
         productos_enriquecidos = normalizar_productos_raw(payload_db.get("productos"))
         for prod in productos_enriquecidos:
             if prod.get("id_catalogo") and texto_completo:
                 nombre = (prod.get("nombre") or "").strip()
-                if nombre and nombre in texto_completo and f"{nombre}✅" not in texto_completo and f"{nombre} ✅" not in texto_completo:
-                    texto_completo = texto_completo.replace(nombre, f"{nombre} ✅", 1)
+                precio = float(prod.get("precio_unitario") or prod.get("precio") or 0)
+                if not nombre:
+                    continue
+                # Buscar líneas con el nombre del producto y reemplazar precio + agregar ✅
+                lineas = texto_completo.split("\n")
+                for idx, linea in enumerate(lineas):
+                    if nombre.lower() in linea.lower() and ("Cant" in linea or "🔹" in linea):
+                        # Reemplazar nombre sin check por nombre con check
+                        if "✅" not in linea:
+                            linea = linea.replace(nombre, f"{nombre} ✅")
+                        # Corregir precio: buscar "— NUMERO" y reemplazar
+                        for sep in ("—", "-", "–"):
+                            if sep in linea:
+                                partes = linea.rsplit(sep, 1)
+                                if len(partes) == 2:
+                                    linea = f"{partes[0].rstrip()}{sep} {precio}"
+                                    break
+                        lineas[idx] = linea
+                texto_completo = "\n".join(lineas)
 
         # --- Persistir ---
         db_res = self._repo.upsert(wa_id, id_from, payload_db, es_registro_nuevo)

@@ -100,12 +100,13 @@ def catalogo_a_filas_whatsapp(candidatos: List[Dict[str, Any]]) -> List[Dict[str
     filas: List[Dict[str, str]] = []
     for c in candidatos:
         nombre = (c.get("nombre") or "").strip()
-        titulo = nombre[:MAX_ROW_TITLE] if len(nombre) > MAX_ROW_TITLE else nombre
         precio = c.get("precio_unitario", 0)
         stock = c.get("stock_total", 0)
-        desc = f"S/ {precio:.2f}" if precio else ""
-        if stock:
-            desc += f" | Stock: {int(stock)}" if desc else f"Stock: {int(stock)}"
+        # Title: nombre + precio (lo que recibe el bot al seleccionar)
+        titulo_raw = f"{nombre} S/{precio:.2f}" if precio else nombre
+        titulo = titulo_raw[:MAX_ROW_TITLE] if len(titulo_raw) > MAX_ROW_TITLE else titulo_raw
+        # Description: solo stock (info secundaria)
+        desc = f"Stock: {int(stock)}" if stock else ""
         filas.append({
             "id": str(c.get("id_catalogo", "0")),
             "title": titulo,
