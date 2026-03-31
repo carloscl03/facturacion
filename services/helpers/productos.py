@@ -9,9 +9,10 @@ def normalizar_productos_raw(productos_raw: Any) -> List[Dict[str, Any]]:
     Normaliza una representación de productos que puede venir como:
     - lista de dicts
     - string JSON
-    - string libre
+    - string libre (ej: "1 x laptop", "laptop")
 
-    a una lista de dicts. Si no se puede parsear, devuelve lista vacía.
+    a una lista de dicts. Si no se puede parsear como JSON, intenta
+    extraer nombre y cantidad del texto libre.
     """
     if isinstance(productos_raw, list):
         return [p for p in productos_raw if isinstance(p, dict)]
@@ -21,10 +22,37 @@ def normalizar_productos_raw(productos_raw: Any) -> List[Dict[str, Any]]:
             return []
         try:
             parsed = json.loads(s)
-            return [p for p in parsed] if isinstance(parsed, list) else []
+            if isinstance(parsed, list):
+                return [p for p in parsed if isinstance(p, dict)]
         except Exception:
-            return []
+            pass
+        # Texto libre: intentar extraer "cantidad x nombre" o solo "nombre"
+        return _parsear_texto_libre_productos(s)
     return []
+
+
+def _parsear_texto_libre_productos(texto: str) -> List[Dict[str, Any]]:
+    """Parsea texto libre como '2 x laptop' o 'laptop, monitor' a lista de dicts."""
+    import re
+    productos: List[Dict[str, Any]] = []
+    # Separar por comas o saltos de línea
+    partes = re.split(r"[,\n]+", texto)
+    for parte in partes:
+        parte = parte.strip()
+        if not parte:
+            continue
+        # Intentar "N x nombre" o "N nombre"
+        m = re.match(r"^(\d+(?:\.\d+)?)\s*[xX×]\s*(.+)$", parte)
+        if m:
+            productos.append({"cantidad": float(m.group(1)), "nombre": m.group(2).strip()})
+            continue
+        m = re.match(r"^(\d+(?:\.\d+)?)\s+(.+)$", parte)
+        if m:
+            productos.append({"cantidad": float(m.group(1)), "nombre": m.group(2).strip()})
+            continue
+        # Solo nombre
+        productos.append({"cantidad": 1, "nombre": parte})
+    return productos
 
 
 def productos_a_str(productos: Any) -> str:
