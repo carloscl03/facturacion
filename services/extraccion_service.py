@@ -585,11 +585,25 @@ class ExtraccionService:
 
     @staticmethod
     def _construir_payload(propuesta: dict, estado_actual: dict, contexto_previo: str | None) -> dict:
-        # Productos: priorizar propuesta, pero si viene vacía preservar los de Redis
-        productos_raw = propuesta.get("productos") or propuesta.get("productos_json") or None
-        if not productos_raw:
-            productos_raw = estado_actual.get("productos") or []
-        productos_str = productos_a_str(productos_raw)
+        # Productos: mergear nuevos (propuesta) con existentes (estado_actual).
+        # Si la propuesta trae productos, son NUEVOS a agregar; los de Redis se preservan.
+        productos_nuevos = propuesta.get("productos") or propuesta.get("productos_json") or None
+        productos_existentes = normalizar_productos_raw(estado_actual.get("productos"))
+        if productos_nuevos:
+            nuevos = normalizar_productos_raw(productos_nuevos)
+            # Agregar solo los que no estén ya (por nombre, case-insensitive)
+            nombres_existentes = {(p.get("nombre") or "").strip().lower() for p in productos_existentes}
+            for n in nuevos:
+                nombre_n = (n.get("nombre") or "").strip().lower()
+                if nombre_n and nombre_n not in nombres_existentes:
+                    productos_existentes.append(n)
+                elif nombre_n in nombres_existentes:
+                    # Producto repetido: actualizar cantidad si cambió
+                    for i, e in enumerate(productos_existentes):
+                        if (e.get("nombre") or "").strip().lower() == nombre_n:
+                            productos_existentes[i] = {**e, **{k: v for k, v in n.items() if v}}
+                            break
+        productos_str = productos_a_str(productos_existentes)
 
         def obtener(campo_nuevo, campo_viejo=None, default=None):
             nuevo = propuesta.get(campo_nuevo)

@@ -64,6 +64,12 @@ def build_prompt_extractor(
     Ejemplos: "Laptop Gamer X1" → un solo producto llamado "Laptop Gamer X1", no tres productos separados.
     'Cámara de seguridad HD' → un solo producto.
 
+    ### NOMBRES DE PRODUCTOS EN SINGULAR:
+    Los nombres de productos siempre deben guardarse en **singular**, independientemente de cómo los diga el usuario.
+    La cantidad va en el campo "cantidad", no en el nombre.
+    Ejemplos: "3 cámaras" → nombre: "cámara", cantidad: 3. "2 laptops" → nombre: "laptop", cantidad: 2.
+    "5 monitores" → nombre: "monitor", cantidad: 5. "teclados" → nombre: "teclado", cantidad: 1.
+
     ### MENSAJE CON JSON (PRIORIDAD):
     Si el mensaje contiene un JSON (objeto o array), trátalo como documento con muchos datos.
     Presta especial atención a las etiquetas/claves del JSON para llenar la mayor cantidad de campos.
