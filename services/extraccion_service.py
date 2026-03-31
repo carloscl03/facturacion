@@ -330,16 +330,19 @@ class ExtraccionService:
         cantidad = float(pendiente.get("cantidad", 1))
         msg = mensaje.strip()
 
-        # Buscar match: por id exacto o por nombre (substring)
+        # Buscar match: por id exacto, o nombre del candidato dentro del mensaje
         seleccionado = None
+        msg_lower = msg.lower()
         for c in candidatos:
             if str(c.get("id_catalogo")) == msg:
                 seleccionado = c
                 break
         if not seleccionado:
-            msg_lower = msg.lower()
-            for c in candidatos:
-                if msg_lower in (c.get("nombre") or "").lower():
+            # Buscar el candidato cuyo nombre aparezca en el mensaje (más largo primero para evitar falsos positivos)
+            candidatos_ordenados = sorted(candidatos, key=lambda x: len(x.get("nombre") or ""), reverse=True)
+            for c in candidatos_ordenados:
+                nombre_c = (c.get("nombre") or "").strip().lower()
+                if nombre_c and nombre_c in msg_lower:
                     seleccionado = c
                     break
 
