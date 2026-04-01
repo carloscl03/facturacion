@@ -699,32 +699,20 @@ class ExtraccionService:
         es_nota = tipo_doc_raw in ("nota de venta", "nota de compra")
         es_honorarios = tipo_doc_raw == "recibo por honorarios"
 
-        # --- IGV coherente (fallback determinístico) ---
-        # Si el extractor/IA no llenó igv/base con exactitud, lo calculamos con IGV 18%.
-        # Para notas (venta/compra), no se calcula IGV.
+        # --- IGV coherente (cálculo determinístico, NUNCA confiar en la IA) ---
+        # Para notas y honorarios: sin IGV. Para factura/boleta: siempre recalcular.
         monto_total = float(monto_total_override or propuesta.get("monto_total") or estado_actual.get("monto_total") or 0)
-        monto_sin_igv = float(
-            propuesta.get("monto_sin_igv")
-            or estado_actual.get("monto_sin_igv")
-            or estado_actual.get("monto_base")
-            or 0
-        )
-        igv_val = float(
-            propuesta.get("igv")
-            or estado_actual.get("igv")
-            or estado_actual.get("monto_impuesto")
-            or 0
-        )
+
         if es_nota or es_honorarios:
             monto_sin_igv = 0.0
             igv_val = 0.0
         elif monto_total > 0:
-            # Si faltó base, la inferimos desde monto_total.
-            if monto_sin_igv == 0:
-                monto_sin_igv = monto_total / 1.18
-            # Si faltó IGV, la inferimos como diferencia.
-            if igv_val == 0:
-                igv_val = monto_total - monto_sin_igv
+            # Siempre recalcular base e IGV desde monto_total (IGV 18% incluido)
+            monto_sin_igv = monto_total / 1.18
+            igv_val = monto_total - monto_sin_igv
+        else:
+            monto_sin_igv = 0.0
+            igv_val = 0.0
 
         monto_sin_igv = round(float(monto_sin_igv or 0), 2)
         igv_val = round(float(igv_val or 0), 2)
