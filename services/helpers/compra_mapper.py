@@ -28,11 +28,11 @@ def construir_detalles_compra(
     productos = normalizar_productos_raw(reg.get("productos"))
     id_unidad = reg.get("id_unidad", id_unidad_default)
     tipo_doc = str(reg.get("tipo_documento") or "").strip().lower()
-    es_nota = tipo_doc in ("nota de venta", "nota de compra")
+    sin_igv = tipo_doc in ("nota de venta", "nota de compra", "recibo por honorarios")
 
     if not productos:
         mt = float(monto_total)
-        if es_nota:
+        if sin_igv:
             mb = float(monto_base or mt)
             mi = 0.0
         else:
@@ -66,7 +66,7 @@ def construir_detalles_compra(
         qty = float(p.get("cantidad", 1))
         pu = float(p.get("precio_unitario") or p.get("precio", 0))
         total_item = float(p.get("total_item", qty * pu))
-        if es_nota:
+        if sin_igv:
             subtotal = total_item
             igv = 0.0
         else:
@@ -116,8 +116,16 @@ def construir_payload_compra(
 
     tipo_compra_raw = (params.get("tipo_venta") or "Contado").strip()
     tipo_compra = "Crédito" if tipo_compra_raw.lower() == "credito" else "Contado"
-    dias_credito = int(reg.get("dias_credito", 30))
-    cuotas = int(reg.get("cuotas", 1))
+    dias_credito_raw = reg.get("dias_credito") or reg.get("dias_credito", "")
+    try:
+        dias_credito = int(dias_credito_raw) if str(dias_credito_raw).strip() else 30
+    except (ValueError, TypeError):
+        dias_credito = 30
+    cuotas_raw = reg.get("nro_cuotas") or reg.get("cuotas") or ""
+    try:
+        cuotas = int(cuotas_raw) if str(cuotas_raw).strip() else 1
+    except (ValueError, TypeError):
+        cuotas = 1
     # Número del comprobante: solo enviar si es SERIE-NUMERO válido (ws_compra exige formato "F001-00001").
     # Si no hay comprobante, no enviar la clave para que la API deje serie/numero en null.
     nro_raw = nro_documento_comprobante(reg)
