@@ -8,6 +8,19 @@ from services.helpers.productos import construir_detalle_desde_registro
 from services.helpers.registro_domain import metodo_contado_credito_desde_registro, operacion_desde_registro
 
 
+def _safe_int(val, default=None):
+    """Convierte a int de forma segura. Devuelve default si no se puede."""
+    if val is None:
+        return default
+    s = str(val).strip()
+    if not s:
+        return default
+    try:
+        return int(float(s))
+    except (ValueError, TypeError):
+        return default
+
+
 def _serie_numero_comprobante(reg: Dict[str, Any]) -> Tuple[Any, Any]:
     """
     Obtiene serie y número del comprobante desde el registro (Redis).
@@ -52,24 +65,20 @@ def _id_medio_pago_desde_reg(reg: Dict[str, Any]) -> int | None:
     se espera `null` (ver test_pdf_sunat.py que envía id_medio_pago=None).
     Por eso, si no podemos determinar el medio, devolvemos None y dejamos que el PHP lo convierta en null.
     """
-    v = reg.get("id_medio_pago")
-    if v is not None and str(v).strip() != "":
-        try:
-            return int(float(str(v).strip()))
-        except (TypeError, ValueError):
-            return None
+    v = _safe_int(reg.get("id_medio_pago"))
+    if v is not None:
+        return v
 
     # Legado: algunos registros podrían venir con id_metodo_pago
-    v = reg.get("id_metodo_pago")
-    if v is not None and str(v).strip() != "":
-        try:
-            return int(float(str(v).strip()))
-        except (TypeError, ValueError):
-            # Si viene como texto, intentamos mapear; si no, no forzamos default 1.
-            nom_legado = str(v).strip().lower()
-            if nom_legado in ("contado", "credito", ""):
-                return None
-            return FORMA_PAGO_MAP.get(nom_legado)
+    v_legado = _safe_int(reg.get("id_metodo_pago"))
+    if v_legado is not None:
+        return v_legado
+    # Si viene como texto, intentamos mapear
+    nom_legado = str(reg.get("id_metodo_pago") or "").strip().lower()
+    if nom_legado and nom_legado not in ("contado", "credito", ""):
+        mapped = FORMA_PAGO_MAP.get(nom_legado)
+        if mapped is not None:
+            return mapped
 
     # Texto del medio (catálogo)
     nom = str(reg.get("medio_pago") or reg.get("nombre_medio_pago") or "").strip().lower()
@@ -222,23 +231,13 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
     metodo = metodo_contado_credito_desde_registro(reg)
     tipo_venta = metodo.capitalize() if metodo in ("contado", "credito") else None
 
-    id_forma_pago = None
-    if reg.get("id_forma_pago") is not None:
-        try:
-            id_forma_pago = int(float(str(reg.get("id_forma_pago")).strip()))
-        except (TypeError, ValueError):
-            pass
-    if id_forma_pago is None and reg.get("id_metodo_pago") is not None:
-        try:
-            id_forma_pago = int(float(str(reg.get("id_metodo_pago")).strip()))
-        except (TypeError, ValueError):
-            pass
+    id_forma_pago = _safe_int(reg.get("id_forma_pago"))
+    if id_forma_pago is None:
+        id_forma_pago = _safe_int(reg.get("id_metodo_pago"))
     if id_forma_pago is None:
         forma_pago_str = str(reg.get("forma_pago") or "").strip().lower()
-        try:
-            id_forma_pago = int(forma_pago_str)
-        except (TypeError, ValueError):
-            # Sin default: si no está en el mapa (ej. "bbva"), dejamos None para no violar FK en BD.
+        id_forma_pago = _safe_int(forma_pago_str)
+        if id_forma_pago is None:
             id_forma_pago = FORMA_PAGO_MAP.get(forma_pago_str)
 
     monto_total = float(reg.get("monto_total") or 0)
@@ -249,12 +248,7 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
     entidad_numero = str(reg.get("entidad_numero") or "").strip()
     id_tipo_doc_entidad = 6 if len(entidad_numero) == 11 else 1
 
-    id_cliente = reg.get("entidad_id") or reg.get("id_identificado")
-    if id_cliente is not None and id_cliente != "":
-        try:
-            id_cliente = int(id_cliente)
-        except (TypeError, ValueError):
-            id_cliente = None
+    id_cliente = _safe_int(reg.get("entidad_id")) or _safe_int(reg.get("id_identificado"))
 
     hoy = date.today().isoformat()
     # SUNAT: fecha de emisión debe ser hoy o hasta 3 días previos; preferimos hoy si no está definida.
@@ -308,15 +302,15 @@ def construir_payload_venta(
         "codOpe": "CREAR_VENTA",
         "id_usuario": int(id_usuario),
         "id_cliente": int(id_cliente) if id_cliente is not None else None,
-        "id_sucursal": int(reg.get("id_sucursal") or 14),
-        "id_moneda": int(id_moneda) if id_moneda is not None else None,
-        "id_forma_pago": int(id_forma_pago) if id_forma_pago is not None else 9,
+        "id_sucursal": _safe_int(reg.get("id_sucursal"), 14),
+        "id_moneda": _safe_int(id_moneda),
+        "id_forma_pago": _safe_int(id_forma_pago, 9),
         "id_medio_pago": _id_medio_pago_desde_reg(reg),
         "tipo_venta": tipo_venta or "Contado",
         "fecha_emision": fecha_emision,
         "fecha_pago": fecha_pago,
-        "id_tipo_afectacion": int(reg.get("id_tipo_afectacion", 1)),
-        "id_caja_banco": int(reg.get("id_caja_banco", 4)),
+        "id_tipo_afectacion": _safe_int(reg.get("id_tipo_afectacion"), 1),
+        "id_caja_banco": _safe_int(reg.get("id_caja_banco"), 4),
         "tipo_facturacion": "facturacion_electronica",
         "id_tipo_comprobante": int(id_tipo_comprobante) if id_tipo_comprobante is not None else None,
         "serie": None,
@@ -375,13 +369,13 @@ def construir_payload_venta_n8n(
         "empresa_id": int(id_empresa),
         "usuario_id": int(id_usuario),
         "id_cliente": int(id_cliente),
-        "id_tipo_comprobante": int(params["id_tipo_comprobante"]) if params.get("id_tipo_comprobante") is not None else None,
+        "id_tipo_comprobante": _safe_int(params.get("id_tipo_comprobante")),
         "fecha_emision": params["fecha_emision"],
         "fecha_pago": params["fecha_pago"],
-        "id_moneda": int(params["id_moneda"]) if params.get("id_moneda") is not None else 1,
-        "id_forma_pago": int(params["id_forma_pago"]) if params.get("id_forma_pago") is not None else 9,
+        "id_moneda": _safe_int(params.get("id_moneda"), 1),
+        "id_forma_pago": _safe_int(params.get("id_forma_pago"), 9),
         "id_medio_pago": _id_medio_pago_desde_reg(reg),
-        "id_sucursal": int(reg.get("id_sucursal") or 14),
+        "id_sucursal": _safe_int(reg.get("id_sucursal"), 14),
         "tipo_venta": params.get("tipo_venta") or "Contado",
         "observaciones": str(reg.get("observaciones") or reg.get("observacion") or "").strip() or None,
         "enlace_comprobante_pago": str(reg.get("url") or reg.get("enlace_documento") or "").strip() or None,

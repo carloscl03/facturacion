@@ -13,6 +13,19 @@ from services.helpers.productos import normalizar_productos_raw
 from services.helpers.venta_mapper import nro_documento_comprobante
 
 
+def _safe_int(val, default=None):
+    """Convierte a int de forma segura. Devuelve default si no se puede."""
+    if val is None:
+        return default
+    s = str(val).strip()
+    if not s:
+        return default
+    try:
+        return int(float(s))
+    except (ValueError, TypeError):
+        return default
+
+
 def construir_detalles_compra(
     reg: Dict[str, Any],
     monto_total: float,
@@ -135,39 +148,33 @@ def construir_payload_compra(
         if nro_raw and "-" in nro_raw and len(nro_raw.split("-")) == 2 and nro_raw.upper() != "S/N":
             nro_documento = nro_raw
 
-    id_proveedor = reg.get("entidad_id")
-    if id_proveedor is not None:
-        id_proveedor = int(id_proveedor)
-    # id_forma_pago / id_medio_pago: solo enviar si tenemos valor conocido; si no, null para no violar FK.
-    id_forma_pago = params.get("id_forma_pago")
-    id_forma_pago = int(id_forma_pago) if id_forma_pago is not None else None
-    id_medio_pago_raw = reg.get("id_medio_pago")
-    id_medio_pago = int(id_medio_pago_raw) if id_medio_pago_raw is not None else None
-    id_sucursal_raw = reg.get("id_sucursal")
-    id_sucursal = int(id_sucursal_raw) if id_sucursal_raw is not None else None
+    id_proveedor = _safe_int(reg.get("entidad_id"))
+    id_forma_pago = _safe_int(params.get("id_forma_pago"))
+    id_medio_pago = _safe_int(reg.get("id_medio_pago"))
+    id_sucursal = _safe_int(reg.get("id_sucursal"))
     payload: Dict[str, Any] = {
         "codOpe": "REGISTRAR_COMPRA",
         "empresa_id": int(id_from),
         "usuario_id": int(id_usuario),
         "id_proveedor": id_proveedor,
-        "id_tipo_comprobante": int(params["id_tipo_comprobante"]) if params.get("id_tipo_comprobante") is not None else 1,
+        "id_tipo_comprobante": _safe_int(params.get("id_tipo_comprobante"), 1),
         "fecha_emision": params["fecha_emision"],
         "id_medio_pago": id_medio_pago,
         "id_forma_pago": id_forma_pago,
-        "id_moneda": int(params["id_moneda"]) if params.get("id_moneda") is not None else 1,
+        "id_moneda": _safe_int(params.get("id_moneda"), 1),
         "id_sucursal": id_sucursal,
         "tipo_compra": tipo_compra,
         "dias_credito": dias_credito,
         "cuotas": cuotas,
-        "porcentaje_detraccion": float(reg.get("porcentaje_detraccion", 0)),
+        "porcentaje_detraccion": float(reg.get("porcentaje_detraccion") or 0),
         "fecha_pago": params["fecha_pago"],
         "fecha_vencimiento": params.get("fecha_vencimiento") or params["fecha_pago"],
         "enlace_documento": str(reg.get("url") or reg.get("enlace_documento") or "").strip() or None,
-        "id_tipo_afectacion": int(reg["id_tipo_afectacion"]) if reg.get("id_tipo_afectacion") is not None else None,
+        "id_tipo_afectacion": _safe_int(reg.get("id_tipo_afectacion")),
         "observacion": str(reg.get("observacion") or "").strip() or None,
-        "id_caja_banco": int(reg["id_caja_banco"]) if reg.get("id_caja_banco") is not None else None,
-        "id_centro_costo": int(reg["id_centro_costo"]) if reg.get("id_centro_costo") is not None else None,
-        "id_tipo_compra_gasto": int(reg["id_tipo_compra_gasto"]) if reg.get("id_tipo_compra_gasto") is not None else None,
+        "id_caja_banco": _safe_int(reg.get("id_caja_banco")),
+        "id_centro_costo": _safe_int(reg.get("id_centro_costo")),
+        "id_tipo_compra_gasto": _safe_int(reg.get("id_tipo_compra_gasto")),
         "detalles": detalles,
     }
     if payload["enlace_documento"] is None:
