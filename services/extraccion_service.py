@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 
 from prompts.extraccion import build_prompt_extractor
+
+
+def _sin_tildes(texto: str) -> str:
+    """Quita tildes/acentos y pasa a minúsculas: 'Cámara' → 'camara'."""
+    nfkd = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
 from repositories.base import CacheRepository
 from services.ai_service import AIService
 from services.helpers.productos import (
@@ -378,13 +385,38 @@ class ExtraccionService:
                 if seleccionado:
                     break
 
+        # 4. Sin tildes: repetir pasos 2 y 3 normalizando acentos
+        if not seleccionado:
+            msg_norm = _sin_tildes(msg)
+            candidatos_ordenados = sorted(candidatos, key=lambda x: len(x.get("nombre") or ""), reverse=True)
+            for c in candidatos_ordenados:
+                nombre_norm = _sin_tildes((c.get("nombre") or "").strip())
+                if nombre_norm and nombre_norm in msg_norm:
+                    seleccionado = c
+                    break
+        if not seleccionado:
+            msg_norm = _sin_tildes(msg)
+            palabras_msg = [p for p in msg_norm.split() if len(p) > 2 and not p.startswith("s/")]
+            for c in candidatos:
+                nombre_norm = _sin_tildes((c.get("nombre") or "").strip())
+                for palabra in palabras_msg:
+                    if palabra in nombre_norm:
+                        seleccionado = c
+                        break
+                if seleccionado:
+                    break
+
         if seleccionado:
             print(f"[producto_pendiente] match: {seleccionado.get('nombre')}", flush=True)
         else:
-            print(f"[producto_pendiente] SIN match, limpiando pendiente", flush=True)
-            # No matchea: limpiar pendiente y dejar que el flujo normal procese
-            self._repo.actualizar(wa_id, id_from, {"producto_pendiente": ""})
+            print(f"[producto_pendiente] SIN match, limpiando pendiente y cola", flush=True)
+            # No matchea: limpiar pendiente + cola y dejar que el flujo normal procese
+            self._repo.actualizar(wa_id, id_from, {
+                "producto_pendiente": "",
+                "productos_pendientes_cola": "",
+            })
             estado_actual.pop("producto_pendiente", None)
+            estado_actual.pop("productos_pendientes_cola", None)
             return None
 
         # Enriquecer producto con datos del catálogo
@@ -404,20 +436,56 @@ class ExtraccionService:
             for p in productos_actuales
         )
 
-        # Persistir en Redis y actualizar estado_actual para que el flujo normal
-        # vea los productos enriquecidos
         update = {
             "productos": productos_a_str(productos_actuales),
             "monto_total": round(monto_total, 2),
-            "producto_pendiente": "",
         }
+
+        # Verificar si hay más productos en la cola
+        cola_raw = estado_actual.get("productos_pendientes_cola")
+        cola = []
+        if cola_raw:
+            try:
+                cola = json.loads(cola_raw) if isinstance(cola_raw, str) else cola_raw
+            except (json.JSONDecodeError, TypeError):
+                cola = []
+        if not isinstance(cola, list):
+            cola = []
+
+        if cola:
+            # Hay más productos por clasificar: pasar al siguiente
+            siguiente = cola.pop(0)
+            update["producto_pendiente"] = json.dumps(siguiente, ensure_ascii=False)
+            update["productos_pendientes_cola"] = json.dumps(cola, ensure_ascii=False) if cola else ""
+            self._repo.actualizar(wa_id, id_from, update)
+            estado_actual["productos"] = update["productos"]
+            estado_actual["monto_total"] = update["monto_total"]
+            estado_actual["producto_pendiente"] = update["producto_pendiente"]
+            estado_actual["productos_pendientes_cola"] = update.get("productos_pendientes_cola", "")
+
+            # Enviar lista del siguiente producto
+            if id_empresa is not None:
+                payload_lista = build_payload_lista_productos(
+                    id_empresa, wa_id, id_plataforma or 6,
+                    siguiente["candidatos"], siguiente["nombre_buscado"],
+                )
+                _enviar_lista(payload_lista)
+
+            return {
+                "status": "producto_pendiente",
+                "candidatos": siguiente["candidatos"],
+                "pendientes_restantes": len(cola),
+                "whatsapp_output": {"texto": "Selecciona un producto de la lista."},
+            }
+
+        # Cola vacía: todos los productos resueltos, continuar flujo normal
+        update["producto_pendiente"] = ""
+        update["productos_pendientes_cola"] = ""
         self._repo.actualizar(wa_id, id_from, update)
         estado_actual["productos"] = update["productos"]
         estado_actual["monto_total"] = update["monto_total"]
         estado_actual.pop("producto_pendiente", None)
-
-        # Retornar None para que el flujo normal continúe:
-        # la IA generará resumen visual con el producto enriquecido + preguntas faltantes
+        estado_actual.pop("productos_pendientes_cola", None)
         return None
 
     def _buscar_productos_en_catalogo(
@@ -451,6 +519,7 @@ class ExtraccionService:
 
         hubo_cambio = False
         lineas_feedback: list[str] = []
+        cola_pendientes: list[dict] = []
         for i, prod in enumerate(productos):
             if prod.get("id_catalogo"):
                 continue
@@ -475,27 +544,34 @@ class ExtraccionService:
                 c = candidatos[0]
                 lineas_feedback.append(f"✅ *{c['nombre']}* — S/ {c['precio_unitario']:.2f}")
             else:
-                # Múltiples: guardar pendiente y enviar lista
-                pendiente = {
+                # Múltiples: agregar a la cola
+                cola_pendientes.append({
                     "indice": i,
                     "cantidad": float(prod.get("cantidad", 1)),
                     "nombre_buscado": nombre,
                     "candidatos": candidatos,
-                }
-                payload_db["producto_pendiente"] = json.dumps(pendiente, ensure_ascii=False)
-                payload_db["productos"] = productos_a_str(productos)
+                })
 
-                if id_empresa is not None:
-                    payload_lista = build_payload_lista_productos(
-                        id_empresa, wa_id, id_plataforma or 6, candidatos, nombre,
-                    )
-                    _enviar_lista(payload_lista)
+        # Si hay productos con múltiples candidatos, iniciar cola
+        if cola_pendientes:
+            primero = cola_pendientes.pop(0)
+            payload_db["producto_pendiente"] = json.dumps(primero, ensure_ascii=False)
+            payload_db["productos_pendientes_cola"] = json.dumps(cola_pendientes, ensure_ascii=False) if cola_pendientes else ""
+            payload_db["productos"] = productos_a_str(productos)
 
-                return {
-                    "status": "producto_pendiente",
-                    "candidatos": candidatos,
-                    "whatsapp_output": {"texto": f"Selecciona un producto de la lista."},
-                }
+            if id_empresa is not None:
+                payload_lista = build_payload_lista_productos(
+                    id_empresa, wa_id, id_plataforma or 6,
+                    primero["candidatos"], primero["nombre_buscado"],
+                )
+                _enviar_lista(payload_lista)
+
+            return {
+                "status": "producto_pendiente",
+                "candidatos": primero["candidatos"],
+                "pendientes_restantes": len(cola_pendientes),
+                "whatsapp_output": {"texto": "Selecciona un producto de la lista."},
+            }
 
         if hubo_cambio:
             payload_db["productos"] = productos_a_str(productos)

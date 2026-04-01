@@ -22,7 +22,7 @@
 \definecolor{verde}{RGB}{34, 139, 34}
 \definecolor{rojo}{RGB}{200, 50, 50}
 
-% Estilos de sección
+% Estilos de secci\'on
 \titleformat{\section}{\Large\bfseries\color{maravia}}{}{0em}{}[\titlerule]
 \titleformat{\subsection}{\large\bfseries\color{maravia!80!black}}{}{0em}{}
 
@@ -58,14 +58,14 @@ mediante inteligencia artificial \\[1cm]
 Plataforma Maravia --- Per\'u
 \par}
 \vfill
-{\small Versi\'on 1.0 --- Marzo 2026 \par}
+{\small Versi\'on 2.0 --- Abril 2026 \par}
 \end{titlepage}
 
 \tableofcontents
 \newpage
 
 % ============================================================
-% INTRODUCCIÓN
+% INTRODUCCI\'ON
 % ============================================================
 \section{Introducci\'on}
 
@@ -88,7 +88,7 @@ El proceso de registro tiene \textbf{4 etapas} principales:
 
 \begin{enumerate}[label=\textbf{Etapa \arabic*:}, leftmargin=3.5cm]
     \item \textbf{Inicio} --- Indicar si es una venta o una compra
-    \item \textbf{Datos del comprobante} --- Proporcionar cliente/proveedor, monto, tipo de documento, moneda y m\'etodo de pago
+    \item \textbf{Datos del comprobante} --- Proporcionar cliente/proveedor, monto, productos, tipo de documento, moneda y m\'etodo de pago
     \item \textbf{Opciones operativas} --- Elegir sucursal, centro de costo (solo compras) y forma de pago
     \item \textbf{Emisi\'on} --- Confirmar y emitir el comprobante
 \end{enumerate}
@@ -102,9 +102,32 @@ El bot acepta m\'ultiples formatos de entrada:
     \item \textbf{Imagen}: se almacena como documento adjunto al registro
 \end{itemize}
 
-Si el usuario env\'ia un documento o imagen, este se guardar\'a autom\'aticamente como \textbf{documento adjunto} a la operaci\'on y se vincular\'a al comprobante al finalizar.
-
 El bot solo pregunta por datos que faltan. Si el usuario proporciona varios datos en un solo mensaje, el bot los registra todos y solo pregunta por lo pendiente.
+
+% ============================================================
+% TIPOS DE COMPROBANTE
+% ============================================================
+\section{Tipos de comprobante}
+
+El bot permite registrar los siguientes tipos de documento:
+
+\begin{center}
+\begin{tabular}{>{\bfseries}l p{4.5cm} p{4.5cm}}
+\toprule
+Tipo & Requiere & Observaciones \\
+\midrule
+Factura & RUC (11 d\'igitos) & Con IGV. La serie/n\'umero se asigna autom\'aticamente en ventas \\
+Boleta & DNI (8 d\'igitos) & Con IGV. La serie/n\'umero se asigna autom\'aticamente en ventas \\
+Recibo por honorarios & RUC (11 d\'igitos) & Sin IGV. Serie E001-XXXX. Usado para servicios profesionales \\
+Nota de venta & Opcional & Sin IGV. Registro interno \\
+Nota de compra & Opcional & Sin IGV. Registro interno \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{notaimportante}
+En \textbf{ventas}, el n\'umero de comprobante (serie-n\'umero) lo asigna el sistema autom\'aticamente. No es necesario indicarlo. En \textbf{compras}, el bot puede preguntar el n\'umero del comprobante del proveedor (por ejemplo: F001-00001).
+\end{notaimportante}
 
 % ============================================================
 % REGISTRO DE VENTA
@@ -139,14 +162,82 @@ El bot pedir\'a los datos que falten. Se pueden enviar en cualquier orden y en u
 Campo & Descripci\'on \\
 \midrule
 Cliente & Nombre o raz\'on social del cliente \\
-RUC / DNI & Documento del cliente (8 o 11 d\'igitos) \\
-Tipo de documento & Factura, boleta o nota de venta \\
-Monto & Monto total de la operaci\'on \\
+RUC / DNI & Documento del cliente (8 o 11 d\'igitos). Opcional si es nota de venta o si el monto es menor a S/ 700 \\
+Tipo de documento & Factura, boleta, recibo por honorarios o nota de venta \\
+Monto o productos & Monto total o lista de productos con precios \\
 Moneda & Soles (PEN) o d\'olares (USD) \\
 M\'etodo de pago & Contado o cr\'edito \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\subsubsection{Productos y cat\'alogo}
+
+Al mencionar un producto, el bot busca autom\'aticamente en el cat\'alogo de la empresa:
+
+\begin{itemize}
+    \item \textbf{Si encuentra un solo producto}: se registra autom\'aticamente con su precio oficial y aparece un \checkmark{} al lado del nombre en el resumen.
+    \item \textbf{Si encuentra varios productos}: el bot env\'ia una \textbf{lista interactiva de WhatsApp} para que el usuario elija cu\'al es el correcto. Cada opci\'on muestra el nombre y el precio.
+    \item \textbf{Si no encuentra coincidencias}: el producto se registra tal cual, sin enlace al cat\'alogo. El usuario deber\'a indicar el precio manualmente.
+\end{itemize}
+
+\begin{mensajeusuario}
+Venta de 2 laptops
+\end{mensajeusuario}
+
+\begin{mensajebot}
+\textit{El bot muestra una lista interactiva:}
+\begin{itemize}[label=\textbullet]
+    \item Laptop S/111.00
+    \item Laptop Dell S/800.00
+    \item Laptop Gamer X1 S/4500.00
+\end{itemize}
+\end{mensajebot}
+
+El usuario selecciona una opci\'on y el bot contin\'ua el flujo mostrando el resumen con el producto elegido.
+
+\begin{notaimportante}
+Se pueden registrar \textbf{productos del cat\'alogo y productos libres en la misma operaci\'on}. Por ejemplo: 1 laptop (del cat\'alogo) y 1 servicio de instalaci\'on (libre, sin cat\'alogo). El bot maneja ambos sin problema.
+\end{notaimportante}
+
+\subsubsection{Precio del usuario vs.\ precio del cat\'alogo}
+
+Si el usuario indica un precio expl\'icito, este se respeta aunque el cat\'alogo tenga otro precio.
+
+\begin{mensajeusuario}
+2 laptops a 1000 cada una
+\end{mensajeusuario}
+
+En este caso, el bot usar\'a S/ 1,000.00 como precio unitario, no el del cat\'alogo.
+
+Si \textbf{no} se indica precio, el bot usa el precio del cat\'alogo autom\'aticamente.
+
+\subsubsection{Nombres entre comillas}
+
+Si el nombre del producto o cliente tiene varias palabras, se recomienda escribirlo entre comillas para que el bot lo trate como un solo t\'ermino:
+
+\begin{mensajeusuario}
+Venta de 1 ``Laptop Gamer X1''
+\end{mensajeusuario}
+
+Esto evita que el bot separe las palabras e intente buscar cada una por separado.
+
+\subsubsection{Moneda y s\'imbolos}
+
+El bot reconoce autom\'aticamente la moneda por el s\'imbolo:
+
+\begin{center}
+\begin{tabular}{>{\bfseries}l l}
+\toprule
+S\'imbolo & Moneda \\
+\midrule
+S/ & Soles (PEN) \\
+\$ o US\$ & D\'olares (USD) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Si el usuario escribe ``S/ 500'' o ``500 soles'', el bot asigna PEN autom\'aticamente. Si escribe ``\$200'' o ``200 d\'olares'', asigna USD. Si no se indica moneda, el bot preguntar\'a.
 
 \subsubsection{Identificaci\'on del cliente o proveedor}
 
@@ -174,14 +265,16 @@ Si no est\'a registrado:
 \texttt{Cliente registrado: Juan P\'erez (12345678).}
 \end{mensajebot}
 
-\begin{notaimportante}
-Si el m\'etodo de pago es \textbf{cr\'edito}, el bot preguntar\'a adicionalmente:
+\subsubsection{C\'alculo autom\'atico de IGV}
+
+Para facturas y boletas, el bot calcula el IGV (18\%) autom\'aticamente:
+
 \begin{itemize}
-    \item \textbf{D\'ias de cr\'edito}: 15, 30, 45, 60 o 90 d\'ias
-    \item \textbf{N\'umero de cuotas}: de 1 a 24
+    \item Por defecto, el monto que indicar el usuario \textbf{incluye} IGV. El bot desglosa: base = monto / 1.18, IGV = monto -- base.
+    \item Si el usuario dice ``m\'as IGV'', ``sin IGV'' o ``base'', el monto se trata como \textbf{base imponible} y se calcula: total = monto $\times$ 1.18.
 \end{itemize}
-Estas preguntas \textbf{no aparecen} si el m\'etodo es contado.
-\end{notaimportante}
+
+Para notas de venta, notas de compra y recibos por honorarios, \textbf{no se calcula IGV}.
 
 \subsubsection{Ejemplo de conversaci\'on}
 
@@ -190,9 +283,6 @@ Venta de factura por 1500 soles a Empresa SAC, RUC 20123456789, contado
 \end{mensajeusuario}
 
 \begin{mensajebot}
-\textit{El bot registra todos los datos de una vez y muestra:}
-
-\medskip
 \texttt{Anotado.}
 
 \medskip
@@ -200,6 +290,8 @@ Venta de factura por 1500 soles a Empresa SAC, RUC 20123456789, contado
 \texttt{Factura} \\
 \texttt{Cliente: Empresa SAC} \\
 \texttt{RUC: 20123456789} \\
+\texttt{Subtotal: S/ 1,271.19} \\
+\texttt{IGV: S/ 228.81} \\
 \texttt{Total: S/ 1,500.00} \\
 \texttt{Moneda: PEN} \\
 \texttt{M\'etodo: Contado}
@@ -231,7 +323,7 @@ Palabras aceptadas: \textit{s\'i, confirmo, dale, correcto, listo, ok, de acuerd
 
 \subsection{Paso 4: Elegir opciones operativas}
 
-Tras confirmar, el bot presenta listas de WhatsApp para elegir:
+Tras confirmar, el bot presenta listas interactivas de WhatsApp para elegir:
 
 \begin{enumerate}
     \item \textbf{Sucursal} --- Lista de sucursales de la empresa
@@ -239,15 +331,10 @@ Tras confirmar, el bot presenta listas de WhatsApp para elegir:
 \end{enumerate}
 
 \begin{mensajebot}
-\texttt{Por favor, br\'indame la sucursal dentro de las siguientes opciones:} \\
-\texttt{- Sucursal Principal} \\
-\texttt{- Sucursal Norte} \\
-\texttt{- Sucursal Sur}
+\textit{El bot env\'ia una lista interactiva con las sucursales disponibles.}
 \end{mensajebot}
 
-\begin{mensajeusuario}
-Sucursal Principal
-\end{mensajeusuario}
+El usuario selecciona una opci\'on de la lista y el bot avanza al siguiente campo.
 
 Despu\'es de elegir todas las opciones:
 
@@ -286,14 +373,15 @@ El flujo de compra es similar al de venta con estas diferencias:
 \subsection{Diferencias con la venta}
 
 \begin{center}
-\begin{tabular}{>{\bfseries}l p{5cm} p{5cm}}
+\begin{tabular}{>{\bfseries}l p{4.5cm} p{4.5cm}}
 \toprule
 Aspecto & Venta & Compra \\
 \midrule
 Entidad & Cliente & Proveedor \\
 Centro de costo & No se pide & S\'i se pide (paso extra) \\
+N\'umero de comprobante & Asignado autom\'aticamente & Se puede pedir (del proveedor) \\
 Al finalizar & Texto + PDF & Solo texto \\
-Tipo documento & Factura / Boleta / Nota de venta & Factura / Boleta / Nota de compra \\
+Tipo documento & Factura / Boleta / Recibo por honorarios / Nota de venta & Factura / Boleta / Recibo por honorarios / Nota de compra \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -311,14 +399,14 @@ En compras, las opciones son tres (una m\'as que en venta):
 \subsection{Ejemplo de compra}
 
 \begin{mensajeusuario}
-Compra de factura por 500 soles al proveedor Juan P\'erez, DNI 12345678, contado
+Compra de factura por 500 soles al proveedor Distribuidora Lima, RUC 20456789012, contado
 \end{mensajeusuario}
 
 \begin{mensajebot}
 \texttt{COMPRA} \\
 \texttt{Factura} \\
-\texttt{Proveedor: Juan P\'erez} \\
-\texttt{DNI: 12345678} \\
+\texttt{Proveedor: Distribuidora Lima} \\
+\texttt{RUC: 20456789012} \\
 \texttt{Total: S/ 500.00} \\
 \texttt{Moneda: PEN} \\
 \texttt{M\'etodo: Contado}
@@ -326,6 +414,39 @@ Compra de factura por 500 soles al proveedor Juan P\'erez, DNI 12345678, contado
 \medskip
 \texttt{Confirmar todo para continuar?}
 \end{mensajebot}
+
+% ============================================================
+% RECIBO POR HONORARIOS
+% ============================================================
+\section{Recibo por honorarios}
+
+El recibo por honorarios se usa para registrar servicios profesionales. Tiene reglas especiales:
+
+\begin{itemize}
+    \item \textbf{Sin IGV}: el monto es el bruto del honorario, sin desglose de impuestos
+    \item \textbf{Requiere RUC}: se necesita el RUC (11 d\'igitos) del profesional que presta el servicio
+    \item \textbf{Serie/n\'umero}: se puede indicar el n\'umero del recibo (formato E001-XXXX)
+\end{itemize}
+
+\begin{mensajeusuario}
+Compra de recibo por honorarios por 2000 soles a Nicol\'as Castro, RUC 10752397908, contado
+\end{mensajeusuario}
+
+\begin{mensajebot}
+\texttt{COMPRA} \\
+\texttt{Recibo por honorarios} \\
+\texttt{Proveedor: Nicol\'as Castro} \\
+\texttt{RUC: 10752397908} \\
+\texttt{Total: S/ 2,000.00} \\
+\texttt{Moneda: PEN} \\
+\texttt{M\'etodo: Contado}
+
+\medskip
+\texttt{Por favor, br\'indame estos datos:} \\
+\texttt{1. N\'umero del recibo (serie-n\'umero, ej: E001-18)?}
+\end{mensajebot}
+
+Para activar este tipo de comprobante, se puede decir: ``honorarios'', ``recibo por honorarios'' o ``recibo de honorarios''. Si solo se dice ``recibo'' sin m\'as contexto, el bot lo interpreta como boleta.
 
 % ============================================================
 % NOTAS DE VENTA Y COMPRA
@@ -337,7 +458,7 @@ Las notas son documentos internos con reglas especiales:
 \begin{itemize}
     \item \textbf{No se calcula IGV}: el monto total es el dato principal, sin desglose de impuestos
     \item \textbf{No se pide n\'umero de serie}: el sistema no pregunta por serie-n\'umero del comprobante
-    \item \textbf{Documento del cliente/proveedor}: si el monto es menor a S/ 700, el RUC/DNI es \textbf{opcional}
+    \item \textbf{Documento del cliente/proveedor es opcional}: no se exige RUC ni DNI
 \end{itemize}
 
 \begin{mensajeusuario}
@@ -351,33 +472,56 @@ Nota de venta por 200 soles
 
 \medskip
 \texttt{Por favor, br\'indame estos datos:} \\
-\texttt{1. Cliente: nombre o raz\'on social} \\
-\texttt{2. Moneda: soles (PEN) o d\'olares (USD)?} \\
-\texttt{3. M\'etodo de pago: contado o cr\'edito?}
+\texttt{1. Cliente: nombre o raz\'on social?} \\
+\texttt{2. M\'etodo de pago: contado o cr\'edito?}
 \end{mensajebot}
 
-Note que \textbf{no pregunta} por RUC/DNI (monto < 700) ni por n\'umero de serie.
+\subsection{Cuando no se tiene el documento del cliente}
+
+Si durante cualquier registro el usuario indica que no tiene el RUC o DNI del cliente (por ejemplo: ``no tengo su RUC'', ``no s\'e el DNI''), el bot autom\'aticamente:
+
+\begin{enumerate}
+    \item Cambia el tipo de documento a \textbf{nota de venta} o \textbf{nota de compra}
+    \item Guarda el nombre del cliente como referencia en las observaciones
+    \item Contin\'ua el flujo sin pedir documento de identidad
+\end{enumerate}
 
 % ============================================================
-% MÉTODO DE PAGO
+% REGLA DE LOS S/ 700
+% ============================================================
+\section{Regla de los S/ 700}
+
+Para facturas y boletas en soles:
+
+\begin{itemize}
+    \item Si el monto total es \textbf{menor a S/ 700}: el RUC o DNI del cliente es \textbf{opcional}
+    \item Si el monto total es \textbf{igual o mayor a S/ 700}: el RUC o DNI es \textbf{obligatorio}
+\end{itemize}
+
+Esta regla \textbf{no aplica} a notas de venta ni notas de compra (el documento siempre es opcional en notas).
+
+% ============================================================
+% M\'ETODO DE PAGO
 % ============================================================
 \section{M\'etodo de pago: contado vs cr\'edito}
 
 \subsection{Contado}
 
-Si el usuario indica \texttt{contado}, el bot lo registra y \textbf{no hace preguntas adicionales} sobre d\'ias de cr\'edito ni cuotas.
+Si el usuario indica \texttt{contado}, el bot lo registra y \textbf{no hace preguntas adicionales} sobre d\'ias de cr\'edito ni cuotas. Sin\'onimos aceptados: ``efectivo'', ``cash'', ``al toque'', ``de una'', ``pago directo''.
 
 \subsection{Cr\'edito}
 
 Si el usuario indica \texttt{cr\'edito}, el bot preguntar\'a:
 
 \begin{mensajebot}
-\texttt{1. A cu\'antos d\'ias ser\'a el plazo? Puede ser 15, 30, 45, 60 o 90 d\'ias.} \\
+\texttt{1. A cu\'antos d\'ias ser\'a el plazo? (15, 30, 45, 60 o 90 d\'ias)} \\
 \texttt{2. En cu\'antas cuotas ser\'a el pago? (de 1 a 24)}
 \end{mensajebot}
 
+Sin\'onimos aceptados: ``a plazos'', ``financiado'', ``a cuotas'', ``me f\'ian''.
+
 \begin{notaimportante}
-Una vez registrado el m\'etodo de pago, el bot \textbf{no volver\'a a preguntar} por este campo. Si necesita cambiarlo, simplemente escriba el nuevo valor (por ejemplo: \texttt{"cambiar a cr\'edito"}).
+Una vez registrado el m\'etodo de pago, el bot \textbf{no volver\'a a preguntar} por este campo. Si necesita cambiarlo, simplemente escriba el nuevo valor (por ejemplo: \texttt{``cambiar a cr\'edito''}).
 \end{notaimportante}
 
 % ============================================================
@@ -399,7 +543,7 @@ No es necesario enviar el documento en un momento espec\'ifico del flujo. Se pue
 \end{notaimportante}
 
 % ============================================================
-% COMANDOS ÚTILES
+% COMANDOS \'UTILES
 % ============================================================
 \section{Comandos y acciones disponibles}
 
@@ -409,12 +553,29 @@ No es necesario enviar el documento en un momento espec\'ifico del flujo. Se pue
 Acci\'on & Qu\'e decir \\
 \midrule
 Ver resumen & ``Qu\'e llevo?'', ``Dame el resumen'', ``C\'omo va mi registro?'' \\
+Pedir ayuda & ``Qu\'e me falta?'', ``Qu\'e datos necesito?'', ``Ay\'udame'' \\
 Confirmar & ``S\'i'', ``Confirmo'', ``Dale'', ``Ok'', ``Listo'' \\
 Cancelar & ``Cancelar'', ``Borrar'', ``Empezar de cero'' \\
 Cambiar dato & Simplemente escribir el nuevo valor \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\subsection{Ver resumen}
+
+En cualquier momento del flujo, el usuario puede pedir un resumen para ver todos los datos ingresados hasta el momento y qu\'e falta por completar.
+
+\subsection{Pedir ayuda}
+
+Si el usuario tiene dudas sobre qu\'e datos proporcionar o en qu\'e paso est\'a, puede pedirle al bot que le explique. El bot responde con informaci\'on clara sobre el estado actual del registro y los siguientes pasos.
+
+\subsection{Cancelar operaci\'on}
+
+Al cancelar, el registro se elimina por completo y el bot confirma:
+
+\begin{mensajebot}
+\texttt{Entendido. He cancelado la operaci\'on y limpiado el borrador. Deseas iniciar un registro nuevo?}
+\end{mensajebot}
 
 % ============================================================
 % ERRORES Y REINTENTOS
@@ -427,7 +588,7 @@ Si env\'ias un mensaje y \textbf{no recibes ninguna respuesta} (ni de \'exito ni
 
 \subsection{Errores al emitir}
 
-Si ocurre un error al emitir el comprobante (por ejemplo, un error de SUNAT o datos inv\'alidos), el bot:
+Si ocurre un error al emitir el comprobante (por ejemplo, un error de SUNAT, stock insuficiente o datos inv\'alidos), el bot:
 
 \begin{enumerate}
     \item Muestra el mensaje de error espec\'ifico
@@ -447,6 +608,10 @@ Si ocurre un error al emitir el comprobante (por ejemplo, un error de SUNAT o da
 La fecha de emisi\'on es hoy
 \end{mensajeusuario}
 
+\subsection{Error de stock insuficiente}
+
+Si se intenta vender un producto del cat\'alogo y no hay stock suficiente en la sucursal seleccionada, el bot mostrar\'a un mensaje indicando cu\'antas unidades faltan. El usuario puede cambiar la cantidad, la sucursal o el producto.
+
 % ============================================================
 % PREGUNTAS FRECUENTES
 % ============================================================
@@ -459,25 +624,29 @@ La fecha de emisi\'on es hoy
     \item[Puedo cambiar un dato despu\'es de haberlo ingresado?]
     S\'i. Simplemente escribe el nuevo valor (por ejemplo: ``el monto es 2000'' o ``cambiar moneda a d\'olares'').
 
+    \item[Puedo registrar varios productos en una sola operaci\'on?]
+    S\'i. Se pueden agregar productos del cat\'alogo y productos libres en la misma operaci\'on. Al agregar un nuevo producto, no se borran los anteriores.
+
     \item[Qu\'e pasa si el bot no responde?]
-    Si no recibes un mensaje de error, probablemente se trat\'o de un \textbf{problema de conexi\'on}, no de un fallo del bot. Simplemente vuelve a enviar tu mensaje y el bot continuar\'a desde donde qued\'o.
+    Si no recibes un mensaje de error, probablemente se trat\'o de un \textbf{problema de conexi\'on}. Simplemente vuelve a enviar tu mensaje y el bot continuar\'a desde donde qued\'o.
 
     \item[Qu\'e pasa si el RUC/DNI no est\'a registrado?]
-    Si env\'ias un RUC o DNI junto con el nombre de la persona o empresa, el bot lo \textbf{registrar\'a autom\'aticamente} como cliente (en ventas) o proveedor (en compras) para que el flujo sea m\'as r\'apido en futuras operaciones.
-
-    Si el RUC o DNI ya est\'a registrado, el bot devolver\'a autom\'aticamente el nombre asociado sin necesidad de que lo escribas.
+    Si env\'ias un RUC o DNI junto con el nombre de la persona o empresa, el bot lo \textbf{registrar\'a autom\'aticamente} como cliente (en ventas) o proveedor (en compras) para futuras operaciones.
 
     \item[Qu\'e pasa si hay un error en el nombre del cliente o proveedor?]
-    Si hubo un error tipogr\'afico al registrar el nombre, este debe corregirse desde la \textbf{p\'agina web de Maravia} editando directamente al cliente o proveedor. El bot no permite editar entidades ya registradas.
+    Si hubo un error tipogr\'afico al registrar el nombre, este debe corregirse desde la \textbf{p\'agina web de Maravia} editando directamente al cliente o proveedor.
 
     \item[D\'onde queda registrada la operaci\'on?]
-    La venta queda registrada en la \textbf{tabla de ventas} y la compra en la \textbf{tabla de compras} del sistema Maravia, disponibles para consulta desde la plataforma web.
+    Las ventas quedan en la \textbf{tabla de ventas} y las compras en la \textbf{tabla de compras} del sistema Maravia, disponibles para consulta desde la plataforma web.
 
     \item[Puedo registrar varias operaciones a la vez?]
     No. Cada conversaci\'on maneja una operaci\'on a la vez. Debes finalizar o cancelar la actual antes de iniciar otra.
 
     \item[C\'omo cancelo una operaci\'on?]
     Escribe ``cancelar'', ``borrar'' o ``empezar de cero''. El registro se eliminar\'a por completo.
+
+    \item[Qu\'e diferencia hay entre ``recibo'' y ``recibo por honorarios''?]
+    Si solo dices ``recibo'', el bot lo interpreta como \textbf{boleta}. Para registrar un recibo por honorarios, debes decir expl\'icitamente ``recibo por honorarios'' u ``honorarios''.
 \end{description}
 
 % ============================================================
@@ -488,8 +657,8 @@ La fecha de emisi\'on es hoy
 Al finalizar exitosamente:
 
 \begin{itemize}
-    \item Las \textbf{ventas} quedan registradas en la \textbf{tabla de ventas} del sistema Maravia, con su comprobante electr\'onico emitido ante SUNAT (cuando corresponda).
-    \item Las \textbf{compras} quedan registradas en la \textbf{tabla de compras} del sistema Maravia.
+    \item Las \textbf{ventas} quedan registradas en la \textbf{tabla de ventas} del sistema Maravia, con su comprobante electr\'onico emitido ante SUNAT (cuando corresponda). El bot env\'ia el PDF del comprobante por WhatsApp.
+    \item Las \textbf{compras} quedan registradas en la \textbf{tabla de compras} del sistema Maravia. El bot env\'ia un mensaje de confirmaci\'on por WhatsApp (sin PDF).
 \end{itemize}
 
 Ambas son consultables desde la \textbf{plataforma web de Maravia}. El registro temporal en el bot se elimina autom\'aticamente una vez que la operaci\'on se completa con \'exito.
@@ -500,14 +669,18 @@ Ambas son consultables desde la \textbf{plataforma web de Maravia}. El registro 
 \section{Diagrama de flujo resumido}
 
 \begin{center}
-\begin{tcolorbox}[colback=gris, colframe=maravia, width=12cm]
+\begin{tcolorbox}[colback=gris, colframe=maravia, width=13cm]
 \begin{verbatim}
     Usuario saluda
          |
     [Botones: Compra / Venta]
          |
     Proporciona datos
-    (monto, cliente, documento, moneda, metodo)
+    (productos, monto, cliente, documento, moneda, metodo)
+         |
+    Producto en catalogo? -----> [LISTA INTERACTIVA]
+      Si: auto-fill              Multiples: elegir
+      No: producto libre         0: continuar sin catalogo
          |
     Bot pregunta por lo que falta
     (repite hasta completar)
@@ -517,7 +690,7 @@ Ambas son consultables desde la \textbf{plataforma web de Maravia}. El registro 
     Usuario confirma ---------> [OPCIONES]
                                     |
                               Sucursal
-                              Centro costo (compra)
+                              Centro costo (solo compra)
                               Forma de pago
                                     |
                         "Brindame una confirmacion"
