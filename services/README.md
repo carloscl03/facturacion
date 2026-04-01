@@ -5,7 +5,7 @@
 | Archivo | Clase | Propósito |
 |---------|-------|-----------|
 | `ai_service.py` | `AIService` / `OpenAIService` | Abstracción de IA (OpenAI GPT-4.1-mini) |
-| `extraccion_service.py` | `ExtraccionService` | Servicio principal: extrae datos, identifica entidad, diagnostica faltantes |
+| `extraccion_service.py` | `ExtraccionService` | Servicio principal: extrae datos, identifica entidad, busca catálogo, diagnostica faltantes |
 | `clasificador_service.py` | `ClasificadorService` | Clasifica intención del mensaje y gestiona transiciones de estado |
 | `opciones_service.py` | `OpcionesService` | Estado 4: listas de sucursal, centro costo, forma pago |
 | `confirmar_registro_service.py` | `ConfirmarRegistroService` | Transición estado 3 → 4 |
@@ -17,6 +17,7 @@
 | `preguntador_service.py` | `PreguntadorService` / `PreguntadorV2Service` | Genera siguiente pregunta contextualizada |
 | `iniciar_service.py` | `IniciarService` | Crea registro inicial en Redis |
 | `eliminar_service.py` | `EliminarService` | Elimina registro temporal completo |
+| `whatsapp_sender.py` | (funciones) | Módulo centralizado de envío a WhatsApp (texto, PDF, lista, botones) |
 
 ---
 
@@ -43,7 +44,9 @@ ClasificadorService ──→ AIService
         │
   ResumenService ──→ AIService + CacheRepository
   InformadorService ──→ AIService + CacheRepository
-  CasualService ──→ AIService + WhatsApp API
+  CasualService ──→ AIService + whatsapp_sender
+        │
+  whatsapp_sender ──→ ws_send_whatsapp_oficial / _list / _buttons
   PreguntadorService ──→ AIService + CacheRepository
   IniciarService ──→ CacheRepository
   EliminarService ──→ CacheRepository
@@ -88,16 +91,26 @@ Mensaje del usuario
 
 **Constructor:** `repo: CacheRepository`, `ai: AIService`, `identificador: IdentificadorService | None`, `informacion_repo`
 
-**Método principal:** `ejecutar(wa_id, mensaje, id_from, *, url=None) → dict`
+**Método principal:** `ejecutar(wa_id, mensaje, id_from, *, url=None, id_empresa=None, id_plataforma=None) → dict`
 
 **Responsabilidades:**
+- Resuelve cola de productos pendientes (`producto_pendiente` / `productos_pendientes_cola` en Redis)
 - Construye prompt con estado actual + mensaje del usuario
 - IA extrae datos → `propuesta_cache`
-- Fusiona propuesta con datos existentes en Redis
+- Fusiona propuesta con datos existentes en Redis (merge de productos, no reemplazo)
 - Si detecta RUC/DNI (8/11 dígitos) → llama a `IdentificadorService.buscar_o_crear()`
+- Busca cada producto en el catálogo de la empresa (`buscar_catalogo`):
+  - 1 match → auto-fill silencioso (id_catalogo, precio, unidad) con ✅
+  - N matches → cola de pendientes + lista WhatsApp interactiva
+  - 0 matches → producto genérico sin catálogo
+  - Búsqueda con fallback sin tildes (cámara → camara)
+- Recalcula `monto_total` desde la suma de productos
+- Calcula IGV determinísticamente en Python (nunca confía en la IA)
+- Protege `tipo_documento` ya definido contra inferencias no solicitadas
 - Calcula estado (0-3) automáticamente via `calcular_estado()`
-- Preserva campos de opciones (sucursal, forma_pago) y `url` entre rondas
+- Preserva campos de opciones (sucursal, forma_pago, tipo_documento) y `url` entre rondas
 - Valida `fecha_pago >= fecha_emision`
+- Envía mensajes directamente por WhatsApp (texto y listas)
 - **No sobrescribe** estado 4 ni 5 (esos los gestionan otros servicios)
 
 ### ClasificadorService

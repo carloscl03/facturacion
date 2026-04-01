@@ -12,7 +12,7 @@ Módulos auxiliares que encapsulan reglas de negocio, transformaciones de datos 
 | `opciones_domain.py` | Campos y orden del flujo de opciones (estado 4) |
 | `venta_mapper.py` | Construye payload para `ws_venta.php` (REGISTRAR_VENTA_N8N) |
 | `compra_mapper.py` | Construye payload para `ws_compra.php` (REGISTRAR_COMPRA) |
-| `productos.py` | Normalización de productos e IGV |
+| `productos.py` | Normalización de productos, enriquecimiento con catálogo, listas WhatsApp, IGV |
 | `sunat_client.py` | Cliente SUNAT (login + emisión de comprobantes) |
 | `fechas.py` | Conversión de formatos de fecha |
 
@@ -81,10 +81,15 @@ Orden:
 
 ### Mapas de referencia
 
+### _safe_int(val, default=None)
+
+Conversión segura de cualquier valor a int. Maneja `None`, `""`, strings no numéricos, floats. Usado en todo el mapper para proteger contra datos sucios de Redis.
+
 ```python
 TIPO_DOCUMENTO_MAP = {
     "factura": 1,
     "boleta": 2,
+    "recibo por honorarios": 3,
     "nota de venta": 7,
     "nota de compra": 7,
 }
@@ -183,11 +188,23 @@ Solo se envía si tiene formato válido `SERIE-NUMERO` (ej: `F001-00001`). Si no
 Acepta:
 - Lista de dicts: `[{"nombre": "X", "cantidad": 1, "precio": 100}]`
 - JSON string: `'[{"nombre": "X"}]'`
-- Texto plano: intenta parsear como JSON
+- Texto libre: `"2 x laptop"`, `"laptop, camara"`, `"3 laptops"`
 
 ### productos_a_str(productos) → str
 
 Serializa lista de productos a JSON string para guardar en Redis.
+
+### enriquecer_producto_con_catalogo(producto, catalogo_item) → dict
+
+Enriquece un producto extraído por la IA con datos del catálogo (id_catalogo, precio, id_unidad, sku). Si el usuario indicó precio explícito, se respeta sobre el del catálogo.
+
+### catalogo_a_filas_whatsapp(candidatos) → list[dict]
+
+Convierte candidatos de catálogo en filas para lista WhatsApp (title con nombre+precio, description con stock).
+
+### build_payload_lista_productos(id_empresa, phone, id_plataforma, candidatos, nombre_buscado) → dict
+
+Construye payload para ws_send_whatsapp_list con candidatos de catálogo.
 
 ### construir_detalle_desde_registro(reg, monto_total, monto_base, monto_igv) → list[dict]
 
@@ -199,9 +216,9 @@ subtotal = monto_total / 1.18
 igv = monto_total - subtotal
 ```
 
-**Excepción para notas (venta/compra):**
+**Sin IGV para notas y recibos por honorarios:**
 ```python
-if es_nota:
+if sin_igv:  # nota de venta, nota de compra, recibo por honorarios
     monto_sin_igv = 0.0
     igv = 0.0
 ```

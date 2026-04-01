@@ -141,12 +141,13 @@ Catálogos de información para el flujo de opciones.
 
 ### Métodos
 
-| Método | API | codOpe | Descripción |
+| Método | API | codOpe / Endpoint | Descripción |
 |--------|-----|--------|-------------|
 | `obtener_sucursales(id_from)` | `ws_informacion_ia.php` | `OBTENER_SUCURSALES` | Lista sucursales de la empresa |
 | `obtener_sucursales_publicas()` | `ws_informacion_ia.php` | `OBTENER_SUCURSALES_PUBLICAS` | Sucursales públicas |
 | `obtener_formas_pago()` | `ws_forma_pago.php` | `LISTAR_FORMAS_PAGO` | Formas de pago (N8N) |
 | `obtener_medios_pago_catalogo()` | `ws_medio_pago.php` | `LISTAR_MEDIOS_PAGO` | Medios de pago (N8N) |
+| `buscar_catalogo(id_empresa, nombre)` | `ws_obtenerCatalogo.php` | GET con params | Busca productos por nombre. Retorna id, nombre, sku, precio, unidad, stock |
 
 ---
 
@@ -168,5 +169,5 @@ Tablas maestras adicionales.
 |-------------|----------------------|
 | `CacheRepository` | ExtraccionService, ClasificadorService, OpcionesService, ConfirmarRegistroService, FinalizarService, ResumenService, InformadorService, PreguntadorService, IniciarService, EliminarService, IdentificadorService |
 | `EntityRepository` | IdentificadorService, FinalizarService |
-| `InformacionRepository` | OpcionesService |
+| `InformacionRepository` | OpcionesService, ExtraccionService (catálogo de productos) |
 | `ParametrosRepository` | OpcionesService |
