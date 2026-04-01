@@ -77,6 +77,8 @@ class FinalizarService:
             registro = self._cache.consultar(wa_id, id_from)
             debug["paso"] = "consultar_cache"
         except Exception as e:
+            msg = "Hubo un problema al procesar tu solicitud. Por favor, intenta de nuevo."
+            _enviar_texto_whatsapp(id_empresa, wa_id, msg, id_plataforma)
             return {
                 "status": "error",
                 "mensaje": f"Hubo un fallo técnico: {str(e)}",
@@ -84,7 +86,9 @@ class FinalizarService:
             }
 
         if not registro:
-            return {"status": "error", "mensaje": "No hay una operación activa para finalizar.", "debug": debug}
+            msg = "No hay una operación activa para finalizar."
+            _enviar_texto_whatsapp(id_empresa, wa_id, msg, id_plataforma)
+            return {"status": "error", "mensaje": msg, "debug": debug}
 
         try:
             operacion, params = traducir_registro_a_parametros(registro)
@@ -93,6 +97,8 @@ class FinalizarService:
             debug["registro_tipos"] = self._debug_tipos(registro)
             debug["params_tipos"] = self._debug_tipos(params)
         except Exception as e:
+            msg = "Hubo un problema al procesar los datos del registro. Por favor, revisa los datos e intenta de nuevo."
+            _enviar_texto_whatsapp(id_empresa, wa_id, msg, id_plataforma)
             return {
                 "status": "error",
                 "mensaje": f"Hubo un fallo técnico: {str(e)}",
@@ -109,6 +115,8 @@ class FinalizarService:
             debug["paso"] = "validar_campos"
             debug["errores"] = errores
         except Exception as e:
+            msg = "Hubo un problema al validar los datos. Por favor, revisa e intenta de nuevo."
+            _enviar_texto_whatsapp(id_empresa, wa_id, msg, id_plataforma)
             return {
                 "status": "error",
                 "mensaje": f"Hubo un fallo técnico: {str(e)}",
@@ -126,6 +134,7 @@ class FinalizarService:
                 sintesis = construir_sintesis_actual(registro)
                 faltan = f"⚠️ *No se puede finalizar.*\n\nFaltan: **{', '.join(errores)}**."
                 mensaje = f"{sintesis}\n\n{faltan}" if sintesis else faltan
+                _enviar_texto_whatsapp(id_empresa, wa_id, mensaje, id_plataforma)
                 return {
                     "status": "incompleto",
                     "mensaje": mensaje,

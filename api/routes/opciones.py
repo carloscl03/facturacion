@@ -163,6 +163,19 @@ async def opciones(
                 "debug": {"etapa": "falta_valor"},
             })
         out = service.submit(wa_id, id_from, campo_final, valor_final, id_plataforma_final)
+
+        # Si no matcheó la opción: enviar mensaje amigable y reenviar la lista
+        if out.get("success") is False and not out.get("payload_whatsapp_list"):
+            id_emp = id_empresa_wa_final if id_empresa_wa_final is not None else (settings.ID_EMPRESA_WHATSAPP or id_from)
+            _enviar_texto_shared(id_emp, wa_id, "Por favor, selecciona una opción de la lista que te envié.", id_plataforma_final)
+            # Reenviar la lista actual
+            out_reenvio = service.get_next(wa_id, id_from, id_plataforma_final)
+            payload_reenvio = out_reenvio.get("payload_whatsapp_list")
+            if payload_reenvio:
+                if id_empresa_wa_final is not None:
+                    payload_reenvio = {**payload_reenvio, "id_empresa": id_empresa_wa_final}
+                _enviar_lista_whatsapp(payload_reenvio)
+
         payload_list = out.get("payload_whatsapp_list")
         if payload_list:
             if id_empresa_wa_final is not None:
