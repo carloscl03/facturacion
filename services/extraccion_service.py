@@ -261,7 +261,7 @@ class ExtraccionService:
                             if sep in linea:
                                 partes = linea.rsplit(sep, 1)
                                 if len(partes) == 2:
-                                    linea = f"{partes[0].rstrip()}{sep} {precio}"
+                                    linea = f"{partes[0].rstrip()}{sep} {precio:.2f}"
                                     break
                         lineas[idx] = linea
                 texto_completo = "\n".join(lineas)

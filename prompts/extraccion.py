@@ -89,9 +89,10 @@ def build_prompt_extractor(
     ### REGLAS DE EXTRACCIÓN:
     - operacion: solo "venta" o "compra". Si no se indica, null.
     - tipo_documento: "factura", "boleta", "recibo por honorarios", "nota de venta" o "nota de compra".
+      **CANDADO COHERENCIA OPERACIÓN-DOCUMENTO:** "nota de venta" solo en operacion="venta". "nota de compra" solo en operacion="compra". NUNCA poner "nota de compra" en una venta ni "nota de venta" en una compra.
       Si el usuario dice "recibo por honorarios", "honorarios" o "recibo de honorarios" → "recibo por honorarios".
       Si el usuario dice solo "recibo" sin más contexto → interpretar como **boleta** (en Perú "recibo" coloquialmente se refiere a boleta de venta).
-      **NO inferir automáticamente desde el RUC/DNI.** Un RUC no implica factura (podría ser nota) y un DNI no implica boleta (podría ser nota). Solo asignar tipo_documento cuando el usuario lo indica explícitamente.
+      **NO inferir automáticamente desde el RUC/DNI.** Un RUC no implica factura (podría ser nota) y un DNI no implica boleta (podría ser nota). Solo asignar tipo_documento cuando el usuario lo indica **explícitamente** en el mensaje actual. Si el usuario no menciona tipo de documento en este mensaje, dejar tipo_documento como null en propuesta_cache (no inventar).
       Si el usuario indica explícitamente "factura"/"boleta"/"recibo por honorarios", se asume el tipo correspondiente aunque no se haya indicado aún el RUC/DNI.
       Si no se puede determinar desde el mensaje, deja null.
     - Si el usuario indica "nota" sin especificar, usa la operación para inferir: en venta => "nota de venta"; en compra => "nota de compra". Si la operación no está definida, no preguntes tipo de comprobante: pregunta solo si es venta o compra para resolver la nota.
@@ -146,11 +147,14 @@ def build_prompt_extractor(
     ### DIAGNÓSTICO DE FALTANTES (lógica dinámica):
     **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. Todas las preguntas en lenguaje natural; una sola pregunta por campo vacío; mismo criterio para todos los campos (incluido método de pago contado/crédito).
     **CANDADO ABSOLUTO — NO REPREGUNTAR CAMPOS CON VALOR:**
+    - Si entidad_nombre tiene valor O requiere_identificacion fue exitosa (entidad_id existe) → NO preguntar por nombre del cliente/proveedor. Ya está identificado.
     - Si entidad_nombre tiene valor Y entidad_numero tiene 8 u 11 dígitos → NO preguntar por RUC/DNI. El documento ES válido. No cuestionar.
     - Si metodo_pago = "contado" → NO preguntar por días de crédito, cuotas, ni nada relacionado con crédito. CERO preguntas sobre crédito.
-    - Si tipo_documento tiene valor → NO preguntar por tipo de documento.
+    - Si tipo_documento tiene valor (en Redis o propuesta) → NO preguntar por tipo de documento.
     - Si moneda tiene valor → NO preguntar por moneda.
     - Si un campo aparece en el resumen visual con valor → PROHIBIDO generar pregunta sobre ese campo.
+    **CANDADO RESUMEN VISUAL — DATOS FUSIONADOS:**
+    El resumen visual debe mostrar TODOS los datos disponibles fusionando Redis + propuesta_cache + resultado de identificación. Si la identificación fue exitosa (requiere_identificacion.activo=true y el backend encontró la entidad), incluir entidad_nombre en el resumen visual aunque no esté aún en propuesta_cache (el backend lo persiste aparte).
     **Estructura de la salida:** (1) Preámbulo (mensaje_entendimiento). (2) Síntesis visual = resumen_visual del ESTADO COMPLETO. (3) Si faltan datos: invitación ("Por favor, bríndame estos datos:") + listado de preguntas. (4) Si NO falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario sepa que puede decir *confirmar* y continuar; pedir confirmación **no** impide que el usuario envíe más datos (si envía datos, se procesarán como actualizar).
     Fusiona datos en Redis + propuesta_cache. UNA pregunta por cada campo **realmente** vacío. **No repitas preguntas:** si un dato ya aparece en el resumen visual (p. ej. método de pago = Contado), NUNCA incluyas pregunta sobre ese dato.
     **NO preguntar por:** sucursal, forma de pago (transferencia/TC/TD/billetera) ni centro de costo (se gestionan en Estado 2 / opciones; centro de costo solo se pide en compra, no en venta).
