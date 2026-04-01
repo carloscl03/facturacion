@@ -534,7 +534,12 @@ class ExtraccionService:
                 hubo_cambio = True
                 continue
 
+            # Buscar primero con el nombre tal cual, luego sin tildes
             candidatos = self._informacion_repo.buscar_catalogo(id_from, nombre)
+            if not candidatos:
+                nombre_norm = _sin_tildes(nombre)
+                if nombre_norm != nombre.lower():
+                    candidatos = self._informacion_repo.buscar_catalogo(id_from, nombre_norm)
             if not candidatos:
                 continue
 
