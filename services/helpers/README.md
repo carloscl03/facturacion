@@ -44,7 +44,7 @@ estado 3: TODOS los obligatorios completos
 
 ### normalizar_documento_entidad — edge cases
 
-- `"10728842496"` (11 dígitos) → `"10728842496"` (RUC válido)
+- `"20999999993"` (11 dígitos) → `"20999999993"` (RUC válido)
 - `"12345678"` (8 dígitos) → `"12345678"` (DNI válido)
 - `"EB01-4"` → `""` (serie-número de comprobante, rechazado)
 - `"F001-00005678"` → `""` (serie-número, rechazado)

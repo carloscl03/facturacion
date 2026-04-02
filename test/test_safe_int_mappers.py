@@ -140,8 +140,8 @@ def _build_registro_redis_compra_sucio():
     return {
         "operacion": "compra",
         "tipo_documento": "recibo por honorarios",
-        "entidad_nombre": "CASTRO BENITES NICOLAS ANDRES",
-        "entidad_numero": "10752397908",
+        "entidad_nombre": "Proveedor Test SAC",
+        "entidad_numero": "20999999994",
         "entidad_id": "233",
         "id_identificado": "233",
         "identificado": "True",
@@ -459,7 +459,7 @@ class TestBugOriginalProduccion:
             "id_sucursal": 2,
             "moneda": "PEN",
             "nro_cuotas": "",       # <-- el campo problemático
-            "entidad_nombre": "CASTRO BENITES NICOLAS ANDRES",
+            "entidad_nombre": "Proveedor Test SAC",
             "id_centro_costo": 3,
             "operacion": "compra",
             "estado": 5,
@@ -476,7 +476,7 @@ class TestBugOriginalProduccion:
                  "id_catalogo": 3088, "id_unidad": 1, "sku": "", "precio_unitario": 2000.0,
                  "total_item": 2000.0}
             ],
-            "entidad_numero": 10752397908,
+            "entidad_numero": 20999999994,
         }
         # Antes del fix esto lanzaba: ValueError: invalid literal for int() with base 10: ''
         operacion, params = traducir_registro_a_parametros(reg)

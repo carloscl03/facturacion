@@ -35,7 +35,7 @@ def test_operacion_normalizada_variantes():
 def test_normalizar_documento_entidad_rechaza_serie_comprobante():
     assert normalizar_documento_entidad("EB01-4") == ""
     assert normalizar_documento_entidad("F001-00005678") == ""
-    assert normalizar_documento_entidad("10728842496") == "10728842496"
+    assert normalizar_documento_entidad("20999999993") == "20999999993"
     assert normalizar_documento_entidad("12345678") == "12345678"
     assert normalizar_documento_entidad("") == ""
 

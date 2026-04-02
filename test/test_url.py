@@ -24,7 +24,7 @@ EMPRESA_ID = 2
 USUARIO_ID = 3
 FECHA_EMISION = os.environ.get("MARAVIA_FECHA_EMISION") or date.today().isoformat()
 
-ENLACE_DOCUMENTO = "https://maravia-uploads.s3.us-east-1.amazonaws.com/uploads/whatsapp/1/documentos/PDF-BOLETAEB01-410728842496__1_.pdf"
+ENLACE_DOCUMENTO = "https://maravia-uploads.s3.us-east-1.amazonaws.com/uploads/whatsapp/1/documentos/test-documento.pdf"
 
 
 def registrar_venta_con_url():
