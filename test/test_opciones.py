@@ -9,8 +9,8 @@ Convención (como en test_obtener_pagos.py): id_empresa = 2 para jalar tablas; i
 
 Uso:
   python test/test_opciones.py                      # wa_id, id_empresa=2, id_whatsapp=1
-  python test/test_opciones.py 51994748961          # wa_id
-  python test/test_opciones.py 51994748961 2 1      # wa_id, id_empresa (tablas), id_whatsapp (enviar)
+  python test/test_opciones.py 51999999999          # wa_id
+  python test/test_opciones.py 51999999999 2 1      # wa_id, id_empresa (tablas), id_whatsapp (enviar)
 """
 import json
 import sys
@@ -21,7 +21,7 @@ URL_PARAMETROS = "https://api.maravia.pe/servicio/n8n/ws_parametros.php"
 URL_INFORMACION = "https://api.maravia.pe/servicio/ws_informacion_ia.php"
 URL_WHATSAPP_LIST = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_list.php"
 
-DEFAULT_WA_ID = "51994748961"
+DEFAULT_WA_ID = "51999999999"
 # id_empresa = 2: de donde se jala las tablas (centros costo, sucursales, métodos pago)
 DEFAULT_ID_EMPRESA = 2
 # id_whatsapp = 1 (id_from): para enviar mensajes a WhatsApp (credenciales)

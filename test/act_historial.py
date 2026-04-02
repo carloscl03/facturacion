@@ -77,5 +77,5 @@ def ejecutar_ciclo_interceptacion(numero_wsp):
             print(f"{icon}{k:<23} | {val_new:<35}")
 
 if __name__ == "__main__":
-    WSP_PRUEBA = "51994748961"
+    WSP_PRUEBA = "51999999999"
     ejecutar_ciclo_interceptacion(WSP_PRUEBA)

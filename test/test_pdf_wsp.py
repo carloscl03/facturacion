@@ -9,8 +9,8 @@ El endpoint ws_send_whatsapp_oficial.php soporta type="document" con:
 
 Uso:
   python test/test_pdf_wsp.py
-  python test/test_pdf_wsp.py 51980253258 2    # phone, id_empresa
-  PHONE=51980253258 ID_EMPRESA=2 python test/test_pdf_wsp.py
+  python test/test_pdf_wsp.py 51999999998 2    # phone, id_empresa
+  PHONE=51999999998 ID_EMPRESA=2 python test/test_pdf_wsp.py
 """
 import json
 import os
@@ -32,7 +32,7 @@ PDF_URL = "https://maravia-uploads.s3.us-east-1.amazonaws.com/uploads/comprobant
 PDF_FILENAME = "comprobante_FM01-110.pdf"
 
 # Parámetros por defecto (override con env o args)
-PHONE_DEFAULT = os.environ.get("PHONE", "51994748961")
+PHONE_DEFAULT = os.environ.get("PHONE", "51999999999")
 ID_EMPRESA_DEFAULT = int(os.environ.get("ID_EMPRESA", "1"))
 
 
@@ -48,7 +48,7 @@ def enviar_pdf_whatsapp(
     Envía un PDF por WhatsApp usando ws_send_whatsapp_oficial.php.
 
     Args:
-        phone: Número destino (con código país, ej: 51980253258)
+        phone: Número destino (con código país, ej: 51999999998)
         document_url: URL pública del PDF
         filename: Nombre del archivo (requerido por la API)
         caption: Mensaje opcional que acompaña al documento

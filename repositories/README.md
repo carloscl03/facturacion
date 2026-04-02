@@ -63,7 +63,7 @@ Backend de desarrollo. Comunica con la API PHP `ws_historial_cache.php`.
 ```json
 {
     "codOpe": "CONSULTAR_CACHE",
-    "wa_id": "51994748961",
+    "wa_id": "51999999999",
     "id_from": 2
 }
 ```

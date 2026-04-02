@@ -5,13 +5,13 @@ POST JSON a la API de MaravIA (WhatsApp Cloud / plataforma configurada).
 
 Uso:
   python test/test_whatsapp_buttons.py
-  python test/test_whatsapp_buttons.py 51994748961
-  MARAVIA_PHONE=51994748961 MARAVIA_ID_EMPRESA=1 python test/test_whatsapp_buttons.py
+  python test/test_whatsapp_buttons.py 51999999999
+  MARAVIA_PHONE=51999999999 MARAVIA_ID_EMPRESA=1 python test/test_whatsapp_buttons.py
 
 Variables de entorno:
   URL_SEND_WHATSAPP_BUTTONS — override del endpoint
   MARAVIA_TOKEN — Bearer opcional (Authorization)
-  MARAVIA_PHONE — destino (default: 51994748961)
+  MARAVIA_PHONE — destino (default: 51999999999)
   MARAVIA_ID_EMPRESA — id_empresa (default: 1)
   MARAVIA_ID_PLATAFORMA — id_plataforma (default: 6)
 """
@@ -33,7 +33,7 @@ URL_BUTTONS = os.environ.get("URL_SEND_WHATSAPP_BUTTONS") or getattr(
     settings, "URL_SEND_WHATSAPP_BUTTONS", "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_buttons.php"
 )
 
-PHONE_DEFAULT = os.environ.get("MARAVIA_PHONE", "51994748961")
+PHONE_DEFAULT = os.environ.get("MARAVIA_PHONE", "51999999999")
 ID_EMPRESA_DEFAULT = int(os.environ.get("MARAVIA_ID_EMPRESA", "1"))
 ID_PLATAFORMA_DEFAULT = int(os.environ.get("MARAVIA_ID_PLATAFORMA", "6"))
 

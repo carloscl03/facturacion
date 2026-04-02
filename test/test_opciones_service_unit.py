@@ -21,9 +21,9 @@ URL_WHATSAPP_LIST = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_list.p
 ID_PLATAFORMA = 6  # Requerido por la API (test_opciones.py build_payload_whatsapp id_plataforma=6)
 # id_empresa para enviar = credenciales WhatsApp (como DEFAULT_ID_WHATSAPP = 1 en test_opciones.py)
 ID_EMPRESA_WHATSAPP = 1
-# phone para envío real: en test_opciones.py usan DEFAULT_WA_ID (ej. 51994748961). Los tests usan "user1"/"user2"
+# phone para envío real: en test_opciones.py usan DEFAULT_WA_ID (ej. 51999999999). Los tests usan "user1"/"user2"
 # que la API rechaza con 400; si quieres que el envío funcione, pon aquí el mismo número que en test_opciones.py
-PHONE_PARA_ENVIO = "51994748961"  # mismo default que test_opciones.py DEFAULT_WA_ID
+PHONE_PARA_ENVIO = "51999999999"  # mismo default que test_opciones.py DEFAULT_WA_ID
 
 
 def _payload_para_envio(payload: dict) -> dict:

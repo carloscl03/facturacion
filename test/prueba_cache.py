@@ -5,7 +5,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 URL_API = "https://api.maravia.pe/servicio/n8n/ws_historial_cache.php"
-WS_WHATSAPP = "51994748961"
+WS_WHATSAPP = "51999999999"
 ID_FROM = 2
 
 def probar_actualizacion():

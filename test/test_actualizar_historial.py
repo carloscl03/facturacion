@@ -8,7 +8,7 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 URL_CACHE = "https://api.maravia.pe/servicio/n8n/ws_historial_cache.php"
-WA_ID = "51994748961"
+WA_ID = "51999999999"
 ID_FROM = 2
 
 def imprimir_bloque(titulo, registro):

@@ -8,7 +8,7 @@ Convención: id_informacion = id_from (API de información); id_whatsapp = id_em
 
 Uso:
   python test/test_obtener_pagos.py                      # id_informacion=2, id_whatsapp=1, phone por defecto
-  python test/test_obtener_pagos.py 2 1 51994748961     # id_informacion, id_whatsapp, phone
+  python test/test_obtener_pagos.py 2 1 51999999999     # id_informacion, id_whatsapp, phone
 """
 import json
 import sys
@@ -22,7 +22,7 @@ URL_WHATSAPP_LIST = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_list.p
 DEFAULT_ID_INFORMACION = 2
 # API WhatsApp: se envía como id_empresa (credenciales de envío)
 DEFAULT_ID_WHATSAPP = 1
-DEFAULT_PHONE = "51994748961"
+DEFAULT_PHONE = "51999999999"
 
 
 def obtener_metodos_pago(id_informacion: int) -> dict:

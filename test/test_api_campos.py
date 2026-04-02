@@ -4,7 +4,7 @@ Test de campos obligatorios y opcionales de la API Maravia:
 - CREAR_VENTA (ws_ventas.php): payload completo según documentación
 
 Ejecutar: python test/test_api_campos.py
-Requiere: MARAVIA_USER, MARAVIA_PASSWORD en env (opcional; por defecto diego/123123)
+Requiere: MARAVIA_USER, MARAVIA_PASSWORD en variables de entorno.
 """
 
 import os
@@ -12,12 +12,12 @@ import json
 import requests
 from datetime import date
 
-# --- URLs (mismo origen que test_pdf_sunat) ---
+# --- URLs ---
 URL_LOGIN = os.environ.get("MARAVIA_URL_LOGIN", "https://api.maravia.pe/servicio/ws_login.php")
 URL_VENTA_SUNAT = os.environ.get("MARAVIA_URL_VENTAS", "https://api.maravia.pe/servicio/ws_ventas.php")
 
-USER = os.environ.get("MARAVIA_USER", "diego")
-PASSWORD = os.environ.get("MARAVIA_PASSWORD", "123123")
+USER = os.environ.get("MARAVIA_USER", "")
+PASSWORD = os.environ.get("MARAVIA_PASSWORD", "")
 
 # Token obtenido por LOGIN al iniciar
 TOKEN = None

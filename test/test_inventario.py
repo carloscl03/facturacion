@@ -6,8 +6,8 @@ Convención (igual que test_opciones.py): id_empresa para jalar catálogo; id_wh
 
 Uso:
   python test/test_inventario.py                      # wa_id, id_empresa=2, id_whatsapp=1
-  python test/test_inventario.py 51994748961          # wa_id
-  python test/test_inventario.py 51994748961 2 1      # wa_id, id_empresa (catálogo), id_whatsapp (enviar)
+  python test/test_inventario.py 51999999999          # wa_id
+  python test/test_inventario.py 51999999999 2 1      # wa_id, id_empresa (catálogo), id_whatsapp (enviar)
 """
 import json
 import sys
@@ -17,7 +17,7 @@ import requests
 URL_INFORMACION = "https://api.maravia.pe/servicio/ws_informacion_ia.php"
 URL_WHATSAPP_LIST = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_list.php"
 
-DEFAULT_WA_ID = "51994748961"
+DEFAULT_WA_ID = "51999999999"
 DEFAULT_ID_EMPRESA = 1
 DEFAULT_ID_WHATSAPP = 1
 

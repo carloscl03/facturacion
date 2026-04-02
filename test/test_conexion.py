@@ -43,6 +43,6 @@ def analizar_datos_faltantes(numero_whatsapp):
 
 # Ejecución
 print("🔍 Analizando huecos de información en el ID 142...")
-resultado = analizar_datos_faltantes("51994748961")
+resultado = analizar_datos_faltantes("51999999999")
 print("\n--- REPORTE DE LA IA ---")
 print(resultado)

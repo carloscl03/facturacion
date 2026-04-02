@@ -3,7 +3,7 @@ import json
 import time
 
 URL_LOCAL = "http://localhost:3000/chat"
-WA_ID = "51994748961"
+WA_ID = "51999999999"
 
 def realizar_test_paso_a_paso():
     # Simulamos una conversación de 3 pasos

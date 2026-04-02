@@ -7,7 +7,7 @@ Usa el mismo servicio que test_actualizar_historial.py:
 
 Uso:
   python test/test_leer_historial.py
-  python test/test_leer_historial.py --wa 51994748961 --empresa 2
+  python test/test_leer_historial.py --wa 51999999999 --empresa 2
 """
 
 import json
@@ -25,7 +25,7 @@ load_dotenv()
 URL_CACHE = "https://api.maravia.pe/servicio/n8n/ws_historial_cache.php"
 
 # Mismos valores por defecto que test_actualizar_historial.py
-WA_ID_DEFECTO = "51994748961"
+WA_ID_DEFECTO = "51999999999"
 ID_FROM_DEFECTO = 2
 
 

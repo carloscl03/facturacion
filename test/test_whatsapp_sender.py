@@ -4,7 +4,7 @@ Verifica que enviar_texto funciona con id_empresa=1.
 
 Uso:
   python test/test_whatsapp_sender.py
-  python test/test_whatsapp_sender.py 51994748961 1
+  python test/test_whatsapp_sender.py 51999999999 1
 """
 import sys
 from pathlib import Path
@@ -15,7 +15,7 @@ if str(_root) not in sys.path:
 
 from services.whatsapp_sender import enviar_texto
 
-DEFAULT_PHONE = "51994748961"
+DEFAULT_PHONE = "51999999999"
 DEFAULT_ID_EMPRESA = 1
 DEFAULT_ID_PLATAFORMA = 6
 

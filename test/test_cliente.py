@@ -5,22 +5,22 @@ URL_CLIENTE = "https://api.maravia.pe/servicio/n8n/ws_cliente.php"
 URL_PROVEEDOR = "https://api.maravia.pe/servicio/n8n_asistente/ws_proveedor.php"
 ID_EMPRESA = 2
 
-# Mapeo completo de datos para testear
+# Datos de prueba (genéricos)
 DATOS_PARA_PROBAR = {
-    "ARIEL / CENCOSUD": [
-        ("RUC", "20109072177"),
-        ("DNI", "74599333"),
-        ("Nombre", "Ariel Amado Frias"),
-        ("Razón Social", "CENCOSUD RETAIL PERÚ S.A."),
-        ("Comercial", "Metro"),
-        ("Teléfono", "5933511222")
+    "CLIENTE_TEST_1": [
+        ("RUC", "20999999991"),
+        ("DNI", "99999991"),
+        ("Nombre", "Cliente Test Uno"),
+        ("Razón Social", "Empresa Test SAC"),
+        ("Comercial", "Test Comercial"),
+        ("Teléfono", "999999999")
     ],
-    "JOSÉ / GLOBAL": [
-        ("DNI", "85274196"),
-        ("RUC", "20123456789"),
-        ("Razón Social", "Importaciones Global EIRL"),
-        ("Comercial", "Global Import"),
-        ("Teléfono", "988776655")
+    "CLIENTE_TEST_2": [
+        ("DNI", "99999992"),
+        ("RUC", "20999999992"),
+        ("Razón Social", "Proveedor Test EIRL"),
+        ("Comercial", "Test Import"),
+        ("Teléfono", "999999998")
     ]
 }
 
