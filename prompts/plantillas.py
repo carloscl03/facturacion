@@ -12,33 +12,39 @@ ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
 
 1) COMPROBANTE Y ENTIDAD
    ━━━━━━━━━━━━━━━━━━━
-   📄 *[tipo_documento]* [numero_documento]  — si tipo_documento tiene valor
-   👤 *[CLIENTE o PROVEEDOR]:* [entidad_nombre]  — si entidad_nombre definido
+   📄 *[tipo_documento]* [numero_documento]  — si tipo_documento tiene valor. En ventas (factura/boleta) NO mostrar numero_documento (se asigna automáticamente).
+   👤 *[CLIENTE (venta) o PROVEEDOR (compra)]:* [entidad_nombre]  — si entidad_nombre definido
    🆔 *[DNI o RUC]:* [entidad_numero]  — si entidad_numero definido
    ━━━━━━━━━━━━━━━━━━━
 
 2) DETALLE Y MONEDAS
-   📦 *DETALLE DE [VENTA o COMPRA]:*
+   📦 *DETALLE DE [VENTA o COMPRA]:*  — solo si hay productos
    🔹 Cant. [cantidad] x [nombre] — [precio con 2 decimales]  — por cada ítem en productos
    💰 *RESUMEN ECONÓMICO:*
    ├─ Subtotal: [monto_sin_igv con 2 decimales]  — solo si tipo_documento es factura/boleta y monto_sin_igv > 0
    ├─ IGV (18%): [igv con 2 decimales]  — solo si tipo_documento es factura/boleta
    └─ *TOTAL: [monto_total con 2 decimales]*  — si monto_total > 0
    REGLA: todos los montos SIEMPRE con exactamente 2 decimales (ej: 111.00, no 111 ni 111.0)
+   Para nota de venta, nota de compra y recibo por honorarios: NO mostrar subtotal ni IGV (solo total).
    ━━━━━━━━━━━━━━━━━━━
 
 3) PAGO Y LOGÍSTICA (solo si están definidos)
    💵 *Moneda:* [moneda]  — PEN o USD
-   💳 *Método de pago:* [metodo_pago]  — solo contado o crédito (se pregunta en el extractor; en la pregunta usa paréntesis en el mismo renglón: "… (contado o crédito)")
-   📅 *Emisión:* [fecha_emision]
-   📅 *Pago:* [fecha_pago]
-   Si metodo_pago = "credito" y hay valor: 📆 *Días crédito:* [dias_credito]  |  📋 *Cuotas:* [nro_cuotas] (cuotas: de 1 a 24)
+   💳 *Método de pago:* [metodo_pago]  — solo contado o crédito
+   📅 *Emisión:* NO mostrar (se asigna automáticamente al emitir)
+   📅 *Pago:* [fecha_pago]  — solo si metodo_pago = "credito" y fecha_pago tiene valor. Si contado, NO mostrar fecha de pago.
+   📆 *Días crédito:* [dias_credito] | 📋 *Cuotas:* [nro_cuotas]  — SOLO si metodo_pago = "credito". Si contado, NUNCA mostrar estas líneas.
    📝 *Observación:* [observacion]  — solo si observacion tiene valor
    ━━━━━━━━━━━━━━━━━━━
 
-Nota: **metodo_pago** = al contado o a crédito (extractor). **forma_pago** y **medio_pago** (con id_forma_pago / id_medio_pago) = catálogos del agente de opciones (Estado 2). Centro de costo solo en compra. No confundir método (contado/crédito) con forma ni medio de catálogo.
-
-REGLA CRÍTICA — DINÁMICO: Escribe solo las líneas para las que el campo tenga valor real. Si operacion está vacía, no pongas la línea de COMPRA/VENTA. Si tipo_documento está vacío, no pongas la línea del comprobante. Si monto_total es 0 y no hay productos, no pongas resumen económico. Para tipo_documento = nota de venta o nota de compra, no mostrar subtotal ni IGV (solo total). Campo vacío/null/0 = esa línea no aparece en el resumen.
+REGLAS CRÍTICAS DEL RESUMEN VISUAL:
+- DINÁMICO: solo líneas con valor real. Campo vacío/null/0 = no aparece.
+- CONTADO: no mostrar fecha_emision, fecha_pago, días crédito ni cuotas.
+- NOTAS y HONORARIOS: no mostrar subtotal ni IGV (solo total).
+- VENTAS (factura/boleta): no mostrar numero_documento.
+- CLIENTE en ventas, PROVEEDOR en compras.
+- Si monto_total > 0 y no hay productos, mostrar solo TOTAL (sin sección de detalle).
+- Nota: **metodo_pago** (contado/crédito) es del extractor. **forma_pago** y **medio_pago** son del agente de opciones (Estado 2). No confundir.
 """
 
 ESTRUCTURA_GUIA = """
