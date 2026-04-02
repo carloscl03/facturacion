@@ -12,6 +12,7 @@ def _sin_tildes(texto: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
 from repositories.base import CacheRepository
 from services.ai_service import AIService
+from services.helpers.fechas import hoy_peru_ddmmyyyy
 from services.helpers.productos import (
     build_payload_lista_productos,
     enriquecer_producto_con_catalogo,
@@ -209,12 +210,14 @@ class ExtraccionService:
 
         # --- Fechas automáticas ---
         # Contado: fecha_pago = fecha_emision (no preguntar)
-        metodo = (payload_db.get("metodo_pago") or "").strip().lower()
-        if metodo == "contado" and payload_db.get("fecha_emision"):
-            payload_db["fecha_pago"] = payload_db["fecha_emision"]
+        metodo = (payload_db.get("metodo_pago") or estado_actual.get("metodo_pago") or "").strip().lower()
+        fecha_em = payload_db.get("fecha_emision") or estado_actual.get("fecha_emision")
+        if metodo == "contado" and fecha_em:
+            payload_db["fecha_pago"] = fecha_em
+            payload_db["fecha_emision"] = fecha_em
         # Si no hay fecha_pago pero sí fecha_emision, asignar igual
-        if not payload_db.get("fecha_pago") and payload_db.get("fecha_emision"):
-            payload_db["fecha_pago"] = payload_db["fecha_emision"]
+        if not (payload_db.get("fecha_pago") or estado_actual.get("fecha_pago")) and fecha_em:
+            payload_db["fecha_pago"] = fecha_em
 
         # --- Validación: fecha_pago >= fecha_emision ---
         diagnostico_fechas = self._validar_fechas_pago_emision(payload_db)
@@ -699,6 +702,37 @@ class ExtraccionService:
         return op if op else None
 
     @staticmethod
+    def _nombres_similares(nombre_a: str, nombre_b: str) -> bool:
+        """Compara dos nombres de producto de forma flexible (sin tildes, contenido, palabras)."""
+        a = _sin_tildes(nombre_a.strip())
+        b = _sin_tildes(nombre_b.strip())
+        if not a or not b:
+            return False
+        # Exacto
+        if a == b:
+            return True
+        # Uno contiene al otro
+        if a in b or b in a:
+            return True
+        # Palabras significativas en común (>= 60% de la más corta)
+        palabras_a = set(a.split())
+        palabras_b = set(b.split())
+        if not palabras_a or not palabras_b:
+            return False
+        comunes = palabras_a & palabras_b
+        min_len = min(len(palabras_a), len(palabras_b))
+        return len(comunes) >= max(1, min_len * 0.6)
+
+    @staticmethod
+    def _buscar_producto_existente(nombre_nuevo: str, productos_existentes: list) -> int | None:
+        """Busca si un producto ya existe en la lista. Retorna el índice o None."""
+        for i, e in enumerate(productos_existentes):
+            nombre_e = (e.get("nombre") or "").strip()
+            if ExtraccionService._nombres_similares(nombre_nuevo, nombre_e):
+                return i
+        return None
+
+    @staticmethod
     def _construir_payload(propuesta: dict, estado_actual: dict, contexto_previo: str | None) -> dict:
         # Productos: mergear nuevos (propuesta) con existentes (estado_actual).
         # Si la propuesta trae productos, son NUEVOS a agregar; los de Redis se preservan.
@@ -706,18 +740,17 @@ class ExtraccionService:
         productos_existentes = normalizar_productos_raw(estado_actual.get("productos"))
         if productos_nuevos:
             nuevos = normalizar_productos_raw(productos_nuevos)
-            # Agregar solo los que no estén ya (por nombre, case-insensitive)
-            nombres_existentes = {(p.get("nombre") or "").strip().lower() for p in productos_existentes}
             for n in nuevos:
-                nombre_n = (n.get("nombre") or "").strip().lower()
-                if nombre_n and nombre_n not in nombres_existentes:
+                nombre_n = (n.get("nombre") or "").strip()
+                if not nombre_n:
+                    continue
+                idx = ExtraccionService._buscar_producto_existente(nombre_n, productos_existentes)
+                if idx is not None:
+                    # Producto similar ya existe: actualizar (preservar id_catalogo del existente)
+                    productos_existentes[idx] = {**productos_existentes[idx], **{k: v for k, v in n.items() if v}}
+                else:
+                    # Producto nuevo
                     productos_existentes.append(n)
-                elif nombre_n in nombres_existentes:
-                    # Producto repetido: actualizar cantidad si cambió
-                    for i, e in enumerate(productos_existentes):
-                        if (e.get("nombre") or "").strip().lower() == nombre_n:
-                            productos_existentes[i] = {**e, **{k: v for k, v in n.items() if v}}
-                            break
         productos_str = productos_a_str(productos_existentes)
 
         # Recalcular monto_total desde la suma de productos (si hay productos con precio)
@@ -809,26 +842,16 @@ class ExtraccionService:
             igv_incluido = igv_incluido_raw is True or str(igv_incluido_raw).strip().lower() == "true"
 
         if es_nota or es_honorarios:
+            # Sin IGV
             monto_sin_igv = 0.0
             igv_val = 0.0
-        elif tiene_productos:
-            # Con productos: monto_total es la suma directa de precios.
-            # El desglose de IGV por item lo hace el mapper al emitir.
-            # Aquí solo mostramos el desglose estimado para el resumen visual.
-            monto_sin_igv = monto_total / 1.18
-            igv_val = monto_total - monto_sin_igv
-        elif not igv_incluido and monto_base_propuesta > 0:
-            # Sin productos, monto directo "sin IGV": el monto es base imponible
-            monto_sin_igv = monto_base_propuesta
-            igv_val = monto_sin_igv * 0.18
-            monto_total = round(monto_sin_igv + igv_val, 2)
-        elif not igv_incluido and monto_total > 0:
-            # Sin productos, fallback: monto_total es base
-            monto_sin_igv = monto_total
+        elif not igv_incluido and (monto_base_propuesta > 0 or monto_total > 0):
+            # Usuario dijo "sin IGV" / "base" / "más IGV": el monto es base imponible
+            monto_sin_igv = monto_base_propuesta if monto_base_propuesta > 0 else monto_total
             igv_val = monto_sin_igv * 0.18
             monto_total = round(monto_sin_igv + igv_val, 2)
         elif monto_total > 0:
-            # Sin productos, IGV incluido (default)
+            # Default: IGV incluido en monto_total
             monto_sin_igv = monto_total / 1.18
             igv_val = monto_total - monto_sin_igv
         else:
@@ -857,7 +880,7 @@ class ExtraccionService:
             "igv": igv_val,
             "igv_incluido": igv_incluido,
             "productos": productos_str,
-            "fecha_emision": obtener("fecha_emision", default=None),
+            "fecha_emision": obtener("fecha_emision", default=None) or hoy_peru_ddmmyyyy(),
             "fecha_pago": obtener("fecha_pago", default=None),
             "observacion": obtener("observacion", default=None),
         }
