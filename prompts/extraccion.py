@@ -168,7 +168,7 @@ def build_prompt_extractor(
 
     Campos a incluir SOLO si están vacíos (si ya tienen valor, NO preguntes).
     ORDEN ESTRICTO DE PREGUNTAS (respetar siempre este orden):
-    1. **Monto/Detalle:** solo si monto_total = 0 y productos vacío. Preguntar: "¿Cuál es el monto?" o "¿Qué productos o servicios incluye?". Si el usuario responde con un monto directo (ej: "1500"), usarlo como monto_total. Si responde con productos (ej: "3 cajas de papel a 50 cada una"), calcular monto_total desde los productos (cantidad × precio).
+    1. **Monto/Detalle:** solo si monto_total = 0 y productos vacío. **Si monto_total > 0, NO preguntar por productos ni monto — el dato ya existe.** Un monto directo sin productos es válido (la API acepta id_catalogo=null). Solo preguntar si ambos están vacíos. Si el usuario responde con un monto directo (ej: "1500"), usarlo como monto_total. Si responde con productos (ej: "3 cajas de papel a 50 cada una"), calcular monto_total desde los productos.
     2. **Tipo de documento:** solo si tipo_documento es null. Preguntar según contexto:
        - Si entidad_numero es RUC (11 dígitos) → "¿Factura, recibo por honorarios o nota de [venta/compra]?"
        - Si entidad_numero es DNI (8 dígitos) → "¿Boleta o nota de [venta/compra]?"
