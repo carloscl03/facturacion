@@ -207,11 +207,24 @@ class ExtraccionService:
         if salida_identificador and not salida_identificador.get("identificado"):
             msg_identificacion_no_encontrado = (salida_identificador.get("mensaje") or "").strip()
 
-        # --- Validación: fecha_pago >= fecha_emision (si no cumple, preguntar revisión y no persistir fecha_pago inválida) ---
+        # --- Fechas automáticas ---
+        # Contado: fecha_pago = fecha_emision (no preguntar)
+        metodo = (payload_db.get("metodo_pago") or "").strip().lower()
+        if metodo == "contado" and payload_db.get("fecha_emision"):
+            payload_db["fecha_pago"] = payload_db["fecha_emision"]
+        # Si no hay fecha_pago pero sí fecha_emision, asignar igual
+        if not payload_db.get("fecha_pago") and payload_db.get("fecha_emision"):
+            payload_db["fecha_pago"] = payload_db["fecha_emision"]
+
+        # --- Validación: fecha_pago >= fecha_emision ---
         diagnostico_fechas = self._validar_fechas_pago_emision(payload_db)
         if diagnostico_fechas:
-            payload_db["fecha_pago"] = None
-            texto_completo = f"{texto_completo}\n\n{diagnostico_fechas}".strip() if texto_completo else diagnostico_fechas
+            payload_db["fecha_pago"] = payload_db.get("fecha_emision") or None
+            # Limpiar la fecha inválida del resumen visual
+            if texto_completo:
+                lineas = texto_completo.split("\n")
+                lineas = [l for l in lineas if "fecha de pago" not in l.lower() or "emisión" in l.lower()]
+                texto_completo = "\n".join(lineas)
         if msg_identificacion_no_encontrado:
             texto_completo = (
                 f"{texto_completo}\n\n{msg_identificacion_no_encontrado}".strip()
@@ -781,14 +794,41 @@ class ExtraccionService:
         es_honorarios = tipo_doc_raw == "recibo por honorarios"
 
         # --- IGV coherente (cálculo determinístico, NUNCA confiar en la IA) ---
-        # Para notas y honorarios: sin IGV. Para factura/boleta: siempre recalcular.
+        # Para notas y honorarios: sin IGV. Para factura/boleta: recalcular según igv_incluido.
         monto_total = float(monto_total_override or propuesta.get("monto_total") or estado_actual.get("monto_total") or 0)
+        monto_base_propuesta = float(propuesta.get("monto_sin_igv") or 0)
+        tiene_productos = bool(productos_existentes)
+
+        # igv_incluido: true (default) = monto incluye IGV; false = monto es base, calcular total
+        # Solo aplica cuando NO hay productos (monto directo). Con productos, cada item
+        # lleva su precio y el mapper calcula IGV por item al emitir.
+        igv_incluido_raw = propuesta.get("igv_incluido")
+        if igv_incluido_raw is None:
+            igv_incluido = bool(estado_actual.get("igv_incluido", True))
+        else:
+            igv_incluido = igv_incluido_raw is True or str(igv_incluido_raw).strip().lower() == "true"
 
         if es_nota or es_honorarios:
             monto_sin_igv = 0.0
             igv_val = 0.0
+        elif tiene_productos:
+            # Con productos: monto_total es la suma directa de precios.
+            # El desglose de IGV por item lo hace el mapper al emitir.
+            # Aquí solo mostramos el desglose estimado para el resumen visual.
+            monto_sin_igv = monto_total / 1.18
+            igv_val = monto_total - monto_sin_igv
+        elif not igv_incluido and monto_base_propuesta > 0:
+            # Sin productos, monto directo "sin IGV": el monto es base imponible
+            monto_sin_igv = monto_base_propuesta
+            igv_val = monto_sin_igv * 0.18
+            monto_total = round(monto_sin_igv + igv_val, 2)
+        elif not igv_incluido and monto_total > 0:
+            # Sin productos, fallback: monto_total es base
+            monto_sin_igv = monto_total
+            igv_val = monto_sin_igv * 0.18
+            monto_total = round(monto_sin_igv + igv_val, 2)
         elif monto_total > 0:
-            # Siempre recalcular base e IGV desde monto_total (IGV 18% incluido)
+            # Sin productos, IGV incluido (default)
             monto_sin_igv = monto_total / 1.18
             igv_val = monto_total - monto_sin_igv
         else:
@@ -815,6 +855,7 @@ class ExtraccionService:
             "monto_impuesto": igv_val,
             # Alias para componentes nuevos (venta_mapper/productos usan `igv`)
             "igv": igv_val,
+            "igv_incluido": igv_incluido,
             "productos": productos_str,
             "fecha_emision": obtener("fecha_emision", default=None),
             "fecha_pago": obtener("fecha_pago", default=None),

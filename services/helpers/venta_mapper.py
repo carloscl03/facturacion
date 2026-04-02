@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from datetime import date
 from typing import Any, Dict, Tuple
 
-from services.helpers.fechas import fecha_ddmmyyyy_a_api
+from services.helpers.fechas import fecha_ddmmyyyy_a_api, hoy_peru
 from services.helpers.productos import construir_detalle_desde_registro
 from services.helpers.registro_domain import metodo_contado_credito_desde_registro, operacion_desde_registro
 
@@ -250,7 +249,7 @@ def traducir_registro_a_parametros(reg: Dict[str, Any]) -> Tuple[str, Dict[str, 
 
     id_cliente = _safe_int(reg.get("entidad_id")) or _safe_int(reg.get("id_identificado"))
 
-    hoy = date.today().isoformat()
+    hoy = hoy_peru()
     # SUNAT: fecha de emisión debe ser hoy o hasta 3 días previos; preferimos hoy si no está definida.
     fecha_emision = fecha_ddmmyyyy_a_api(reg.get("fecha_emision")) or hoy
     fecha_pago = fecha_ddmmyyyy_a_api(reg.get("fecha_pago")) or fecha_emision

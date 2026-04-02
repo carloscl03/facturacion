@@ -1,6 +1,21 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone, timedelta
 from typing import Optional
+
+# Zona horaria de Perú (UTC-5)
+_TZ_PERU = timezone(timedelta(hours=-5))
+
+
+def hoy_peru() -> str:
+    """Retorna la fecha actual en Perú en formato YYYY-MM-DD."""
+    return datetime.now(_TZ_PERU).date().isoformat()
+
+
+def hoy_peru_ddmmyyyy() -> str:
+    """Retorna la fecha actual en Perú en formato DD-MM-YYYY."""
+    d = datetime.now(_TZ_PERU).date()
+    return f"{d.day:02d}-{d.month:02d}-{d.year}"
 
 
 def fecha_ddmmyyyy_a_api(fecha_ddmmyyyy: str | None) -> Optional[str]:

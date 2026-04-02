@@ -27,11 +27,12 @@ def build_prompt_pregunta(registro: dict) -> str:
         * Moneda (PEN/USD): { "OK" if registro.get('moneda') else "FALTA" }
 
     MATRIZ DE PRIORIDAD (primer campo vacío = genera pregunta):
-    1. PRODUCTOS: Si monto_total es 0 y productos vacío.
-    2. ENTIDAD: Si no hay entidad_nombre ni entidad_id. Si entidad_numero tiene valor, SALTAR (sistema procesando).
-    3. TIPO DOCUMENTO: Si tipo_documento es vacío. Preguntar "¿Factura, Boleta, Recibo por honorarios o Nota de venta?"
+    1. PRODUCTOS/MONTO: Si monto_total es 0 y productos vacío.
+    2. TIPO DOCUMENTO: Si tipo_documento es vacío. Preguntar "¿Factura, Boleta, Recibo por honorarios o Nota de venta?"
+    3. CLIENTE (venta) o PROVEEDOR (compra) + RUC/DNI: Si no hay entidad_nombre ni entidad_id. Preguntar junto con el documento según tipo. Si entidad_numero tiene valor, SALTAR (sistema procesando).
     4. MONEDA: Si moneda es vacío. Preguntar "¿En Soles (PEN) o Dólares (USD)?"
-    5. CIERRE: Si todo completo, invitar a confirmar registro (no finalizar; el clasificador lleva finalizar a otro agente). Sucursal, forma de pago y medio de pago se eligen en Estado 2 (opciones).
+    5. MÉTODO DE PAGO: Si metodo_pago es vacío. "¿Contado o crédito?"
+    6. CIERRE: Si todo completo, invitar a confirmar registro. Sucursal, forma de pago y medio de pago se eligen en Estado 2 (opciones).
 
     ### ESTRUCTURA DEL TEXTO:
     {PLANTILLA_VISUAL}
@@ -67,15 +68,16 @@ def build_prompt_preguntador_v2(registro: dict, operacion: str | None) -> str:
 
     {PLANTILLA_VISUAL}
 
-    ### DATOS OBLIGATORIOS (solo si faltan):
+    ### DATOS OBLIGATORIOS (solo si faltan, en este orden):
     1. Monto/Detalle: falta si monto_total = 0 y productos vacío.
-    2. Cliente (venta) o Proveedor (compra): falta si no hay entidad_nombre ni entidad_id.
-    3. Tipo de documento: falta si tipo_documento vacío. Preguntar "¿Factura, Boleta, Recibo por honorarios o Nota de venta?"
+    2. Tipo de documento: falta si tipo_documento vacío. Preguntar "¿Factura, Boleta, Recibo por honorarios o Nota de venta?"
+    3. Cliente (venta) o Proveedor (compra) + RUC/DNI: falta si no hay entidad_nombre ni entidad_id. Preguntar junto con documento según tipo.
     4. Moneda: falta si moneda vacío. Preguntar "¿PEN o USD?"
+    5. Método de pago: falta si metodo_pago vacío. "¿Contado o crédito?"
 
     ### DATOS OPCIONALES:
-    - fecha_emision, fecha_pago (si aplican)
-    (No incluir aquí tipo_documento, moneda, entidad — van en obligatorios.)
+    - fecha_pago (solo si metodo_pago = "credito"). NO preguntar fecha_emision (se asigna automáticamente).
+    (No incluir aquí tipo_documento, moneda, entidad, metodo_pago — van en obligatorios.)
 
     Si operacion ya está definida como "{operacion or 'no definido'}", NO preguntar venta/compra.
 

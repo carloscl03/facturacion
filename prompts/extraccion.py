@@ -109,8 +109,15 @@ def build_prompt_extractor(
     - dias_credito: entero. Obligatorio si metodo_pago = "credito". **Valores típicos a ofrecer en la pregunta:** 15, 30, 45, 60, 90 días (el usuario puede indicar otro número si lo dice explícitamente).
     - nro_cuotas: entero entre **1 y 24** (compras máximo 24 cuotas). Obligatorio si metodo_pago = "credito".
     - observacion: texto libre opcional. Solo extraer si el usuario voluntariamente indica una anotación u observación para el registro (ej: "anota que es para el proyecto X", "observación: pedido urgente"). **NO preguntar proactivamente** por este campo; solo capturarlo si el usuario lo ofrece.
-    - Fechas: formato DD-MM-YYYY siempre. **VALIDACIÓN:** fecha_pago debe ser >= fecha_emision. Si el usuario indica una fecha_pago anterior a fecha_emision, no la aceptes: en el diagnóstico indica que la fecha de pago debe ser igual o posterior a la fecha de emisión.
-    - Para factura/boleta: por defecto el IGV 18% está **incluido** en monto_total (desglosar monto_sin_igv e igv desde monto_total). Pero si el usuario dice explícitamente "más IGV", "sin IGV", "más impuesto" o "base": interpretar el monto dado como **monto_sin_igv** (base) y calcular monto_total = monto_sin_igv × 1.18, igv = monto_sin_igv × 0.18.
+    - Fechas: formato DD-MM-YYYY siempre.
+      **fecha_emision:** NO preguntar al usuario. Se asigna automáticamente como la fecha actual al momento de emitir. Solo extraer si el usuario la indica voluntariamente (ej: "fecha de emisión 15-03-2026"). Si no la indica, dejar null.
+      **fecha_pago:** Solo preguntar si metodo_pago = "credito". Para contado, se asume igual a fecha_emision (no preguntar). **VALIDACIÓN:** fecha_pago debe ser >= fecha_emision. Si el usuario indica una fecha_pago anterior a fecha_emision, no la aceptes.
+    - Para factura/boleta: por defecto el IGV 18% está **incluido** en monto_total.
+      Pero si el usuario dice explícitamente "más IGV", "sin IGV", "más impuesto", "base", "neto" o "+IGV": el monto dado es la **base imponible** (sin IGV). En ese caso:
+      - Poner el monto del usuario en **monto_sin_igv** (no en monto_total).
+      - Poner **monto_total = 0** (el backend lo calculará desde monto_sin_igv).
+      - Poner **igv_incluido = false** en propuesta_cache.
+      Si el usuario NO dice nada especial sobre IGV: poner el monto en **monto_total** y dejar monto_sin_igv en 0. Poner **igv_incluido = true** (o no incluirlo, es el default).
       Para nota de venta/nota de compra: no calcular IGV (monto_sin_igv e igv pueden quedar en 0).
       Para recibo por honorarios: no calcular IGV (monto_sin_igv e igv quedan en 0). El monto_total es el monto bruto del honorario.
     - entidad_numero: DNI tiene 8 dígitos, RUC tiene 11 dígitos. El tipo se infiere por la longitud. **Solo considerar como RUC/DNI cuando el contexto indique documento de identidad** (ej: "RUC", "DNI", "documento", "su número es"). No confundir con teléfonos, códigos de producto, números de serie u otros números de 8 u 11 dígitos que aparezcan en contexto diferente.
@@ -159,25 +166,27 @@ def build_prompt_extractor(
     Fusiona datos en Redis + propuesta_cache. UNA pregunta por cada campo **realmente** vacío. **No repitas preguntas:** si un dato ya aparece en el resumen visual (p. ej. método de pago = Contado), NUNCA incluyas pregunta sobre ese dato.
     **NO preguntar por:** sucursal, forma de pago (transferencia/TC/TD/billetera) ni centro de costo (se gestionan en Estado 2 / opciones; centro de costo solo se pide en compra, no en venta).
 
-    Campos a incluir SOLO si están vacíos (si ya tienen valor, NO preguntes):
-    1. Monto/Detalle: solo si monto_total = 0 y productos vacío. Preguntar en lenguaje natural: "¿Cuál es el monto?" o "¿Qué productos o servicios incluye?". No revelar lógica interna. Si el usuario responde con un monto directo (ej: "1500"), usarlo como monto_total. Si responde con productos (ej: "3 cajas de papel a 50 cada una"), calcular monto_total desde los productos (cantidad × precio).
-    2. Cliente (venta) o Proveedor (compra): solo si no hay entidad_nombre ni entidad_id.
-    3. Tipo de documento: solo si tipo_documento es null. La pregunta debe ser **contextual** según el documento de la entidad:
-       - Si entidad_numero es RUC (11 dígitos) → preguntar "¿Factura, recibo por honorarios o nota de [venta/compra]?"
-       - Si entidad_numero es DNI (8 dígitos) → preguntar "¿Boleta o nota de [venta/compra]?"
-       - Si no hay entidad_numero → preguntar "¿Factura, boleta, recibo por honorarios o nota de [venta/compra]?"
-       Si el usuario ya dijo explícitamente el tipo en el mensaje (factura/boleta/honorarios/nota), NO preguntes. Si dijo "nota", usa la operación para inferir nota de venta o nota de compra. Si falta operación, pregunta operación (venta/compra) y no el tipo.
-    4. RUC/DNI de la entidad: **Si entidad_nombre ya tiene valor y entidad_numero tiene 8 u 11 dígitos, NO preguntar — el documento ya fue validado e identificado.** Solo preguntar si entidad_numero está vacío **o no coincide con la longitud esperada** y el tipo de documento lo requiere:
-       - si tipo_documento = "factura" => se necesita RUC (11 dígitos). Si entidad_numero tiene 8 dígitos (DNI), indicar: "Para factura se necesita RUC (11 dígitos). El documento actual es un DNI. ¿Deseas cambiar a boleta, o puedes proporcionar el RUC?"
-       - si tipo_documento = "boleta" => se necesita DNI (8 dígitos). Si entidad_numero tiene 11 dígitos (RUC), indicar: "Un RUC corresponde a una empresa. Para empresas se emite factura. ¿Deseas cambiar a factura, o prefieres registrarlo como nota de [venta/compra]?"
-       - si tipo_documento = "recibo por honorarios" => se necesita RUC (11 dígitos) del emisor del servicio. Si entidad_numero tiene 8 dígitos (DNI), indicar: "Para recibo por honorarios se necesita RUC del profesional (11 dígitos)."
-       - si tipo_documento = "nota de venta" o "nota de compra" => SIEMPRE opcional: NO preguntes por RUC/DNI (las notas son registros internos; el documento nunca es obligatorio en notas)
-       - si tipo_documento = null (no debería llegar aquí si el punto 3 se preguntó, pero como fallback) => aplica regla 700 PEN: si monto_total >= 700 PEN => pedir RUC o DNI; si monto_total < 700 PEN => no preguntar.
-    5. Moneda: solo si moneda es null (preguntar "¿En soles (PEN) o dólares (USD)?").
-    6. **Método de pago (contado o crédito) — CANDADO ESTRICTO:** Solo preguntar si **metodo_pago** es null o vacío. Si metodo_pago ya tiene valor ("contado" o "credito"), **NUNCA** volver a preguntar por este campo — tratarlo exactamente igual que cualquier otro campo ya definido (no se repregunta). En Redis puede venir como metodo_pago o legado medio_pago (solo si es contado/credito). La pregunta debe incluir **en el mismo renglón** la aclaración entre paréntesis, por ejemplo: "¿La operación es al contado o a crédito? **(contado o crédito)**".
-    7. **Días de crédito y cuotas — SOLO si metodo_pago = "credito":** Estas preguntas **NO existen** si metodo_pago es "contado" o si metodo_pago aún no se definió. Solo cuando metodo_pago = "credito" Y faltan dias_credito o nro_cuotas, pregúntalos (cada uno por separado, solo si está vacío). Para **días de crédito**, ofrece valores típicos: **15, 30, 45, 60, 90** días. Para **nro_cuotas**, indica que es de **1 a 24**. Si metodo_pago != "credito", **NUNCA** incluyas preguntas sobre días de crédito ni cuotas.
-    8. **Fechas:** fecha_pago debe ser >= fecha_emision. Si el usuario dio fecha_pago anterior a fecha_emision, no la aceptes: en el diagnóstico indica en lenguaje natural que debe revisar las fechas (ej. "La fecha de pago debe ser igual o posterior a la de emisión. ¿Puedes revisar las fechas?")
-    **NO incluyas:** "¿Deseas agregar más productos?" ni preguntas similares cuando ya hay al menos un producto registrado. No preguntes por cosas ya definidas.
+    Campos a incluir SOLO si están vacíos (si ya tienen valor, NO preguntes).
+    ORDEN ESTRICTO DE PREGUNTAS (respetar siempre este orden):
+    1. **Monto/Detalle:** solo si monto_total = 0 y productos vacío. Preguntar: "¿Cuál es el monto?" o "¿Qué productos o servicios incluye?". Si el usuario responde con un monto directo (ej: "1500"), usarlo como monto_total. Si responde con productos (ej: "3 cajas de papel a 50 cada una"), calcular monto_total desde los productos (cantidad × precio).
+    2. **Tipo de documento:** solo si tipo_documento es null. Preguntar según contexto:
+       - Si entidad_numero es RUC (11 dígitos) → "¿Factura, recibo por honorarios o nota de [venta/compra]?"
+       - Si entidad_numero es DNI (8 dígitos) → "¿Boleta o nota de [venta/compra]?"
+       - Si no hay entidad_numero → "¿Factura, boleta, recibo por honorarios o nota de [venta/compra]?"
+       Si el usuario ya dijo explícitamente el tipo en el mensaje, NO preguntes. Si dijo "nota", inferir desde operación.
+    3. **Cliente (si operacion=venta) o Proveedor (si operacion=compra) + RUC/DNI:** preguntar juntos. Usar "cliente" en ventas y "proveedor" en compras. **Si entidad_nombre ya tiene valor y entidad_numero tiene 8 u 11 dígitos, NO preguntar.** Solo preguntar si no hay entidad_nombre ni entidad_id. Al preguntar, incluir qué documento se necesita según tipo_documento:
+       - factura → nombre + RUC (11 dígitos)
+       - boleta → nombre + DNI (8 dígitos)
+       - recibo por honorarios → nombre + RUC (11 dígitos)
+       - nota de venta/compra → solo nombre (RUC/DNI opcional)
+       - tipo_documento null → aplica regla 700 PEN (>= 700 pedir documento, < 700 solo nombre)
+       Si ya tiene nombre pero falta documento y el tipo lo requiere, pedir solo el documento.
+       Si documento no coincide con tipo: DNI con factura → sugerir cambiar a boleta o dar RUC. RUC con boleta → sugerir cambiar a factura.
+    4. **Moneda:** solo si moneda es null. "¿En soles (PEN) o dólares (USD)?"
+    5. **Método de pago — CANDADO ESTRICTO:** Solo si metodo_pago es null o vacío. Si ya tiene valor, NUNCA repreguntar. "¿Al contado o a crédito? **(contado o crédito)**"
+    6. **Días de crédito y cuotas — SOLO si metodo_pago = "credito":** NO existen si es contado. Para días: ofrecer 15, 30, 45, 60, 90. Para cuotas: de 1 a 24.
+    7. **Fechas:** NO preguntar fecha_emision (se asigna automáticamente). Solo preguntar fecha_pago si metodo_pago = "credito" y fecha_pago está vacía.
+    **NO incluyas:** "¿Deseas agregar más productos?" ni preguntas similares cuando ya hay al menos un producto. No preguntes por cosas ya definidas.
 
     **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad: para venta en PEN/compra se requiere proveedor/cliente identificado (entidad_nombre o entidad_id) y el documento de identidad solo si corresponde al tipo:
        - si tipo_documento = "factura" => entidad_numero debe ser RUC (11 dígitos)
@@ -224,6 +233,7 @@ def build_prompt_extractor(
             "monto_total": float,
             "monto_sin_igv": float,
             "igv": float,
+            "igv_incluido": "true (default, monto incluye IGV) o false (usuario dijo 'más IGV'/'sin IGV'/'base')",
             "productos": [{{ "nombre": str, "cantidad": float, "precio": float }}],
             "fecha_emision": "DD-MM-YYYY o null",
             "fecha_pago": "DD-MM-YYYY o null (debe ser >= fecha_emision)",
