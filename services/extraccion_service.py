@@ -19,6 +19,7 @@ from services.helpers.productos import (
     normalizar_productos_raw,
     productos_a_str,
 )
+from services.helpers.igv import calcular_igv, es_tipo_sin_igv, sumar_productos
 from services.helpers.registro_domain import (
     calcular_estado,
     normalizar_documento_entidad,
@@ -753,12 +754,21 @@ class ExtraccionService:
                     productos_existentes.append(n)
         productos_str = productos_a_str(productos_existentes)
 
-        # Recalcular monto_total desde la suma de productos (si hay productos con precio)
-        suma_productos = sum(
-            float(p.get("total_item") or 0) or (float(p.get("cantidad", 1)) * float(p.get("precio_unitario") or p.get("precio") or 0))
+        # Recalcular total_item de cada producto desde cantidad × precio (nunca confiar en valor guardado)
+        for p in productos_existentes:
+            pu = float(p.get("precio_unitario") or p.get("precio") or 0)
+            qty = float(p.get("cantidad", 1))
+            if pu > 0:
+                p["total_item"] = round(qty * pu, 2)
+
+        tiene_productos_con_precio = any(
+            float(p.get("precio_unitario") or p.get("precio") or 0) > 0
             for p in productos_existentes
         )
-        monto_total_override = suma_productos if suma_productos > 0 else None
+        monto_total_override: float | None = None
+        if tiene_productos_con_precio:
+            # La suma bruta (sin considerar IGV aún) se usa como insumo para el cálculo centralizado
+            monto_total_override = round(sum(float(p.get("total_item") or 0) for p in productos_existentes), 2)
 
         def obtener(campo_nuevo, campo_viejo=None, default=None):
             nuevo = propuesta.get(campo_nuevo)
@@ -841,25 +851,28 @@ class ExtraccionService:
         else:
             igv_incluido = igv_incluido_raw is True or str(igv_incluido_raw).strip().lower() == "true"
 
-        if es_nota or es_honorarios:
-            # Sin IGV
-            monto_sin_igv = 0.0
-            igv_val = 0.0
+        # --- Cálculo centralizado de IGV (Decimal) ---
+        sin_igv = es_nota or es_honorarios
+
+        if sin_igv:
+            # Notas y honorarios: sin IGV
+            monto_total, monto_sin_igv, igv_val = calcular_igv(
+                monto_total, igv_incluido=True, sin_igv=True,
+            )
         elif not igv_incluido and (monto_base_propuesta > 0 or monto_total > 0):
-            # Usuario dijo "sin IGV" / "base" / "más IGV": el monto es base imponible
-            monto_sin_igv = monto_base_propuesta if monto_base_propuesta > 0 else monto_total
-            igv_val = monto_sin_igv * 0.18
-            monto_total = round(monto_sin_igv + igv_val, 2)
+            # Usuario dijo "más IGV" / "sin IGV" / "base": el monto dado es base imponible
+            base_input = monto_base_propuesta if monto_base_propuesta > 0 else monto_total
+            monto_total, monto_sin_igv, igv_val = calcular_igv(
+                base_input, igv_incluido=False, sin_igv=False,
+            )
         elif monto_total > 0:
             # Default: IGV incluido en monto_total
-            monto_sin_igv = monto_total / 1.18
-            igv_val = monto_total - monto_sin_igv
+            monto_total, monto_sin_igv, igv_val = calcular_igv(
+                monto_total, igv_incluido=True, sin_igv=False,
+            )
         else:
             monto_sin_igv = 0.0
             igv_val = 0.0
-
-        monto_sin_igv = round(float(monto_sin_igv or 0), 2)
-        igv_val = round(float(igv_val or 0), 2)
 
         return {
             "operacion": contexto_previo if contexto_previo else obtener("operacion", "cod_ope", None),

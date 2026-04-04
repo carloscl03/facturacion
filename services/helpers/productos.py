@@ -147,8 +147,12 @@ def construir_detalle_desde_registro(
     Construye la lista de 'detalle_items' para el payload de venta
     a partir de los productos del registro y los montos agregados.
 
-    Replica la lógica de FinalizarService._construir_detalle.
+    Usa el módulo igv.py para cálculos consistentes con Decimal.
+    Respeta el flag igv_incluido del registro para saber si los precios
+    del usuario son base (sin IGV) o ya incluyen IGV.
     """
+    from services.helpers.igv import calcular_igv, calcular_item, es_tipo_sin_igv
+
     productos: List[Dict[str, Any]] = []
     try:
         pj = reg.get("productos")
@@ -161,16 +165,24 @@ def construir_detalle_desde_registro(
 
     id_unidad = reg.get("id_unidad", id_unidad_default)
     tipo_doc = str(reg.get("tipo_documento") or "").strip().lower()
-    sin_igv = tipo_doc in ("nota de venta", "nota de compra", "recibo por honorarios")
+    sin_igv = es_tipo_sin_igv(tipo_doc)
+
+    # Leer flag igv_incluido del registro (default True = precios incluyen IGV)
+    igv_incluido_raw = reg.get("igv_incluido")
+    if igv_incluido_raw is None:
+        igv_incluido = True
+    else:
+        igv_incluido = igv_incluido_raw is True or str(igv_incluido_raw).strip().lower() == "true"
+
     if not productos:
         mt = float(monto_total)
-        if sin_igv:
-            mb = float(monto_base or mt)
-            mi = 0.0
-        else:
-            mb = float(monto_base or mt / 1.18)
-            mi = float(monto_igv or mt - mb)
-        # Sin catálogo ni inventario (como en test_pdf_sunat): la API acepta null y funciona con normalidad.
+        # Cálculo centralizado para ítem único (monto directo sin productos)
+        mt_calc, mb_calc, mi_calc = calcular_igv(
+            mt, igv_incluido=True, sin_igv=sin_igv,
+        )
+        # Preferir los valores ya calculados del registro si son consistentes
+        mb_final = float(monto_base) if monto_base > 0 else mb_calc
+        mi_final = float(monto_igv) if monto_igv > 0 else mi_calc
         return [
             {
                 "id_inventario": reg.get("id_inventario"),
@@ -178,12 +190,12 @@ def construir_detalle_desde_registro(
                 "id_tipo_producto": 2,
                 "cantidad": 1,
                 "id_unidad": id_unidad,
-                "precio_unitario": mt,
+                "precio_unitario": round(mt, 2),
                 "porcentaje_descuento": 0,
                 "valor_descuento": 0,
-                "valor_subtotal_item": round(mb, 2),
-                "valor_igv": round(mi, 2),
-                "valor_total_item": mt,
+                "valor_subtotal_item": round(mb_final, 2),
+                "valor_igv": round(mi_final, 2),
+                "valor_total_item": round(mt, 2),
             }
         ]
 
@@ -191,13 +203,10 @@ def construir_detalle_desde_registro(
     for p in productos:
         qty = float(p.get("cantidad", 1))
         pu = float(p.get("precio_unitario") or p.get("precio", 0))
-        total_item = float(p.get("total_item", qty * pu))
-        if sin_igv:
-            subtotal = total_item
-            igv = 0.0
-        else:
-            subtotal = total_item / 1.18
-            igv = total_item - subtotal
+        # Calcular valores del ítem con el módulo centralizado
+        item_vals = calcular_item(
+            pu, qty, igv_incluido=igv_incluido, sin_igv=sin_igv,
+        )
         detalle.append(
             {
                 "id_inventario": p.get("id_inventario") or reg.get("id_inventario"),
@@ -205,12 +214,12 @@ def construir_detalle_desde_registro(
                 "id_tipo_producto": p.get("id_tipo_producto", 2),
                 "cantidad": qty,
                 "id_unidad": p.get("id_unidad", id_unidad),
-                "precio_unitario": pu,
+                "precio_unitario": item_vals["precio_unitario"],
                 "porcentaje_descuento": float(p.get("porcentaje_descuento", 0)),
                 "valor_descuento": float(p.get("valor_descuento", 0)),
-                "valor_subtotal_item": round(subtotal, 2),
-                "valor_igv": round(igv, 2),
-                "valor_total_item": round(total_item, 2),
+                "valor_subtotal_item": item_vals["valor_subtotal_item"],
+                "valor_igv": item_vals["valor_igv"],
+                "valor_total_item": item_vals["valor_total_item"],
             }
         )
     return detalle
