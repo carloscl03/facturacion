@@ -751,12 +751,19 @@ class ExtraccionService:
                     continue
                 idx = ExtraccionService._buscar_producto_existente(nombre_n, productos_existentes)
                 if idx is not None:
-                    # Producto similar ya existe: actualizar (preservar id_catalogo del existente)
-                    productos_existentes[idx] = {**productos_existentes[idx], **{k: v for k, v in n.items() if v}}
+                    # Producto similar ya existe: actualizar.
+                    existente = productos_existentes[idx]
+                    # Si el existente ya viene del catálogo, NO dejar que la IA sobreescriba
+                    # precio_unitario/precio (la IA suele copiar precios del contexto).
+                    # Solo permitir sobreescritura si el nuevo tiene precio_explicito=True.
+                    campos_nuevo = {k: v for k, v in n.items() if v}
+                    if existente.get("id_catalogo") and not n.get("precio_explicito"):
+                        campos_nuevo.pop("precio_unitario", None)
+                        campos_nuevo.pop("precio", None)
+                    productos_existentes[idx] = {**existente, **campos_nuevo}
                 else:
                     # Producto nuevo
                     productos_existentes.append(n)
-        productos_str = productos_a_str(productos_existentes)
 
         # Recalcular total_item de cada producto desde cantidad × precio (nunca confiar en valor guardado)
         for p in productos_existentes:
@@ -764,6 +771,9 @@ class ExtraccionService:
             qty = float(p.get("cantidad", 1))
             if pu > 0:
                 p["total_item"] = round(qty * pu, 2)
+
+        # Serializar DESPUÉS del recálculo para que Redis guarde total_item correcto
+        productos_str = productos_a_str(productos_existentes)
 
         tiene_productos_con_precio = any(
             float(p.get("precio_unitario") or p.get("precio") or 0) > 0

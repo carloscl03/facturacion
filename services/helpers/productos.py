@@ -76,19 +76,26 @@ MAX_ROW_TITLE = 24
 def enriquecer_producto_con_catalogo(producto: Dict[str, Any], catalogo_item: Dict[str, Any]) -> Dict[str, Any]:
     """
     Enriquece un producto extraído por la IA con datos del catálogo.
-    Si el usuario dio precio explícito, se respeta; si no, se usa el del catálogo.
+
+    Precio: SIEMPRE usa el del catálogo, a menos que el producto tenga
+    precio_explicito=True (usuario dijo explícitamente "a X soles").
+    Esto evita que la IA copie precios de otros productos del contexto.
     """
     enriched = {**producto}
     enriched["id_catalogo"] = catalogo_item["id_catalogo"]
     enriched["id_unidad"] = catalogo_item.get("id_unidad_medida", 1)
     enriched["sku"] = catalogo_item.get("sku", "")
     enriched["nombre"] = catalogo_item.get("nombre") or producto.get("nombre", "")
-    # Precio: respetar el del usuario si lo indicó; si no, usar catálogo
-    precio_usuario = float(producto.get("precio_unitario") or producto.get("precio") or 0)
-    if precio_usuario > 0:
-        enriched["precio_unitario"] = precio_usuario
+    # Precio: catálogo siempre gana, salvo que el usuario haya dado precio explícito
+    precio_catalogo = float(catalogo_item.get("precio_unitario") or 0)
+    if producto.get("precio_explicito"):
+        precio_usuario = float(producto.get("precio_unitario") or producto.get("precio") or 0)
+        enriched["precio_unitario"] = precio_usuario if precio_usuario > 0 else precio_catalogo
     else:
-        enriched["precio_unitario"] = catalogo_item.get("precio_unitario", 0)
+        enriched["precio_unitario"] = precio_catalogo
+    # Limpiar flag — ya fue procesado
+    enriched.pop("precio_explicito", None)
+    enriched.pop("precio", None)  # normalizar: solo precio_unitario
     # Recalcular total_item
     qty = float(enriched.get("cantidad", 1))
     enriched["total_item"] = round(qty * enriched["precio_unitario"], 2)

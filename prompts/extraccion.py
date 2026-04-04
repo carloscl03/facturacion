@@ -62,6 +62,12 @@ def build_prompt_extractor(
     Ejemplos: "Laptop Gamer X1" → un solo producto llamado "Laptop Gamer X1", no tres productos separados.
     'Cámara de seguridad HD' → un solo producto.
 
+    ### PRECIOS DE PRODUCTOS — REGLA ESTRICTA:
+    **NUNCA copies ni inferir precios de otros productos del contexto.** Cada producto tiene su propio precio independiente.
+    - Si el usuario dice explícitamente un precio para un producto (ej: "3 cámaras a 80 soles", "laptop por 500"), pon ese precio en "precio" y "precio_explicito": true.
+    - Si el usuario NO menciona precio para un producto (ej: "3 cámaras", "agrega 2 monitores"), pon "precio": 0 y "precio_explicito": false. El backend buscará el precio en el catálogo.
+    - **PROHIBIDO** copiar el precio de un producto a otro. Si laptop cuesta 111 y el usuario dice "3 cámaras" sin precio, la cámara lleva precio: 0 (NO 111).
+
     ### NOMBRES DE PRODUCTOS EN SINGULAR:
     Los nombres de productos siempre deben guardarse en **singular**, independientemente de cómo los diga el usuario.
     La cantidad va en el campo "cantidad", no en el nombre.
@@ -184,7 +190,7 @@ def build_prompt_extractor(
             "monto_sin_igv": float,
             "igv": float,
             "igv_incluido": "true (default, monto incluye IGV) o false (usuario dijo 'más IGV'/'sin IGV'/'base')",
-            "productos": [{{ "nombre": str, "cantidad": float, "precio": float }}],
+            "productos": [{{ "nombre": str, "cantidad": float, "precio": float, "precio_explicito": bool }}],
             "fecha_emision": "DD-MM-YYYY o null",
             "fecha_pago": "DD-MM-YYYY o null (debe ser >= fecha_emision)",
             "observacion": "texto libre o null — solo si el usuario indica voluntariamente una anotación, o si se activa el flujo nota sin documento (Ref: nombre entidad)"
