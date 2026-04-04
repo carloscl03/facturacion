@@ -79,9 +79,9 @@ def construir_detalles_compra(
         qty = float(p.get("cantidad", 1))
         pu_raw = float(p.get("precio_unitario") or p.get("precio", 0))
 
-        p_igv = p.get("igv_incluido")
-        if p_igv is not None:
-            prod_igv_incluido = p_igv is True or str(p_igv).strip().lower() == "true"
+        tiene_catalogo = bool(p.get("id_catalogo"))
+        if tiene_catalogo:
+            prod_igv_incluido = True
         else:
             prod_igv_incluido = igv_incluido_global
 

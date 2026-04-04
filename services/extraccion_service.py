@@ -765,6 +765,14 @@ class ExtraccionService:
                     # Producto nuevo
                     productos_existentes.append(n)
 
+        # Limpiar igv_incluido=true de productos sin catálogo:
+        # La IA suele poner igv_incluido=true a todos los productos por defecto.
+        # Para productos sin catálogo, eliminar el campo para que hereden del global.
+        # Productos de catálogo siempre tienen IGV incluido en su precio.
+        for p in productos_existentes:
+            if not p.get("id_catalogo"):
+                p.pop("igv_incluido", None)
+
         # Recalcular total_item de cada producto desde cantidad × precio (nunca confiar en valor guardado)
         for p in productos_existentes:
             pu = float(p.get("precio_unitario") or p.get("precio") or 0)
