@@ -2,13 +2,13 @@
 Cálculo centralizado de IGV (18%) con precisión Decimal.
 
 CONTRATO PHP (confirmado con tests reales contra ws_venta.php):
-  - precio_unitario en detalle_items = precio CON IGV (bruto)
-  - valor_total_item = precio_unitario × cantidad
-  - valor_subtotal_item = 0, valor_igv = 0 → PHP los recalcula internamente
-  - PHP valida: sum(precio_unitario × cantidad) == sum(valor_total_item)
+  - precio_unitario en detalle_items = precio BASE (sin IGV)
+  - valor_total_item = precio_unitario × cantidad (sin IGV)
+  - valor_subtotal_item = 0, valor_igv = 0 → PHP los recalcula
+  - PHP agrega 18% internamente: total_comprobante = sum(round(pu * 1.18, 2) × qty)
+  - PHP valida que su total recalculado coincida con sum(round(valor_total_item * 1.18, 2))
 
 Nuestro cálculo de sub/igv es SOLO para el resumen visual al usuario.
-El payload a la API envía sub=0, igv=0 y deja que PHP calcule.
 """
 from __future__ import annotations
 
@@ -63,16 +63,16 @@ def calcular_igv(
     return (float(total), float(base), float(igv))
 
 
-def precio_con_igv(precio: float, *, igv_incluido: bool = True, sin_igv: bool = False) -> float:
+def precio_base(precio: float, *, igv_incluido: bool = True, sin_igv: bool = False) -> float:
     """
-    Convierte un precio a precio CON IGV (lo que va en el payload como precio_unitario).
+    Convierte un precio a precio BASE (sin IGV) para el payload.
 
-    - Si igv_incluido=True o sin_igv=True: devuelve tal cual (ya incluye IGV o no aplica).
-    - Si igv_incluido=False: es base, agrega IGV (× 1.18).
+    - Si igv_incluido=True: extraer base (÷ 1.18).
+    - Si igv_incluido=False o sin_igv=True: ya es base, devolver tal cual.
     """
-    if sin_igv or igv_incluido:
+    if sin_igv or not igv_incluido:
         return round(precio, 2)
-    return _r(Decimal(str(precio)) * _FACTOR)
+    return _r(Decimal(str(precio)) / _FACTOR)
 
 
 def sumar_productos(
@@ -82,10 +82,11 @@ def sumar_productos(
     sin_igv: bool = False,
 ) -> tuple[float, float, float]:
     """
-    Suma todos los productos y retorna (monto_total, base, igv).
+    Suma todos los productos y retorna (monto_total, base, igv) para resumen visual.
 
-    Calcula monto_total = sum(precio_con_igv × cantidad), que es exactamente
-    lo que PHP calculará al recibir el payload.
+    monto_total = sum(precio_con_igv × cantidad) — lo que el usuario ve.
+    base = sum(precio_base × cantidad).
+    igv = total - base.
 
     Respeta igv_incluido por producto si el producto tiene el campo "igv_incluido".
     """
@@ -105,15 +106,25 @@ def sumar_productos(
         else:
             prod_igv_incluido = igv_incluido
 
-        pu_final = Decimal(str(precio_con_igv(pu_raw, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)))
+        pu = Decimal(str(pu_raw))
         q = Decimal(str(qty))
 
-        item_total = (pu_final * q).quantize(_2D, ROUND_HALF_UP)
-        total_acc += item_total
-
-        if not sin_igv:
-            pu_base = (pu_final / _FACTOR).quantize(_2D, ROUND_HALF_UP)
-            item_base = (pu_base * q).quantize(_2D, ROUND_HALF_UP)
+        if sin_igv:
+            item_total = (pu * q).quantize(_2D, ROUND_HALF_UP)
+            total_acc += item_total
+        elif prod_igv_incluido:
+            # Precio ya incluye IGV → total = pu × qty, base = (pu/1.18) × qty
+            item_total = (pu * q).quantize(_2D, ROUND_HALF_UP)
+            pu_b = (pu / _FACTOR).quantize(_2D, ROUND_HALF_UP)
+            item_base = (pu_b * q).quantize(_2D, ROUND_HALF_UP)
+            total_acc += item_total
+            base_acc += item_base
+        else:
+            # Precio es base → total = round(pu × 1.18, 2) × qty
+            pu_con = (pu * _FACTOR).quantize(_2D, ROUND_HALF_UP)
+            item_total = (pu_con * q).quantize(_2D, ROUND_HALF_UP)
+            item_base = (pu * q).quantize(_2D, ROUND_HALF_UP)
+            total_acc += item_total
             base_acc += item_base
 
     total = _r(total_acc)

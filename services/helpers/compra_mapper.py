@@ -40,7 +40,7 @@ def construir_detalles_compra(
     Usa el módulo igv.py para cálculos consistentes con Decimal.
     Respeta el flag igv_incluido del registro.
     """
-    from services.helpers.igv import es_tipo_sin_igv, precio_con_igv
+    from services.helpers.igv import es_tipo_sin_igv, precio_base
 
     productos = normalizar_productos_raw(reg.get("productos"))
     id_unidad = reg.get("id_unidad", id_unidad_default)
@@ -85,7 +85,7 @@ def construir_detalles_compra(
         else:
             prod_igv_incluido = igv_incluido_global
 
-        pu_final = precio_con_igv(pu_raw, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)
+        pu_final = precio_base(pu_raw, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)
         concepto = str(p.get("nombre") or p.get("concepto") or "Item").strip() or "Producto"
         detalles.append(
             {

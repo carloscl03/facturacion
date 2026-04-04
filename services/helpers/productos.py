@@ -162,7 +162,7 @@ def construir_detalle_desde_registro(
     Respeta igv_incluido por producto: si un producto tiene igv_incluido=false,
     su precio es base y se convierte a CON IGV (× 1.18) para el payload.
     """
-    from services.helpers.igv import es_tipo_sin_igv, precio_con_igv
+    from services.helpers.igv import es_tipo_sin_igv, precio_base
 
     productos: List[Dict[str, Any]] = []
     try:
@@ -184,6 +184,8 @@ def construir_detalle_desde_registro(
 
     if not productos:
         mt = round(float(monto_total), 2)
+        # monto_total es con IGV → extraer base para el payload
+        pu_b = precio_base(mt, igv_incluido=True, sin_igv=sin_igv)
         return [
             {
                 "id_inventario": reg.get("id_inventario"),
@@ -191,12 +193,12 @@ def construir_detalle_desde_registro(
                 "id_tipo_producto": 2,
                 "cantidad": 1,
                 "id_unidad": id_unidad,
-                "precio_unitario": mt,
+                "precio_unitario": pu_b,
                 "porcentaje_descuento": 0,
                 "valor_descuento": 0,
                 "valor_subtotal_item": 0,
                 "valor_igv": 0,
-                "valor_total_item": mt,
+                "valor_total_item": pu_b,
             }
         ]
 
@@ -212,8 +214,8 @@ def construir_detalle_desde_registro(
         else:
             prod_igv_incluido = igv_incluido_global
 
-        # Convertir a precio CON IGV — PHP recalcula sub/igv internamente
-        pu_final = precio_con_igv(pu_raw, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)
+        # Convertir a precio BASE (sin IGV) — PHP agrega 18% internamente
+        pu_b = precio_base(pu_raw, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)
 
         detalle.append(
             {
@@ -222,12 +224,12 @@ def construir_detalle_desde_registro(
                 "id_tipo_producto": p.get("id_tipo_producto", 2),
                 "cantidad": qty,
                 "id_unidad": p.get("id_unidad", id_unidad),
-                "precio_unitario": pu_final,
+                "precio_unitario": pu_b,
                 "porcentaje_descuento": float(p.get("porcentaje_descuento", 0)),
                 "valor_descuento": float(p.get("valor_descuento", 0)),
                 "valor_subtotal_item": 0,
                 "valor_igv": 0,
-                "valor_total_item": round(pu_final * qty, 2),
+                "valor_total_item": round(pu_b * qty, 2),
             }
         )
     return detalle

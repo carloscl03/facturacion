@@ -394,9 +394,9 @@ class TestDetallesCompra:
         reg = _build_registro_credito()  # factura
         detalles = construir_detalles_compra(reg, 5000.0, 4237.29, 762.71)
         d = detalles[0]
-        # sub=0 igv=0: PHP recalcula internamente (contrato confirmado con test real)
-        assert d["valor_total_item"] == 5000.0
-        assert d["precio_unitario"] == 5000.0
+        # precio_unitario y valor_total_item son BASE (sin IGV) — PHP agrega 18%
+        assert d["precio_unitario"] == 4237.29  # 5000 / 1.18 rounded
+        assert d["valor_total_item"] == 4237.29
 
 
 # ================================================================

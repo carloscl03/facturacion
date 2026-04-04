@@ -19,7 +19,7 @@ ESTRUCTURA DE SECCIONES (cada línea se muestra SOLO si el campo tiene valor):
 
 2) DETALLE Y MONEDAS
    📦 *DETALLE DE [VENTA o COMPRA]:*  — solo si hay productos
-   🔹 Cant. [cantidad] x [nombre] — [precio con 2 decimales]  — por cada ítem en productos
+   🔹 Cant. [cantidad] x [nombre] — [precio con 2 decimales]  — por cada ítem en productos. Si el producto tiene igv_incluido=false, agregar "(+IGV)" después del precio para indicar que es precio base y se le sumará IGV. Ejemplo: 🔹 Cant. 30 x pan — S/ 10.00 (+IGV)
    💰 *RESUMEN ECONÓMICO:*
    ├─ Subtotal: [monto_sin_igv con 2 decimales]  — solo si tipo_documento es factura/boleta y monto_sin_igv > 0
    ├─ IGV (18%): [igv con 2 decimales]  — solo si tipo_documento es factura/boleta

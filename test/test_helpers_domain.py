@@ -150,7 +150,9 @@ def test_productos_a_str_y_construir_detalle_desde_registro_sin_productos():
     assert len(detalle) == 1
     item = detalle[0]
     assert item["cantidad"] == 1
-    assert item["valor_total_item"] == 118
+    # precio_unitario y valor_total_item son BASE (sin IGV) — PHP agrega 18%
+    assert item["precio_unitario"] == 100.0
+    assert item["valor_total_item"] == 100.0
 
 
 def test_traducir_registro_a_parametros_y_payload_venta_basico():
