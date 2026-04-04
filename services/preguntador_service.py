@@ -1,7 +1,7 @@
 from prompts.plantillas import formatear_resumen_registro
-from prompts.preguntador import build_prompt_pregunta, build_prompt_preguntador_v2
 from repositories.base import CacheRepository
 from services.ai_service import AIService
+from services.helpers.resumen_visual import generar_resumen_completo
 from services.whatsapp_sender import enviar_texto as _enviar_texto
 
 # Emojis numéricos para listar preguntas obligatorias (1️⃣ 2️⃣ …)
@@ -60,22 +60,34 @@ class PreguntadorService:
                 "btn2_id": "compras", "btn2_title": "Es una Compra",
             }
 
-        prompt = build_prompt_pregunta(registro)
-        resultado = self._ai.completar_json(prompt)
-        pregunta_casual = resultado["resumen_y_guia"]
+        resultado = generar_resumen_completo(registro)
+        pregunta_casual = resultado["texto_completo"]
         if bloques_previos:
             pregunta_casual = "\n\n".join(bloques_previos) + "\n\n" + pregunta_casual
+
+        listo = resultado["listo_para_finalizar"]
+        # Botones: confirmar si todo completo, tipo doc si falta
+        tipo_doc = (registro.get("tipo_documento") or "").strip()
+        if listo:
+            requiere_botones = True
+            btn1_id, btn1_title = "confirmar_registro", "Confirmar registro"
+            btn2_id, btn2_title = "", ""
+        elif not tipo_doc:
+            requiere_botones = True
+            btn1_id, btn1_title = "factura", "Factura"
+            btn2_id, btn2_title = "boleta", "Boleta"
+        else:
+            requiere_botones = False
+            btn1_id = btn1_title = btn2_id = btn2_title = ""
 
         if id_empresa is not None:
             _enviar_texto(id_empresa, wa_id, pregunta_casual, id_plataforma)
 
         return {
             "pregunta_casual": pregunta_casual,
-            "requiere_botones": resultado["requiere_botones"],
-            "btn1_id": resultado.get("btn1_id", ""),
-            "btn1_title": resultado.get("btn1_title", ""),
-            "btn2_id": resultado.get("btn2_id", ""),
-            "btn2_title": resultado.get("btn2_title", ""),
+            "requiere_botones": requiere_botones,
+            "btn1_id": btn1_id, "btn1_title": btn1_title,
+            "btn2_id": btn2_id, "btn2_title": btn2_title,
         }
 
 
@@ -119,26 +131,14 @@ class PreguntadorV2Service:
                 },
             }
 
-        op = (registro.get("operacion") or registro.get("cod_ope") or "").strip().lower()
-        operacion = "venta" if op == "ventas" else "compra" if op == "compras" else (op if op in ("venta", "compra") else None)
-        prompt = build_prompt_preguntador_v2(registro, operacion)
-        resultado = self._ai.completar_json(prompt)
-
-        sintesis = (resultado.get("sintesis_visual") or "").strip() or "Aún no hay datos capturados."
-        obligatorias_raw = (resultado.get("preguntas_obligatorias") or "").strip()
-        obligatorias = _formatear_obligatorias(obligatorias_raw)
-        opcionales = (resultado.get("preguntas_opcionales") or "").strip()
-        # Retrocompatibilidad: si la IA devuelve "diagnostico", usarlo; si no, armar desde obligatorias + opcionales
-        if resultado.get("diagnostico") is not None and (resultado.get("diagnostico") or "").strip():
-            diagnostico = (resultado.get("diagnostico") or "").strip()
-        else:
-            partes = [p for p in (obligatorias, opcionales) if p]
-            diagnostico = "\n\n".join(partes) if partes else "Revisa los datos arriba y dime qué falta o si confirmas."
-        texto_final = f"{sintesis}\n\n{diagnostico}"
+        resultado = generar_resumen_completo(registro)
+        sintesis = resultado["resumen_visual"] or "Aún no hay datos capturados."
+        diagnostico = resultado["diagnostico"]
+        texto_final = resultado["texto_completo"]
         if bloques_previos:
             texto_final = "\n\n".join(bloques_previos) + "\n\n" + texto_final
 
-        listo_para_finalizar = bool(resultado.get("listo_para_finalizar") is True)
+        listo_para_finalizar = resultado["listo_para_finalizar"]
 
         if id_empresa is not None:
             _enviar_texto(id_empresa, wa_id, texto_final, id_plataforma)

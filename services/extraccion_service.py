@@ -4,6 +4,7 @@ import json
 import unicodedata
 
 from prompts.extraccion import build_prompt_extractor
+from services.helpers.resumen_visual import generar_resumen_completo
 
 
 def _sin_tildes(texto: str) -> str:
@@ -74,14 +75,7 @@ class ExtraccionService:
         propuesta = output_ia.get("propuesta_cache", {})
 
         mensaje_entendimiento = (output_ia.get("mensaje_entendimiento") or "").strip()
-        resumen_visual = (output_ia.get("resumen_visual") or "").strip()
-        diagnostico = (output_ia.get("diagnostico") or "").strip()
-        listo_para_finalizar = bool(output_ia.get("listo_para_finalizar") is True)
-        cambiar_estado_a_4 = bool(output_ia.get("cambiar_estado_a_4") is True)
         ultima_pregunta_keyword = (output_ia.get("ultima_pregunta_keyword") or "").strip()
-
-        if mensaje_entendimiento:
-            resumen_visual = f"{mensaje_entendimiento}\n\n{resumen_visual}".strip()
 
         payload_base = self._construir_payload(propuesta, estado_actual, contexto_previo)
         payload_db = {k: v for k, v in payload_base.items() if self._es_valor_valido(v)}
@@ -196,10 +190,13 @@ class ExtraccionService:
             estado = estado_calculado
         payload_db["estado"] = estado
 
-        # --- Si el identificador no encontró al proveedor/cliente, mostrar su mensaje (¿DNI/RUC correcto?) ---
-        texto_completo = resumen_visual
-        if diagnostico:
-            texto_completo = f"{resumen_visual}\n\n{diagnostico}".strip()
+        # --- Generar resumen visual + diagnóstico estructuralmente (sin IA) ---
+        _resumen = generar_resumen_completo(payload_db, mensaje_entendimiento=mensaje_entendimiento)
+        resumen_visual = _resumen["resumen_visual"]
+        diagnostico = _resumen["diagnostico"]
+        listo_para_finalizar = _resumen["listo_para_finalizar"]
+        cambiar_estado_a_4 = listo_para_finalizar
+        texto_completo = _resumen["texto_completo"]
         linea_identificacion = ""
         # Si el identificador SÍ encontró el documento, preparar una línea corta
         # para que el usuario entienda claramente qué número quedó reconocido.

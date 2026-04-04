@@ -1,6 +1,6 @@
-from prompts.resumen import build_prompt_resumen
 from repositories.base import CacheRepository
 from services.ai_service import AIService
+from services.helpers.resumen_visual import generar_resumen_completo
 from services.whatsapp_sender import enviar_texto as _enviar_texto
 
 
@@ -18,8 +18,8 @@ class ResumenService:
                 _enviar_texto(id_empresa, wa_id, texto, id_plataforma)
             return {"resumen": texto}
 
-        prompt = build_prompt_resumen(registro)
-        texto = self._ai.completar_texto(prompt)
+        resultado = generar_resumen_completo(registro)
+        texto = resultado["texto_completo"]
         if id_empresa is not None:
             _enviar_texto(id_empresa, wa_id, texto, id_plataforma)
         return {"resumen": texto}

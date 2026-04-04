@@ -1,7 +1,5 @@
 import json
 
-from prompts.plantillas import ESTRUCTURA_GUIA, PLANTILLA_VISUAL
-
 
 def build_prompt_extractor(
     estado_actual: dict,
@@ -146,56 +144,8 @@ def build_prompt_extractor(
     Frase corta que muestre que entendiste. Ej: "¡Dale! Ya anoté lo principal.", "Anotado: es una compra."
     Si el usuario solo indica compra o venta sin más datos: guarda la operación, muestra 🛒 *COMPRA* o 📤 *VENTA* en la síntesis y sigue con "Por favor, bríndame estos datos:" + listado de preguntas por lo que falta. **No pidas confirmación de que es compra/venta.** La única confirmación que se pide es "¿Confirmar todo para continuar?" cuando todos los campos obligatorios estén llenos (antes de pasar a opciones).
 
-    ### RESUMEN VISUAL — PLANTILLA OFICIAL (solo campos con valor):
-    Usa la siguiente PLANTILLA VISUAL para generar **resumen_visual**. Incluye ÚNICAMENTE las líneas cuyos campos tengan valor (fusionando Redis + propuesta_cache). Campo vacío, null o 0 = esa línea NO se escribe.
-    {PLANTILLA_VISUAL}
-    {ESTRUCTURA_GUIA}
-
-    ### DIAGNÓSTICO DE FALTANTES (lógica dinámica):
-    **Regla estricta:** Solo incluye en el listado de preguntas los campos que **realmente estén vacíos o sin definir**. Si un campo ya tiene valor, **NO** generes ninguna pregunta sobre ese campo. Todas las preguntas en lenguaje natural; una sola pregunta por campo vacío; mismo criterio para todos los campos (incluido método de pago contado/crédito).
-    **CANDADO ABSOLUTO — NO REPREGUNTAR CAMPOS CON VALOR:**
-    - Si entidad_nombre tiene valor O requiere_identificacion fue exitosa (entidad_id existe) → NO preguntar por nombre del cliente/proveedor. Ya está identificado.
-    - Si entidad_nombre tiene valor Y entidad_numero tiene 8 u 11 dígitos → NO preguntar por RUC/DNI. El documento ES válido. No cuestionar.
-    - Si metodo_pago = "contado" → NO preguntar por días de crédito, cuotas, ni nada relacionado con crédito. CERO preguntas sobre crédito.
-    - Si tipo_documento tiene valor (en Redis o propuesta) → NO preguntar por tipo de documento.
-    - Si moneda tiene valor → NO preguntar por moneda.
-    - Si un campo aparece en el resumen visual con valor → PROHIBIDO generar pregunta sobre ese campo.
-    **CANDADO RESUMEN VISUAL — DATOS FUSIONADOS:**
-    El resumen visual debe mostrar TODOS los datos disponibles fusionando Redis + propuesta_cache + resultado de identificación. Si la identificación fue exitosa (requiere_identificacion.activo=true y el backend encontró la entidad), incluir entidad_nombre en el resumen visual aunque no esté aún en propuesta_cache (el backend lo persiste aparte).
-    **Estructura de la salida:** (1) Preámbulo (mensaje_entendimiento). (2) Síntesis visual = resumen_visual del ESTADO COMPLETO. (3) Si faltan datos: invitación ("Por favor, bríndame estos datos:") + listado de preguntas. (4) Si NO falta nada: cierra con "¿Confirmar todo para continuar?" para que el usuario sepa que puede decir *confirmar* y continuar; pedir confirmación **no** impide que el usuario envíe más datos (si envía datos, se procesarán como actualizar).
-    Fusiona datos en Redis + propuesta_cache. UNA pregunta por cada campo **realmente** vacío. **No repitas preguntas:** si un dato ya aparece en el resumen visual (p. ej. método de pago = Contado), NUNCA incluyas pregunta sobre ese dato.
-    **NO preguntar por:** sucursal, forma de pago (transferencia/TC/TD/billetera) ni centro de costo (se gestionan en Estado 2 / opciones; centro de costo solo se pide en compra, no en venta).
-
-    Campos a incluir SOLO si están vacíos (si ya tienen valor, NO preguntes).
-    ORDEN ESTRICTO DE PREGUNTAS (respetar siempre este orden):
-    1. **Monto/Detalle:** solo si monto_total = 0 y productos vacío. **Si monto_total > 0, NO preguntar por productos ni monto — el dato ya existe.** Un monto directo sin productos es válido (la API acepta id_catalogo=null). Solo preguntar si ambos están vacíos. Si el usuario responde con un monto directo (ej: "1500"), usarlo como monto_total. Si responde con productos (ej: "3 cajas de papel a 50 cada una"), calcular monto_total desde los productos.
-    2. **Tipo de documento:** solo si tipo_documento es null. Preguntar según contexto:
-       - Si entidad_numero es RUC (11 dígitos) → "¿Factura, recibo por honorarios o nota de [venta/compra]?"
-       - Si entidad_numero es DNI (8 dígitos) → "¿Boleta o nota de [venta/compra]?"
-       - Si no hay entidad_numero → "¿Factura, boleta, recibo por honorarios o nota de [venta/compra]?"
-       Si el usuario ya dijo explícitamente el tipo en el mensaje, NO preguntes. Si dijo "nota", inferir desde operación.
-    3. **Cliente (si operacion=venta) o Proveedor (si operacion=compra) + RUC/DNI:** preguntar juntos. Usar "cliente" en ventas y "proveedor" en compras. **Si entidad_nombre ya tiene valor y entidad_numero tiene 8 u 11 dígitos, NO preguntar.** Solo preguntar si no hay entidad_nombre ni entidad_id. Al preguntar, incluir qué documento se necesita según tipo_documento:
-       - factura → nombre + RUC (11 dígitos)
-       - boleta → nombre + DNI (8 dígitos)
-       - recibo por honorarios → nombre + RUC (11 dígitos)
-       - nota de venta/compra → solo nombre (RUC/DNI opcional)
-       - tipo_documento null → aplica regla 700 PEN (>= 700 pedir documento, < 700 solo nombre)
-       Si ya tiene nombre pero falta documento y el tipo lo requiere, pedir solo el documento.
-       Si documento no coincide con tipo: DNI con factura → sugerir cambiar a boleta o dar RUC. RUC con boleta → sugerir cambiar a factura.
-    4. **Moneda:** solo si moneda es null. "¿En soles (PEN) o dólares (USD)?"
-    5. **Método de pago — CANDADO ESTRICTO:** Solo si metodo_pago es null o vacío. Si ya tiene valor, NUNCA repreguntar. "¿Al contado o a crédito? **(contado o crédito)**"
-    6. **Días de crédito y cuotas — SOLO si metodo_pago = "credito":** NO existen si es contado. Para días: ofrecer 15, 30, 45, 60, 90. Para cuotas: de 1 a 24.
-    7. **Fechas:** NO preguntar fecha_emision (se asigna automáticamente). Solo preguntar fecha_pago si metodo_pago = "credito" y fecha_pago está vacía.
-    **NO incluyas:** "¿Deseas agregar más productos?" ni preguntas similares cuando ya hay al menos un producto. No preguntes por cosas ya definidas.
-
-    **listo_para_finalizar:** true solo si están completos: (1) monto/detalle, (2) entidad: para venta en PEN/compra se requiere proveedor/cliente identificado (entidad_nombre o entidad_id) y el documento de identidad solo si corresponde al tipo:
-       - si tipo_documento = "factura" => entidad_numero debe ser RUC (11 dígitos)
-       - si tipo_documento = "boleta" => entidad_numero debe ser DNI (8 dígitos)
-       - si tipo_documento = "recibo por honorarios" => entidad_numero debe ser RUC (11 dígitos)
-       - si tipo_documento = "nota de venta" o "nota de compra" => entidad_numero es SIEMPRE opcional (las notas no requieren documento de identidad)
-    (3) tipo_documento, (4) moneda, (5) **metodo_pago** ("contado" o "credito"), (6) si metodo_pago = "credito" entonces dias_credito y nro_cuotas obligatorios (nro_cuotas entre 1 y 24). false si falta alguno.
-    **Cuando listo_para_finalizar = true:** no listes preguntas; cierra el mensaje con "¿Confirmar todo para continuar?" (o similar). El usuario puede decir *confirmar* y el sistema pasará a estado 4 (opciones); si envía más datos, se actualizará igual.
-    **cambiar_estado_a_4:** true SOLO cuando listo_para_finalizar = true (todos los obligatorios llenos, incluido metodo_pago y si es crédito dias_credito y nro_cuotas). El backend pasará a opciones (sucursal, forma_pago y medio_pago con ids de API; centro de costo solo en compra).
+    ### NOTA: El resumen visual y el diagnóstico de faltantes se generan automáticamente por el backend.
+    NO generes resumen_visual ni diagnostico en tu respuesta. Solo extrae datos y genera mensaje_entendimiento.
 
     ### IDENTIFICACIÓN (obligatoria cuando hay RUC/DNI):
     - **activo:** true **solo y siempre** que el mensaje contenga un RUC (exactamente 11 dígitos) o un DNI (exactamente 8 dígitos). No uses activo=true para búsquedas por nombre sin documento.
@@ -240,10 +190,6 @@ def build_prompt_extractor(
             "observacion": "texto libre o null — solo si el usuario indica voluntariamente una anotación, o si se activa el flujo nota sin documento (Ref: nombre entidad)"
         }},
         "mensaje_entendimiento": "Preámbulo corto (ej: ¡Dale! Ya anoté lo principal.).",
-        "resumen_visual": "SÍNTESIS VISUAL DINÁMICA: solo líneas para campos con valor (vacío/null/0 = no escribir esa línea). Redis + propuesta fusionados.",
-        "diagnostico": "Si faltan datos: invitación (Por favor, bríndame estos datos:) + listado de preguntas 1️⃣ 2️⃣ 3️⃣ SOLO por campos realmente vacíos (nunca preguntes por lo ya definido; no preguntes agregar más productos si ya hay productos; dias_credito y nro_cuotas SOLO si metodo_pago es credito). Si listo_para_finalizar: solo entonces cierra con ¿Confirmar todo para continuar? (el usuario puede decir confirmar o seguir actualizando).",
-        "listo_para_finalizar": false,
-        "cambiar_estado_a_4": false,
         "ultima_pregunta_keyword": "campo_estado",
         "requiere_identificacion": {{
             "activo": false,
