@@ -1,23 +1,21 @@
 """
-Test: ¿La API de ventas (ws_venta.php) recalcula IGV o usa nuestros valores?
+Test robusto: validación del cálculo de IGV contra la API real (ws_venta.php).
 
-Envía 4 variantes de payload como Nota de Venta (id_tipo_comprobante=7,
-generacion_comprobante=0) para no tocar SUNAT y poder comparar lo que
-la BD registra.
+Cubre todos los escenarios de cálculo:
+  1. Monto directo sin productos
+  2. Productos con IGV incluido (catálogo)
+  3. Productos sin IGV (usuario dice "más IGV" / "sin IGV")
+  4. Mix de productos con y sin IGV
+  5. Notas de venta (sin IGV, sin SUNAT)
+  6. Recibo por honorarios
+  7. Un solo producto
+  8. Muchos productos (10+)
+  9. Precios con decimales irregulares
 
-Variantes:
-  A. Monto directo (1 ítem, sin productos): con sub/igv/total precalculados.
-  B. Monto directo: sub=0, igv=0, total=monto → ¿la API calcula sub/igv?
-  C. Productos (3 ítems): con sub/igv/total precalculados por calcular_item.
-  D. Productos (3 ítems): sub=0, igv=0, total=qty*pu → ¿la API calcula?
-
-Resultado esperado:
-  - Si la API ACEPTA A, B, C, D sin error → usa nuestros valores tal cual.
-  - Si B o D fallan → la API valida que sub+igv==total (necesitamos precalcular).
-  - El test imprime la respuesta para diagnóstico; no hace asserts duros.
+NOTA: Crea registros reales en BD. Tests A-D usan nota de venta (sin SUNAT).
+      Tests E+ usan factura con SUNAT (generan comprobante real).
 
 USO: python test/test_api_calculo_igv.py
-NOTA: Crea registros reales en BD con id_tipo_comprobante=7 (nota de venta).
 """
 import json
 import os
@@ -34,7 +32,7 @@ if sys.platform == "win32":
 
 import requests
 from config import settings
-from services.helpers.igv import calcular_item
+from services.helpers.igv import calcular_igv, construir_items_detalle, precio_con_igv, sumar_productos
 
 URL_VENTA = getattr(settings, "URL_VENTA_SUNAT", "https://api.maravia.pe/servicio/n8n/ws_venta.php")
 EMPRESA_ID = 2
@@ -43,13 +41,13 @@ ID_CLIENTE = 5
 FECHA = date.today().isoformat()
 
 
-def _base_payload(**overrides):
-    payload = {
+def _base_payload(tipo=7, gen=0, obs="test", items=None):
+    return {
         "codOpe": "REGISTRAR_VENTA_N8N",
         "empresa_id": EMPRESA_ID,
         "usuario_id": USUARIO_ID,
         "id_cliente": ID_CLIENTE,
-        "id_tipo_comprobante": 7,       # Nota de venta (sin SUNAT)
+        "id_tipo_comprobante": tipo,
         "fecha_emision": FECHA,
         "fecha_pago": FECHA,
         "id_moneda": 1,
@@ -57,278 +55,287 @@ def _base_payload(**overrides):
         "id_medio_pago": None,
         "id_sucursal": 14,
         "tipo_venta": "Contado",
-        "generacion_comprobante": 0,    # Sin SUNAT
+        "generacion_comprobante": gen,
+        "observaciones": obs,
+        "detalle_items": items or [],
     }
-    payload.update(overrides)
-    return payload
 
 
-def _enviar(label: str, payload: dict) -> dict | None:
-    print(f"\n{'='*70}")
+def _item(pu_con_igv, qty, concepto="item", sub=None, igv=None, total=None):
+    """Construye un item para el payload. pu = precio CON IGV."""
+    return {
+        "id_inventario": None,
+        "id_catalogo": None,
+        "id_tipo_producto": 2,
+        "cantidad": qty,
+        "id_unidad": 1,
+        "precio_unitario": pu_con_igv,
+        "concepto": concepto,
+        "valor_subtotal_item": sub if sub is not None else 0,
+        "porcentaje_descuento": 0,
+        "valor_descuento": 0,
+        "valor_isc": 0,
+        "valor_igv": igv if igv is not None else 0,
+        "valor_icbper": 0,
+        "valor_total_item": total if total is not None else round(pu_con_igv * qty, 2),
+        "anticipo": 0,
+        "otros_cargos": 0,
+        "otros_tributos": 0,
+    }
+
+
+def _items_con_ajuste(productos_raw, conceptos=None):
+    """Construye items usando construir_items_detalle (con ajuste de redondeo PHP)."""
+    prods = [{"precio_unitario": pu, "cantidad": qty} for pu, qty in productos_raw]
+    calcs = construir_items_detalle(prods, igv_incluido=True)
+    items = []
+    for i, (calc, (pu, qty)) in enumerate(zip(calcs, productos_raw)):
+        nombre = conceptos[i] if conceptos and i < len(conceptos) else f"producto {i}"
+        items.append(_item(calc["pu"], calc["qty"], nombre, sub=calc["sub"], igv=calc["igv"], total=calc["total"]))
+    return items
+
+
+def _enviar(label, payload):
+    print(f"\n{'─'*60}")
     print(f"  {label}")
-    print(f"{'='*70}")
-    print(json.dumps(payload, indent=2, ensure_ascii=False))
-    print()
-
+    print(f"{'─'*60}")
     try:
-        res = requests.post(URL_VENTA, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
-    except requests.RequestException as e:
-        print(f"  ❌ Error conexión: {e}")
-        return None
-
-    try:
+        res = requests.post(URL_VENTA, json=payload, headers={"Content-Type": "application/json"}, timeout=60)
         data = res.json()
-    except ValueError:
-        print(f"  ❌ Respuesta no JSON (HTTP {res.status_code}): {res.text[:200]}")
-        return None
+    except Exception as e:
+        print(f"  ⚠ Error: {e}")
+        return {"_label": label, "_ok": False, "_error": str(e)}
 
     ok = data.get("success", False)
-    icono = "✅" if ok else "❌"
-    print(f"  {icono} HTTP {res.status_code} | success={ok}")
+    status = "✅" if ok else "❌"
+    print(f"  {status} HTTP {res.status_code}", end="")
     if ok:
-        print(f"  id_venta={data.get('id_venta')} | message={data.get('message')}")
+        print(f" | id_venta={data.get('id_venta')}")
     else:
         err = data.get("details") or data.get("error") or data.get("message") or ""
-        print(f"  error: {err}")
+        print(f" | {str(err)[:100]}")
 
+    data["_label"] = label
+    data["_ok"] = ok
     return data
 
 
-def test_a_monto_directo_precalculado():
-    """A. Un ítem, monto=1000, sub/igv/total precalculados."""
-    item = calcular_item(1000.0, 1.0, igv_incluido=True, sin_igv=True)
-    return _enviar("A) Monto directo — sub/igv/total PRECALCULADOS (nota, sin IGV)", _base_payload(
-        observaciones="Test A: monto directo precalculado",
-        detalle_items=[{
-            "id_inventario": None,
-            "id_catalogo": None,
-            "id_tipo_producto": 2,
-            "cantidad": 1,
-            "id_unidad": 1,
-            "precio_unitario": item["precio_unitario"],
-            "valor_subtotal_item": item["valor_subtotal_item"],
-            "porcentaje_descuento": 0,
-            "valor_descuento": 0,
-            "valor_isc": 0,
-            "valor_igv": item["valor_igv"],
-            "valor_icbper": 0,
-            "valor_total_item": item["valor_total_item"],
-            "anticipo": 0,
-            "otros_cargos": 0,
-            "otros_tributos": 0,
-        }],
+# ═══════════════════════════════════════════════════════════════
+#  TESTS SIN SUNAT (notas de venta, generacion_comprobante=0)
+# ═══════════════════════════════════════════════════════════════
+
+def test_01_monto_directo():
+    """Monto directo S/1000, sin productos."""
+    return _enviar("01: Monto directo S/1000", _base_payload(
+        obs="T01: monto directo",
+        items=[_item(1000.0, 1, "Servicio")],
     ))
 
 
-def test_b_monto_directo_sin_desglose():
-    """B. Un ítem, monto=1000, sub=0, igv=0 → ¿la API calcula?"""
-    return _enviar("B) Monto directo — sub=0, igv=0, total=1000 (¿API calcula?)", _base_payload(
-        observaciones="Test B: monto directo sin desglose",
-        detalle_items=[{
-            "id_inventario": None,
-            "id_catalogo": None,
-            "id_tipo_producto": 2,
-            "cantidad": 1,
-            "id_unidad": 1,
-            "precio_unitario": 1000.00,
-            "valor_subtotal_item": 0,
-            "porcentaje_descuento": 0,
-            "valor_descuento": 0,
-            "valor_isc": 0,
-            "valor_igv": 0,
-            "valor_icbper": 0,
-            "valor_total_item": 1000.00,
-            "anticipo": 0,
-            "otros_cargos": 0,
-            "otros_tributos": 0,
-        }],
+def test_02_productos_con_igv():
+    """3 productos con precios que YA incluyen IGV (catálogo)."""
+    return _enviar("02: 3 productos con IGV incluido", _base_payload(
+        obs="T02: productos con IGV",
+        items=[
+            _item(111.0, 7, "laptop"),
+            _item(80.0, 3, "cámara"),
+            _item(20.0, 2, "pan"),
+        ],
     ))
 
 
-def test_c_productos_precalculados():
-    """C. 3 productos, sub/igv/total precalculados con calcular_item."""
-    productos = [
-        ("laptop", 7, 111.00),
-        ("cámara", 3, 80.00),
-        ("pan", 2, 20.00),
-    ]
-    items = []
-    for nombre, qty, pu in productos:
-        vals = calcular_item(pu, qty, igv_incluido=True, sin_igv=True)  # nota = sin IGV
-        items.append({
-            "id_inventario": None,
-            "id_catalogo": None,
-            "id_tipo_producto": 2,
-            "cantidad": qty,
-            "id_unidad": 1,
-            "precio_unitario": vals["precio_unitario"],
-            "concepto": nombre,
-            "valor_subtotal_item": vals["valor_subtotal_item"],
-            "porcentaje_descuento": 0,
-            "valor_descuento": 0,
-            "valor_isc": 0,
-            "valor_igv": vals["valor_igv"],
-            "valor_icbper": 0,
-            "valor_total_item": vals["valor_total_item"],
-            "anticipo": 0,
-            "otros_cargos": 0,
-            "otros_tributos": 0,
-        })
-    return _enviar("C) 3 productos — sub/igv/total PRECALCULADOS (nota)", _base_payload(
-        observaciones="Test C: productos precalculados",
-        detalle_items=items,
+def test_03_producto_sin_igv():
+    """Producto a precio base (sin IGV). Se convierte a precio con IGV."""
+    pu_base = 20.0
+    pu_con = precio_con_igv(pu_base, igv_incluido=False)  # 20 * 1.18 = 23.60
+    return _enviar(f"03: Producto sin IGV (base={pu_base}, con_igv={pu_con})", _base_payload(
+        obs="T03: producto sin IGV",
+        items=[_item(pu_con, 5, "pan sin IGV")],
     ))
 
 
-def test_d_productos_sin_desglose():
-    """D. 3 productos, sub=0, igv=0, total=qty*pu → ¿API calcula?"""
-    productos = [
-        ("laptop", 7, 111.00),
-        ("cámara", 3, 80.00),
-        ("pan", 2, 20.00),
-    ]
-    items = []
-    for nombre, qty, pu in productos:
-        items.append({
-            "id_inventario": None,
-            "id_catalogo": None,
-            "id_tipo_producto": 2,
-            "cantidad": qty,
-            "id_unidad": 1,
-            "precio_unitario": pu,
-            "concepto": nombre,
-            "valor_subtotal_item": 0,
-            "porcentaje_descuento": 0,
-            "valor_descuento": 0,
-            "valor_isc": 0,
-            "valor_igv": 0,
-            "valor_icbper": 0,
-            "valor_total_item": round(qty * pu, 2),
-            "anticipo": 0,
-            "otros_cargos": 0,
-            "otros_tributos": 0,
-        })
-    return _enviar("D) 3 productos — sub=0, igv=0, total=qty*pu (¿API calcula?)", _base_payload(
-        observaciones="Test D: productos sin desglose",
-        detalle_items=items,
+def test_04_mix_con_y_sin_igv():
+    """Mix: laptop con IGV (111), pan sin IGV (20 base → 23.60 con IGV)."""
+    pu_pan = precio_con_igv(20.0, igv_incluido=False)  # 23.60
+    return _enviar("04: Mix con IGV + sin IGV", _base_payload(
+        obs="T04: mix IGV",
+        items=[
+            _item(111.0, 7, "laptop (con IGV)"),
+            _item(pu_pan, 5, "pan (sin IGV → 23.60)"),
+        ],
     ))
 
 
-def test_e_factura_precalculado_con_sunat():
-    """E. Factura real con SUNAT (generacion_comprobante=1), precalculado con base→igv→total."""
-    productos = [
-        ("laptop", 7, 111.00),
-        ("cámara", 3, 80.00),
-        ("pan", 2, 20.00),
-    ]
-    items = []
-    for nombre, qty, pu in productos:
-        vals = calcular_item(pu, qty, igv_incluido=True, sin_igv=False)  # factura = con IGV
-        items.append({
-            "id_inventario": None,
-            "id_catalogo": None,
-            "id_tipo_producto": 2,
-            "cantidad": qty,
-            "id_unidad": 1,
-            "precio_unitario": vals["precio_unitario"],
-            "concepto": nombre,
-            "valor_subtotal_item": vals["valor_subtotal_item"],
-            "porcentaje_descuento": 0,
-            "valor_descuento": 0,
-            "valor_isc": 0,
-            "valor_igv": vals["valor_igv"],
-            "valor_icbper": 0,
-            "valor_total_item": vals["valor_total_item"],
-            "anticipo": 0,
-            "otros_cargos": 0,
-            "otros_tributos": 0,
-        })
-    return _enviar("E) Factura SUNAT — 3 productos precalculados base→igv→total", _base_payload(
-        id_tipo_comprobante=1,          # Factura
-        generacion_comprobante=1,       # Generar en SUNAT
-        observaciones="Test E: factura SUNAT precalculada",
-        detalle_items=items,
+def test_05_precios_decimales():
+    """Precios con decimales irregulares que causan problemas de redondeo."""
+    return _enviar("05: Precios decimales irregulares", _base_payload(
+        obs="T05: decimales",
+        items=[
+            _item(99.99, 7, "producto A"),
+            _item(33.33, 11, "producto B"),
+            _item(0.50, 100, "producto C"),
+            _item(1234.56, 3, "producto D"),
+        ],
     ))
 
 
-def test_f_factura_sin_desglose_con_sunat():
-    """F. Factura real SUNAT, sub=0, igv=0 → ¿SUNAT recalcula o rechaza?"""
-    productos = [
-        ("laptop", 7, 111.00),
-        ("cámara", 3, 80.00),
-        ("pan", 2, 20.00),
-    ]
-    items = []
-    for nombre, qty, pu in productos:
-        items.append({
-            "id_inventario": None,
-            "id_catalogo": None,
-            "id_tipo_producto": 2,
-            "cantidad": qty,
-            "id_unidad": 1,
-            "precio_unitario": round(pu / 1.18, 2),  # precio base como si fuera sin IGV
-            "concepto": nombre,
-            "valor_subtotal_item": 0,
-            "porcentaje_descuento": 0,
-            "valor_descuento": 0,
-            "valor_isc": 0,
-            "valor_igv": 0,
-            "valor_icbper": 0,
-            "valor_total_item": round(qty * pu, 2),
-            "anticipo": 0,
-            "otros_cargos": 0,
-            "otros_tributos": 0,
-        })
-    return _enviar("F) Factura SUNAT — sub=0, igv=0 (¿SUNAT recalcula o rechaza?)", _base_payload(
-        id_tipo_comprobante=1,
-        generacion_comprobante=1,
-        observaciones="Test F: factura SUNAT sin desglose",
-        detalle_items=items,
+def test_06_muchos_productos():
+    """10 productos distintos — estrés de acumulación de redondeo."""
+    items = [_item(round(50.0 + i * 17.33, 2), i + 1, f"prod_{i}") for i in range(10)]
+    return _enviar("06: 10 productos (estrés redondeo)", _base_payload(
+        obs="T06: 10 productos",
+        items=items,
     ))
+
+
+def test_07_un_centavo():
+    """Producto a S/0.01 × 1 — mínimo posible."""
+    return _enviar("07: Producto S/0.01 × 1", _base_payload(
+        obs="T07: un centavo",
+        items=[_item(0.01, 1, "centavo")],
+    ))
+
+
+def test_08_monto_grande():
+    """Monto grande S/99999.99 × 1."""
+    return _enviar("08: Monto grande S/99999.99", _base_payload(
+        obs="T08: monto grande",
+        items=[_item(99999.99, 1, "item caro")],
+    ))
+
+
+# ═══════════════════════════════════════════════════════════════
+#  TESTS CON SUNAT (facturas, generacion_comprobante=1)
+# ═══════════════════════════════════════════════════════════════
+
+def test_09_factura_simple():
+    """Factura SUNAT con 1 producto."""
+    return _enviar("09: Factura SUNAT simple", _base_payload(
+        tipo=1, gen=1, obs="T09: factura simple",
+        items=[_item(111.0, 7, "laptop")],
+    ))
+
+
+def test_10_factura_multi():
+    """Factura SUNAT con 3 productos (el caso del bug original)."""
+    return _enviar("10: Factura SUNAT 3 productos", _base_payload(
+        tipo=1, gen=1, obs="T10: factura multi",
+        items=_items_con_ajuste([(111.0, 7), (80.0, 3), (20.0, 2)], ["laptop", "cámara", "pan"]),
+    ))
+
+
+def test_11_factura_mix_igv():
+    """Factura SUNAT: laptop con IGV + pan sin IGV."""
+    pu_pan = precio_con_igv(20.0, igv_incluido=False)
+    return _enviar("11: Factura SUNAT mix IGV", _base_payload(
+        tipo=1, gen=1, obs="T11: factura mix",
+        items=[
+            _item(111.0, 7, "laptop (con IGV)"),
+            _item(pu_pan, 5, "pan (sin IGV → con IGV)"),
+        ],
+    ))
+
+
+def test_12_factura_decimales():
+    """Factura SUNAT con precios decimales complicados."""
+    return _enviar("12: Factura SUNAT decimales", _base_payload(
+        tipo=1, gen=1, obs="T12: factura decimales",
+        items=_items_con_ajuste(
+            [(99.99, 7), (33.33, 11), (1234.56, 3)],
+            ["Producto Alpha", "Producto Beta", "Producto Gamma"],
+        ),
+    ))
+
+
+def test_13_factura_muchos():
+    """Factura SUNAT con 8 productos — estrés de redondeo."""
+    prods = [(round(50.0 + i * 23.45, 2), i + 1) for i in range(8)]
+    nombres = [f"producto {i} test" for i in range(8)]
+    return _enviar("13: Factura SUNAT 8 productos", _base_payload(
+        tipo=1, gen=1, obs="T13: factura 8 items",
+        items=_items_con_ajuste(prods, nombres),
+    ))
+
+
+# ═══════════════════════════════════════════════════════════════
+#  VALIDACIÓN LOCAL: sumar_productos == sum(item totals)
+# ═══════════════════════════════════════════════════════════════
+
+def test_local_consistency():
+    """Valida que sumar_productos coincide con sum(pu_con_igv × qty) para muchos casos."""
+    import random
+    random.seed(42)
+    fails = 0
+    for trial in range(10000):
+        n = random.randint(1, 15)
+        prods = [{"precio_unitario": round(random.uniform(0.5, 5000), 2), "cantidad": random.randint(1, 100)} for _ in range(n)]
+
+        mt, _, _ = sumar_productos(prods, igv_incluido=True)
+
+        # Lo que PHP calcularía
+        php_total = sum(round(p["precio_unitario"] * p["cantidad"], 2) for p in prods)
+        php_total = round(php_total, 2)
+
+        if mt != php_total:
+            fails += 1
+
+    print(f"\n{'─'*60}")
+    print(f"  LOCAL: sumar_productos vs PHP-style sum")
+    print(f"{'─'*60}")
+    print(f"  {'✅' if fails == 0 else '❌'} Mismatches: {fails}/10000")
+    return fails == 0
 
 
 def main():
-    print("=" * 70)
-    print("  TEST: ¿La API recalcula IGV o usa nuestros valores?")
+    print("═" * 60)
+    print("  TEST ROBUSTO: Cálculo IGV contra API real")
     print(f"  Endpoint: {URL_VENTA}")
     print(f"  Fecha: {FECHA}")
-    print("=" * 70)
+    print("═" * 60)
 
+    # Local consistency
+    local_ok = test_local_consistency()
+
+    # Tests sin SUNAT (seguros)
+    print(f"\n{'═'*60}")
+    print("  TESTS SIN SUNAT (notas de venta)")
+    print(f"{'═'*60}")
     resultados = {}
+    for fn in [test_01_monto_directo, test_02_productos_con_igv, test_03_producto_sin_igv,
+               test_04_mix_con_y_sin_igv, test_05_precios_decimales,
+               test_06_muchos_productos, test_07_un_centavo, test_08_monto_grande]:
+        r = fn()
+        resultados[fn.__name__] = r
 
-    # Tests sin SUNAT (notas de venta — seguros)
-    resultados["A"] = test_a_monto_directo_precalculado()
-    resultados["B"] = test_b_monto_directo_sin_desglose()
-    resultados["C"] = test_c_productos_precalculados()
-    resultados["D"] = test_d_productos_sin_desglose()
-
-    # Tests con SUNAT (facturas — emiten comprobante real)
-    print(f"\n{'#'*70}")
-    print("  TESTS CON SUNAT (generan factura real)")
-    print(f"{'#'*70}")
-    resultados["E"] = test_e_factura_precalculado_con_sunat()
-    resultados["F"] = test_f_factura_sin_desglose_con_sunat()
+    # Tests con SUNAT
+    print(f"\n{'═'*60}")
+    print("  TESTS CON SUNAT (facturas reales)")
+    print(f"{'═'*60}")
+    for fn in [test_09_factura_simple, test_10_factura_multi, test_11_factura_mix_igv,
+               test_12_factura_decimales, test_13_factura_muchos]:
+        r = fn()
+        resultados[fn.__name__] = r
 
     # Resumen
-    print(f"\n{'='*70}")
+    print(f"\n{'═'*60}")
     print("  RESUMEN FINAL")
-    print(f"{'='*70}")
-    for k, v in resultados.items():
-        if v is None:
-            print(f"  {k}: ⚠ Sin respuesta (error conexión)")
-        elif v.get("success"):
-            print(f"  {k}: ✅ Aceptado (id_venta={v.get('id_venta')})")
+    print(f"{'═'*60}")
+    print(f"  Local consistency: {'✅' if local_ok else '❌'}")
+    ok_count = 0
+    fail_count = 0
+    for name, r in resultados.items():
+        label = r.get("_label", name) if r else name
+        if r and r.get("_ok"):
+            ok_count += 1
+            print(f"  ✅ {label}")
         else:
-            err = v.get("details") or v.get("error") or v.get("message") or "?"
-            err_short = str(err)[:80]
-            print(f"  {k}: ❌ Rechazado — {err_short}")
+            fail_count += 1
+            err = ""
+            if r:
+                err = str(r.get("details") or r.get("error") or r.get("_error") or "")[:60]
+            print(f"  ❌ {label} — {err}")
 
-    print()
-    print("INTERPRETACIÓN:")
-    print("  - Si A y B pasan → la API acepta sub=0/igv=0 (no valida desglose para notas)")
-    print("  - Si C y D pasan → la API acepta items sin desglose IGV para notas")
-    print("  - Si E pasa y F falla → SUNAT requiere desglose correcto (nuestro cálculo es necesario)")
-    print("  - Si E y F pasan → SUNAT/PHP recalcula IGV internamente (nuestro cálculo es redundante)")
+    print(f"\n  Total: {ok_count} OK, {fail_count} FAIL")
 
 
 if __name__ == "__main__":

@@ -68,6 +68,12 @@ def build_prompt_extractor(
     - Si el usuario NO menciona precio para un producto (ej: "3 cámaras", "agrega 2 monitores"), pon "precio": 0 y "precio_explicito": false. El backend buscará el precio en el catálogo.
     - **PROHIBIDO** copiar el precio de un producto a otro. Si laptop cuesta 111 y el usuario dice "3 cámaras" sin precio, la cámara lleva precio: 0 (NO 111).
 
+    ### IGV POR PRODUCTO:
+    Cada producto puede tener su propio "igv_incluido" (true/false). Por defecto true (el precio ya incluye IGV).
+    - Si el usuario dice "20 soles sin IGV", "más IGV", "neto", "base" para un producto específico: ese producto lleva "igv_incluido": false y el precio dado es la BASE. El backend calculará el precio con IGV (base × 1.18).
+    - Si el usuario no dice nada especial: "igv_incluido": true (precio tal cual incluye IGV).
+    - Ejemplo: "7 laptops a 111 y 5 panes a 20 sin igv" → laptop: precio=111, igv_incluido=true; pan: precio=20, igv_incluido=false.
+
     ### NOMBRES DE PRODUCTOS EN SINGULAR:
     Los nombres de productos siempre deben guardarse en **singular**, independientemente de cómo los diga el usuario.
     La cantidad va en el campo "cantidad", no en el nombre.
@@ -190,7 +196,7 @@ def build_prompt_extractor(
             "monto_sin_igv": float,
             "igv": float,
             "igv_incluido": "true (default, monto incluye IGV) o false (usuario dijo 'más IGV'/'sin IGV'/'base')",
-            "productos": [{{ "nombre": str, "cantidad": float, "precio": float, "precio_explicito": bool }}],
+            "productos": [{{ "nombre": str, "cantidad": float, "precio": float, "precio_explicito": bool, "igv_incluido": bool }}],
             "fecha_emision": "DD-MM-YYYY o null",
             "fecha_pago": "DD-MM-YYYY o null (debe ser >= fecha_emision)",
             "observacion": "texto libre o null — solo si el usuario indica voluntariamente una anotación, o si se activa el flujo nota sin documento (Ref: nombre entidad)"

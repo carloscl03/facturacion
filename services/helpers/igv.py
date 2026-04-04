@@ -1,15 +1,14 @@
 """
 Cálculo centralizado de IGV (18%) con precisión Decimal.
 
-Toda lógica de IGV del proyecto debe usar estas funciones para evitar
-inconsistencias entre el monto_total almacenado y el detalle enviado a la API.
-
-CONTRATO PHP (ws_sunat_venta.php / construirJsonSunat):
+CONTRATO PHP (confirmado con tests reales contra ws_venta.php):
   - precio_unitario en detalle_items = precio CON IGV (bruto)
-  - PHP calcula total comprobante: sum(precio_unitario × cantidad)
-  - SUNAT valida: total == sum(valor_total_item)
-  - Por lo tanto: valor_total_item DEBE ser = precio_unitario × cantidad
-  - valor_subtotal_item = base (sin IGV), valor_igv = total - base
+  - valor_total_item = precio_unitario × cantidad
+  - valor_subtotal_item = 0, valor_igv = 0 → PHP los recalcula internamente
+  - PHP valida: sum(precio_unitario × cantidad) == sum(valor_total_item)
+
+Nuestro cálculo de sub/igv es SOLO para el resumen visual al usuario.
+El payload a la API envía sub=0, igv=0 y deja que PHP calcule.
 """
 from __future__ import annotations
 
@@ -38,7 +37,7 @@ def calcular_igv(
     sin_igv: bool = False,
 ) -> tuple[float, float, float]:
     """
-    Calcula (monto_total, base, igv) de forma determinística.
+    Calcula (monto_total, base, igv) para resumen visual.
 
     - sin_igv=True  -> notas/honorarios: base=0, igv=0, total=monto
     - igv_incluido=True  -> monto ya incluye IGV (default)
@@ -64,60 +63,16 @@ def calcular_igv(
     return (float(total), float(base), float(igv))
 
 
-def calcular_item(
-    precio_unitario: float,
-    cantidad: float,
-    *,
-    igv_incluido: bool = True,
-    sin_igv: bool = False,
-) -> dict:
+def precio_con_igv(precio: float, *, igv_incluido: bool = True, sin_igv: bool = False) -> float:
     """
-    Calcula los valores de un ítem del detalle para la API.
+    Convierte un precio a precio CON IGV (lo que va en el payload como precio_unitario).
 
-    Contrato PHP: precio_unitario en el payload = precio CON IGV.
-    PHP calcula total = sum(precio_unitario × cantidad) y valida contra sum(valor_total_item).
-
-    Por lo tanto:
-      - precio_unitario (output) = precio CON IGV
-      - valor_total_item = precio_con_igv × cantidad  (lo que PHP calcularía)
-      - valor_subtotal_item = precio_base × cantidad
-      - valor_igv = total - subtotal
+    - Si igv_incluido=True o sin_igv=True: devuelve tal cual (ya incluye IGV o no aplica).
+    - Si igv_incluido=False: es base, agrega IGV (× 1.18).
     """
-    pu = Decimal(str(precio_unitario))
-    qty = Decimal(str(cantidad))
-
-    if sin_igv:
-        # Para notas: no hay IGV, precio_unitario = precio tal cual
-        total = (qty * pu).quantize(_2D, ROUND_HALF_UP)
-        return {
-            "precio_unitario": _r(pu),
-            "cantidad": float(qty),
-            "valor_subtotal_item": float(total),
-            "valor_igv": 0.0,
-            "valor_total_item": float(total),
-        }
-
-    if igv_incluido:
-        # Precio del usuario/catálogo ya incluye IGV → es el precio_unitario final
-        pu_con_igv = pu.quantize(_2D, ROUND_HALF_UP)
-        pu_base = (pu_con_igv / _FACTOR).quantize(_2D, ROUND_HALF_UP)
-    else:
-        # Precio del usuario es base → calcular precio con IGV
-        pu_base = pu.quantize(_2D, ROUND_HALF_UP)
-        pu_con_igv = (pu_base * _FACTOR).quantize(_2D, ROUND_HALF_UP)
-
-    # valor_total_item = pu_con_igv × qty  (exactamente como PHP lo calcularía)
-    total = (pu_con_igv * qty).quantize(_2D, ROUND_HALF_UP)
-    subtotal = (pu_base * qty).quantize(_2D, ROUND_HALF_UP)
-    igv = (total - subtotal).quantize(_2D, ROUND_HALF_UP)
-
-    return {
-        "precio_unitario": float(pu_con_igv),   # CON IGV (como espera PHP)
-        "cantidad": float(qty),
-        "valor_subtotal_item": float(subtotal),
-        "valor_igv": float(igv),
-        "valor_total_item": float(total),
-    }
+    if sin_igv or igv_incluido:
+        return round(precio, 2)
+    return _r(Decimal(str(precio)) * _FACTOR)
 
 
 def sumar_productos(
@@ -127,24 +82,41 @@ def sumar_productos(
     sin_igv: bool = False,
 ) -> tuple[float, float, float]:
     """
-    Suma todos los productos y retorna (monto_total, base, igv) consistente
-    con lo que calcular_item daría para cada uno.
+    Suma todos los productos y retorna (monto_total, base, igv).
 
-    Garantiza: monto_total == sum(valor_total_item) == total que PHP calcula
-    (sum de precio_unitario × cantidad por cada ítem).
+    Calcula monto_total = sum(precio_con_igv × cantidad), que es exactamente
+    lo que PHP calculará al recibir el payload.
+
+    Respeta igv_incluido por producto si el producto tiene el campo "igv_incluido".
     """
     total_acc = Decimal("0")
     base_acc = Decimal("0")
-    igv_acc = Decimal("0")
 
     for p in productos:
-        pu = float(p.get("precio_unitario") or p.get("precio") or 0)
+        pu_raw = float(p.get("precio_unitario") or p.get("precio") or 0)
         qty = float(p.get("cantidad", 1))
-        if pu <= 0:
+        if pu_raw <= 0:
             continue
-        item = calcular_item(pu, qty, igv_incluido=igv_incluido, sin_igv=sin_igv)
-        total_acc += Decimal(str(item["valor_total_item"]))
-        base_acc += Decimal(str(item["valor_subtotal_item"]))
-        igv_acc += Decimal(str(item["valor_igv"]))
 
-    return (_r(total_acc), _r(base_acc), _r(igv_acc))
+        # igv_incluido por producto (override del global)
+        p_igv_incl = p.get("igv_incluido")
+        if p_igv_incl is not None:
+            prod_igv_incluido = p_igv_incl is True or str(p_igv_incl).strip().lower() == "true"
+        else:
+            prod_igv_incluido = igv_incluido
+
+        pu_final = Decimal(str(precio_con_igv(pu_raw, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)))
+        q = Decimal(str(qty))
+
+        item_total = (pu_final * q).quantize(_2D, ROUND_HALF_UP)
+        total_acc += item_total
+
+        if not sin_igv:
+            pu_base = (pu_final / _FACTOR).quantize(_2D, ROUND_HALF_UP)
+            item_base = (pu_base * q).quantize(_2D, ROUND_HALF_UP)
+            base_acc += item_base
+
+    total = _r(total_acc)
+    base = _r(base_acc)
+    igv = round(total - base, 2) if not sin_igv else 0.0
+    return (total, base, igv)

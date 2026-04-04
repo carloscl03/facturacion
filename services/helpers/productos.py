@@ -151,14 +151,18 @@ def construir_detalle_desde_registro(
     id_unidad_default: int = 1,
 ) -> List[Dict[str, Any]]:
     """
-    Construye la lista de 'detalle_items' para el payload de venta
-    a partir de los productos del registro y los montos agregados.
+    Construye la lista de 'detalle_items' para el payload de venta.
 
-    Usa el módulo igv.py para cálculos consistentes con Decimal.
-    Respeta el flag igv_incluido del registro para saber si los precios
-    del usuario son base (sin IGV) o ya incluyen IGV.
+    CONTRATO PHP (confirmado con tests reales):
+      - precio_unitario = precio CON IGV (bruto)
+      - valor_total_item = precio_unitario × cantidad
+      - valor_subtotal_item = 0, valor_igv = 0 → PHP los recalcula
+      - PHP valida: sum(precio_unitario × cantidad) == sum(valor_total_item)
+
+    Respeta igv_incluido por producto: si un producto tiene igv_incluido=false,
+    su precio es base y se convierte a CON IGV (× 1.18) para el payload.
     """
-    from services.helpers.igv import calcular_igv, calcular_item, es_tipo_sin_igv
+    from services.helpers.igv import es_tipo_sin_igv, precio_con_igv
 
     productos: List[Dict[str, Any]] = []
     try:
@@ -174,29 +178,12 @@ def construir_detalle_desde_registro(
     tipo_doc = str(reg.get("tipo_documento") or "").strip().lower()
     sin_igv = es_tipo_sin_igv(tipo_doc)
 
-    # Leer flag igv_incluido del registro (default True = precios incluyen IGV)
+    # Flag global de igv_incluido (default True)
     igv_incluido_raw = reg.get("igv_incluido")
-    if igv_incluido_raw is None:
-        igv_incluido = True
-    else:
-        igv_incluido = igv_incluido_raw is True or str(igv_incluido_raw).strip().lower() == "true"
+    igv_incluido_global = igv_incluido_raw is None or igv_incluido_raw is True or str(igv_incluido_raw).strip().lower() == "true"
 
     if not productos:
-        mt = float(monto_total)
-        # Cálculo centralizado para ítem único (monto directo sin productos).
-        # monto_total en Redis ya fue calculado con calcular_igv(), así que
-        # usamos calcular_item para obtener precio_unitario como BASE (sin IGV)
-        # y valores sub/igv/total consistentes con la regla SUNAT base→igv→total.
-        item_vals = calcular_item(
-            mt, 1.0, igv_incluido=True, sin_igv=sin_igv,
-        )
-        # Preferir los valores ya calculados del registro si son consistentes
-        mb_final = float(monto_base) if monto_base > 0 else item_vals["valor_subtotal_item"]
-        mi_final = float(monto_igv) if monto_igv > 0 else item_vals["valor_igv"]
-        # Verificar consistencia: base + igv debe ser = total
-        if round(mb_final + mi_final, 2) != round(mt, 2):
-            mb_final = item_vals["valor_subtotal_item"]
-            mi_final = item_vals["valor_igv"]
+        mt = round(float(monto_total), 2)
         return [
             {
                 "id_inventario": reg.get("id_inventario"),
@@ -204,23 +191,30 @@ def construir_detalle_desde_registro(
                 "id_tipo_producto": 2,
                 "cantidad": 1,
                 "id_unidad": id_unidad,
-                "precio_unitario": item_vals["precio_unitario"],
+                "precio_unitario": mt,
                 "porcentaje_descuento": 0,
                 "valor_descuento": 0,
-                "valor_subtotal_item": round(mb_final, 2),
-                "valor_igv": round(mi_final, 2),
-                "valor_total_item": item_vals["valor_total_item"],
+                "valor_subtotal_item": 0,
+                "valor_igv": 0,
+                "valor_total_item": mt,
             }
         ]
 
     detalle = []
     for p in productos:
         qty = float(p.get("cantidad", 1))
-        pu = float(p.get("precio_unitario") or p.get("precio", 0))
-        # Calcular valores del ítem con el módulo centralizado
-        item_vals = calcular_item(
-            pu, qty, igv_incluido=igv_incluido, sin_igv=sin_igv,
-        )
+        pu_raw = float(p.get("precio_unitario") or p.get("precio", 0))
+
+        # igv_incluido por producto (override del global)
+        p_igv = p.get("igv_incluido")
+        if p_igv is not None:
+            prod_igv_incluido = p_igv is True or str(p_igv).strip().lower() == "true"
+        else:
+            prod_igv_incluido = igv_incluido_global
+
+        # Convertir a precio CON IGV — PHP recalcula sub/igv internamente
+        pu_final = precio_con_igv(pu_raw, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)
+
         detalle.append(
             {
                 "id_inventario": p.get("id_inventario") or reg.get("id_inventario"),
@@ -228,12 +222,12 @@ def construir_detalle_desde_registro(
                 "id_tipo_producto": p.get("id_tipo_producto", 2),
                 "cantidad": qty,
                 "id_unidad": p.get("id_unidad", id_unidad),
-                "precio_unitario": item_vals["precio_unitario"],
+                "precio_unitario": pu_final,
                 "porcentaje_descuento": float(p.get("porcentaje_descuento", 0)),
                 "valor_descuento": float(p.get("valor_descuento", 0)),
-                "valor_subtotal_item": item_vals["valor_subtotal_item"],
-                "valor_igv": item_vals["valor_igv"],
-                "valor_total_item": item_vals["valor_total_item"],
+                "valor_subtotal_item": 0,
+                "valor_igv": 0,
+                "valor_total_item": round(pu_final * qty, 2),
             }
         )
     return detalle

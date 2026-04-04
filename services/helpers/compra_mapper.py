@@ -40,30 +40,18 @@ def construir_detalles_compra(
     Usa el módulo igv.py para cálculos consistentes con Decimal.
     Respeta el flag igv_incluido del registro.
     """
-    from services.helpers.igv import calcular_igv, calcular_item, es_tipo_sin_igv
+    from services.helpers.igv import es_tipo_sin_igv, precio_con_igv
 
     productos = normalizar_productos_raw(reg.get("productos"))
     id_unidad = reg.get("id_unidad", id_unidad_default)
     tipo_doc = str(reg.get("tipo_documento") or "").strip().lower()
     sin_igv = es_tipo_sin_igv(tipo_doc)
 
-    # Leer flag igv_incluido del registro (default True)
     igv_incluido_raw = reg.get("igv_incluido")
-    if igv_incluido_raw is None:
-        igv_incluido = True
-    else:
-        igv_incluido = igv_incluido_raw is True or str(igv_incluido_raw).strip().lower() == "true"
+    igv_incluido_global = igv_incluido_raw is None or igv_incluido_raw is True or str(igv_incluido_raw).strip().lower() == "true"
 
     if not productos:
-        mt = float(monto_total)
-        item_vals = calcular_item(
-            mt, 1.0, igv_incluido=True, sin_igv=sin_igv,
-        )
-        mb_final = float(monto_base) if monto_base > 0 else item_vals["valor_subtotal_item"]
-        mi_final = float(monto_igv) if monto_igv > 0 else item_vals["valor_igv"]
-        if round(mb_final + mi_final, 2) != round(mt, 2):
-            mb_final = item_vals["valor_subtotal_item"]
-            mi_final = item_vals["valor_igv"]
+        mt = round(float(monto_total), 2)
         return [
             {
                 "id_inventario": reg.get("id_inventario"),
@@ -71,15 +59,15 @@ def construir_detalles_compra(
                 "id_tipo_producto": reg.get("id_tipo_producto", 1),
                 "cantidad": 1,
                 "id_unidad": id_unidad,
-                "precio_unitario": item_vals["precio_unitario"],
+                "precio_unitario": mt,
                 "concepto": str(reg.get("observacion") or "Compra").strip() or "Item compra",
-                "valor_subtotal_item": round(mb_final, 2),
+                "valor_subtotal_item": 0,
                 "porcentaje_descuento": 0,
                 "valor_descuento": 0,
                 "valor_isc": 0,
-                "valor_igv": round(mi_final, 2),
+                "valor_igv": 0,
                 "valor_icbper": 0,
-                "valor_total_item": item_vals["valor_total_item"],
+                "valor_total_item": mt,
                 "anticipo": 0,
                 "otros_cargos": 0,
                 "otros_tributos": 0,
@@ -89,10 +77,15 @@ def construir_detalles_compra(
     detalles: List[Dict[str, Any]] = []
     for p in productos:
         qty = float(p.get("cantidad", 1))
-        pu = float(p.get("precio_unitario") or p.get("precio", 0))
-        item_vals = calcular_item(
-            pu, qty, igv_incluido=igv_incluido, sin_igv=sin_igv,
-        )
+        pu_raw = float(p.get("precio_unitario") or p.get("precio", 0))
+
+        p_igv = p.get("igv_incluido")
+        if p_igv is not None:
+            prod_igv_incluido = p_igv is True or str(p_igv).strip().lower() == "true"
+        else:
+            prod_igv_incluido = igv_incluido_global
+
+        pu_final = precio_con_igv(pu_raw, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)
         concepto = str(p.get("nombre") or p.get("concepto") or "Item").strip() or "Producto"
         detalles.append(
             {
@@ -101,15 +94,15 @@ def construir_detalles_compra(
                 "id_tipo_producto": p.get("id_tipo_producto", reg.get("id_tipo_producto", 1)),
                 "cantidad": qty,
                 "id_unidad": p.get("id_unidad", id_unidad),
-                "precio_unitario": item_vals["precio_unitario"],
+                "precio_unitario": pu_final,
                 "concepto": concepto,
-                "valor_subtotal_item": item_vals["valor_subtotal_item"],
+                "valor_subtotal_item": 0,
                 "porcentaje_descuento": float(p.get("porcentaje_descuento", 0)),
                 "valor_descuento": float(p.get("valor_descuento", 0)),
                 "valor_isc": 0,
-                "valor_igv": item_vals["valor_igv"],
+                "valor_igv": 0,
                 "valor_icbper": 0,
-                "valor_total_item": item_vals["valor_total_item"],
+                "valor_total_item": round(pu_final * qty, 2),
                 "anticipo": 0,
                 "otros_cargos": 0,
                 "otros_tributos": 0,
