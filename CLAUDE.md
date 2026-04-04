@@ -62,11 +62,26 @@ Operations progress through states 0→5:
 
 ### IGV Calculation
 
-All IGV logic is centralized in `services/helpers/igv.py` using `Decimal` for precision:
-- **Factura/Boleta**: 18% IGV. Default: precio incluye IGV. Si usuario dice "más IGV": precio es base.
-- **Nota de venta/compra, Recibo por honorarios**: Sin IGV (base=0, igv=0, total=monto directo).
-- The `igv_incluido` flag in Redis controls whether prices are treated as base or IGV-inclusive.
-- `calcular_igv()` for aggregate amounts, `calcular_item()` for per-product detalle, `sumar_productos()` for consistent totals.
+All IGV logic is centralized in `services/helpers/igv.py` using `Decimal` for precision.
+
+**REGLA SUNAT CRÍTICA**: Los cálculos van siempre de **base → IGV → total** (nunca al revés):
+- `precio_unitario` en el detalle = precio BASE (sin IGV)
+- `valor_subtotal_item = precio_base × cantidad`
+- `valor_igv = subtotal × 0.18`
+- `valor_total_item = subtotal + igv`
+
+Esto garantiza `sum(subtotal) + sum(igv) == sum(total)`, que es lo que SUNAT valida.
+
+**Funciones**:
+- `calcular_igv(monto)` — (total, base, igv) para montos directos
+- `calcular_item(pu, qty)` — valores de un ítem del detalle (precio_unitario siempre sale como base)
+- `sumar_productos(prods)` — suma consistente con lo que `calcular_item` da por cada producto
+
+**Escenarios**:
+- **Factura/Boleta**: 18% IGV. Default: precio incluye IGV (`igv_incluido=True`). Si usuario dice "más IGV": `igv_incluido=False`.
+- **Nota de venta/compra, Recibo por honorarios**: Sin IGV (`sin_igv=True`).
+- El flag `igv_incluido` se almacena en Redis y se propaga a `construir_detalle_desde_registro` y `construir_detalles_compra`.
+- En `_construir_payload`, cuando hay productos, `monto_total` se calcula con `sumar_productos()` (no con suma float) para que sea idéntico a lo que el detalle enviará a SUNAT.
 
 ### Key business rules
 

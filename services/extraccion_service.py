@@ -594,13 +594,20 @@ class ExtraccionService:
 
         if hubo_cambio:
             payload_db["productos"] = productos_a_str(productos)
-            # Recalcular monto_total desde todos los productos
-            monto_total = sum(
-                float(p.get("total_item") or 0) or (float(p.get("cantidad", 1)) * float(p.get("precio_unitario") or p.get("precio") or 0))
-                for p in productos
+            # Recalcular monto_total usando sumar_productos (consistente con detalle SUNAT)
+            tipo_doc = str(estado_actual.get("tipo_documento") or "").strip().lower()
+            sin_igv_cat = es_tipo_sin_igv(tipo_doc)
+            igv_incl_raw = estado_actual.get("igv_incluido", True)
+            igv_incl = igv_incl_raw is True or str(igv_incl_raw).strip().lower() == "true"
+            monto_total, monto_base, monto_igv = sumar_productos(
+                productos, igv_incluido=igv_incl, sin_igv=sin_igv_cat,
             )
             if monto_total > 0:
-                payload_db["monto_total"] = round(monto_total, 2)
+                payload_db["monto_total"] = monto_total
+                payload_db["monto_sin_igv"] = monto_base
+                payload_db["monto_base"] = monto_base
+                payload_db["igv"] = monto_igv
+                payload_db["monto_impuesto"] = monto_igv
             # Guardar feedback para concatenar al texto_completo
             payload_db["_feedback_catalogo"] = "\n".join(lineas_feedback)
 
@@ -762,10 +769,8 @@ class ExtraccionService:
             float(p.get("precio_unitario") or p.get("precio") or 0) > 0
             for p in productos_existentes
         )
+        # monto_total_override se calculará después con sumar_productos() (post-igv_incluido)
         monto_total_override: float | None = None
-        if tiene_productos_con_precio:
-            # La suma bruta (sin considerar IGV aún) se usa como insumo para el cálculo centralizado
-            monto_total_override = round(sum(float(p.get("total_item") or 0) for p in productos_existentes), 2)
 
         def obtener(campo_nuevo, campo_viejo=None, default=None):
             nuevo = propuesta.get(campo_nuevo)
@@ -851,7 +856,14 @@ class ExtraccionService:
         # --- Cálculo centralizado de IGV (Decimal) ---
         sin_igv = es_nota or es_honorarios
 
-        if sin_igv:
+        if tiene_productos_con_precio:
+            # Con productos: usar sumar_productos() para obtener montos EXACTAMENTE
+            # iguales a lo que construir_detalle_desde_registro enviará a SUNAT.
+            # Esto garantiza sum(sub) + sum(igv) == sum(total) == monto_total.
+            monto_total, monto_sin_igv, igv_val = sumar_productos(
+                productos_existentes, igv_incluido=igv_incluido, sin_igv=sin_igv,
+            )
+        elif sin_igv:
             # Notas y honorarios: sin IGV
             monto_total, monto_sin_igv, igv_val = calcular_igv(
                 monto_total, igv_incluido=True, sin_igv=True,

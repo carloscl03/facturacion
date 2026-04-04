@@ -56,11 +56,14 @@ def construir_detalles_compra(
 
     if not productos:
         mt = float(monto_total)
-        mt_calc, mb_calc, mi_calc = calcular_igv(
-            mt, igv_incluido=True, sin_igv=sin_igv,
+        item_vals = calcular_item(
+            mt, 1.0, igv_incluido=True, sin_igv=sin_igv,
         )
-        mb_final = float(monto_base) if monto_base > 0 else mb_calc
-        mi_final = float(monto_igv) if monto_igv > 0 else mi_calc
+        mb_final = float(monto_base) if monto_base > 0 else item_vals["valor_subtotal_item"]
+        mi_final = float(monto_igv) if monto_igv > 0 else item_vals["valor_igv"]
+        if round(mb_final + mi_final, 2) != round(mt, 2):
+            mb_final = item_vals["valor_subtotal_item"]
+            mi_final = item_vals["valor_igv"]
         return [
             {
                 "id_inventario": reg.get("id_inventario"),
@@ -68,7 +71,7 @@ def construir_detalles_compra(
                 "id_tipo_producto": reg.get("id_tipo_producto", 1),
                 "cantidad": 1,
                 "id_unidad": id_unidad,
-                "precio_unitario": round(mt, 2),
+                "precio_unitario": item_vals["precio_unitario"],
                 "concepto": str(reg.get("observacion") or "Compra").strip() or "Item compra",
                 "valor_subtotal_item": round(mb_final, 2),
                 "porcentaje_descuento": 0,
@@ -76,7 +79,7 @@ def construir_detalles_compra(
                 "valor_isc": 0,
                 "valor_igv": round(mi_final, 2),
                 "valor_icbper": 0,
-                "valor_total_item": round(mt, 2),
+                "valor_total_item": item_vals["valor_total_item"],
                 "anticipo": 0,
                 "otros_cargos": 0,
                 "otros_tributos": 0,

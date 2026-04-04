@@ -176,13 +176,20 @@ def construir_detalle_desde_registro(
 
     if not productos:
         mt = float(monto_total)
-        # Cálculo centralizado para ítem único (monto directo sin productos)
-        mt_calc, mb_calc, mi_calc = calcular_igv(
-            mt, igv_incluido=True, sin_igv=sin_igv,
+        # Cálculo centralizado para ítem único (monto directo sin productos).
+        # monto_total en Redis ya fue calculado con calcular_igv(), así que
+        # usamos calcular_item para obtener precio_unitario como BASE (sin IGV)
+        # y valores sub/igv/total consistentes con la regla SUNAT base→igv→total.
+        item_vals = calcular_item(
+            mt, 1.0, igv_incluido=True, sin_igv=sin_igv,
         )
         # Preferir los valores ya calculados del registro si son consistentes
-        mb_final = float(monto_base) if monto_base > 0 else mb_calc
-        mi_final = float(monto_igv) if monto_igv > 0 else mi_calc
+        mb_final = float(monto_base) if monto_base > 0 else item_vals["valor_subtotal_item"]
+        mi_final = float(monto_igv) if monto_igv > 0 else item_vals["valor_igv"]
+        # Verificar consistencia: base + igv debe ser = total
+        if round(mb_final + mi_final, 2) != round(mt, 2):
+            mb_final = item_vals["valor_subtotal_item"]
+            mi_final = item_vals["valor_igv"]
         return [
             {
                 "id_inventario": reg.get("id_inventario"),
@@ -190,12 +197,12 @@ def construir_detalle_desde_registro(
                 "id_tipo_producto": 2,
                 "cantidad": 1,
                 "id_unidad": id_unidad,
-                "precio_unitario": round(mt, 2),
+                "precio_unitario": item_vals["precio_unitario"],
                 "porcentaje_descuento": 0,
                 "valor_descuento": 0,
                 "valor_subtotal_item": round(mb_final, 2),
                 "valor_igv": round(mi_final, 2),
-                "valor_total_item": round(mt, 2),
+                "valor_total_item": item_vals["valor_total_item"],
             }
         ]
 
