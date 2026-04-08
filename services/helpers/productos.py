@@ -154,15 +154,15 @@ def construir_detalle_desde_registro(
     Construye la lista de 'detalle_items' para el payload de venta.
 
     CONTRATO PHP (confirmado con tests reales):
-      - precio_unitario = precio CON IGV (bruto)
-      - valor_total_item = precio_unitario × cantidad
+      - precio_unitario = precio BASE (sin IGV)
       - valor_subtotal_item = 0, valor_igv = 0 → PHP los recalcula
-      - PHP valida: sum(precio_unitario × cantidad) == sum(valor_total_item)
+      - valor_total_item = round(round(pu*1.18,2)*qty / 1.18, 2) — consistente
+        con PHP que valida round(pu*1.18,2)*qty == round(vti*1.18,2)
 
     Respeta igv_incluido por producto: si un producto tiene igv_incluido=false,
     su precio es base y se convierte a CON IGV (× 1.18) para el payload.
     """
-    from services.helpers.igv import es_tipo_sin_igv, precio_base
+    from services.helpers.igv import es_tipo_sin_igv, precio_base, valor_total_item as _vti
 
     productos: List[Dict[str, Any]] = []
     try:
@@ -198,7 +198,7 @@ def construir_detalle_desde_registro(
                 "valor_descuento": 0,
                 "valor_subtotal_item": 0,
                 "valor_igv": 0,
-                "valor_total_item": pu_b,
+                "valor_total_item": _vti(pu_b, 1, sin_igv=sin_igv),
             }
         ]
 
@@ -232,7 +232,7 @@ def construir_detalle_desde_registro(
                 "valor_descuento": float(p.get("valor_descuento", 0)),
                 "valor_subtotal_item": 0,
                 "valor_igv": 0,
-                "valor_total_item": round(pu_b * qty, 2),
+                "valor_total_item": _vti(pu_b, qty, sin_igv=sin_igv),
             }
         )
     return detalle

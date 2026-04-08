@@ -107,10 +107,16 @@ class SunatClient:
         # N8N (ws_venta.php) puede demorar porque incluye generación SUNAT y SP.
         # Un timeout bajo termina en gateways/proxies con 502 y/o cuerpo no-JSON.
         timeout_s = 90 if cod_ope in ("REGISTRAR_VENTA", "REGISTRAR_VENTA_N8N") else 60
+        import json as _json, logging as _log
+        _logger = _log.getLogger("sunat_client")
+        _logger.info("REQUEST %s %s payload_keys=%s items=%d", cod_ope, self._url,
+                      list(payload.keys()), len(payload.get("detalle_items") or payload.get("detalles") or []))
         try:
             res = requests.post(self._url, json=payload, headers=headers, timeout=timeout_s)
         except requests.RequestException as e:
             return SunatResult(success=False, error_mensaje=str(e))
+
+        _logger.info("RESPONSE HTTP %d body=%s", res.status_code, (res.text or "")[:500])
 
         try:
             res_json = res.json()

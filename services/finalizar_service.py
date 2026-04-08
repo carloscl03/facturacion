@@ -228,6 +228,9 @@ class FinalizarService:
             params=params,
         )
 
+        import json as _json, logging as _log
+        _log.getLogger("finalizar").info("PAYLOAD VENTA SUNAT: %s", _json.dumps(payload, ensure_ascii=False, default=str))
+
         resultado = self._sunat.crear_venta(payload)
 
         if resultado.success:

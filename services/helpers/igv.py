@@ -17,6 +17,7 @@ from decimal import Decimal, ROUND_HALF_UP
 _TASA = Decimal("0.18")
 _FACTOR = Decimal("1.18")
 _2D = Decimal("0.01")
+_10D = Decimal("0.0000000001")  # 10 decimales para precio_unitario (precisión SUNAT UBL)
 
 
 def _r(d: Decimal) -> float:
@@ -67,12 +68,20 @@ def precio_base(precio: float, *, igv_incluido: bool = True, sin_igv: bool = Fal
     """
     Convierte un precio a precio BASE (sin IGV) para el payload.
 
-    - Si igv_incluido=True: extraer base (÷ 1.18).
-    - Si igv_incluido=False o sin_igv=True: ya es base, devolver tal cual.
+    2 decimales — PHP redondea pu a 2dp en ambos caminos de validación,
+    por lo que enviar más precisión causa mismatch.
     """
     if sin_igv or not igv_incluido:
         return round(precio, 2)
     return _r(Decimal(str(precio)) / _FACTOR)
+
+
+def valor_total_item(pu_base: float, qty: float, *, sin_igv: bool = False) -> float:
+    """
+    Calcula valor_total_item = pu_base × qty a 2 decimales.
+    PHP usa 2dp para pu en ambos caminos de validación.
+    """
+    return _r(Decimal(str(pu_base)) * Decimal(str(qty)))
 
 
 def sumar_productos(
