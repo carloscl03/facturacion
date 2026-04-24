@@ -420,8 +420,7 @@ class ExtraccionService:
         msg = mensaje.strip()
         msg_lower = msg.lower()
 
-        print(f"[producto_pendiente] mensaje recibido: {repr(msg)}", flush=True)
-        print(f"[producto_pendiente] candidatos: {[c.get('nombre') for c in candidatos]}", flush=True)
+        _log.debug("producto_pendiente_inicio", extra={"wa_id": wa_id, "id_from": id_from, "n_candidatos": len(candidatos)})
 
         # Estrategia de match (del más específico al más agresivo):
         seleccionado = None
@@ -475,9 +474,9 @@ class ExtraccionService:
                     break
 
         if seleccionado:
-            print(f"[producto_pendiente] match: {seleccionado.get('nombre')}", flush=True)
+            _log.debug("producto_pendiente_match", extra={"wa_id": wa_id, "id_from": id_from, "producto": seleccionado.get("nombre")})
         else:
-            print(f"[producto_pendiente] SIN match, limpiando pendiente y cola", flush=True)
+            _log.debug("producto_pendiente_sin_match", extra={"wa_id": wa_id, "id_from": id_from})
             # No matchea: limpiar pendiente + cola y dejar que el flujo normal procese
             self._repo.actualizar(wa_id, id_from, {
                 "producto_pendiente": "",

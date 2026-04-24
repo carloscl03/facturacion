@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from api.deps import get_ai_service, get_cache_repo, get_informacion_repo, get_parametros_repo
 from config import settings
+from config.logging_config import get_logger
 from repositories.base import CacheRepository
 from repositories.informacion_repository import InformacionRepository
 from repositories.parametros_repository import ParametrosRepository
@@ -23,6 +24,7 @@ OPCIONES_ACTUALES_KEY = "opciones_actuales"
 MENSAJE_FINALIZAR = "Por favor, bríndame una confirmación para continuar"
 
 router = APIRouter()
+_log = get_logger("maravia.routes.opciones")
 
 
 class OpcionesBody(BaseModel):
@@ -70,22 +72,11 @@ async def opciones(
         else (b.id_empresa if b.id_empresa is not None else (b.id_empresa_whatsapp if b.id_empresa_whatsapp is not None else settings.ID_EMPRESA_WHATSAPP))
     )
 
-    # DEBUG: traza de entrada a /opciones
-    print(
-        "[/opciones] IN:",
-        {
-            "wa_id": wa_id,
-            "id_from": id_from,
-            "id_empresa": id_empresa_wa_final,
-            "id_plataforma": id_plataforma_final,
-            "mensaje": mensaje,
-            "q_action": action,
-            "q_campo": campo,
-            "q_valor": valor,
-            "body": body.model_dump() if body else None,
-        },
-        flush=True,
-    )
+    _log.debug("opciones_request", extra={
+        "wa_id": wa_id, "id_from": id_from,
+        "id_empresa": id_empresa_wa_final, "id_plataforma": id_plataforma_final,
+        "action": action, "campo": campo,
+    })
 
     # Prioridad de origen:
     # 1) Query param (action/campo/valor) si vienen.
@@ -149,11 +140,7 @@ async def opciones(
 
     service = OpcionesService(cache, informacion, parametros, ai=ai)
     if action_final == "submit":
-        print(
-            "[/opciones] MODO submit:",
-            {"action_final": action_final, "campo_final": campo_final, "valor_final": valor_final},
-            flush=True,
-        )
+        _log.debug("opciones_modo_submit", extra={"wa_id": wa_id, "id_from": id_from, "campo": campo_final})
         if campo_final is None:
             return _respuesta_con_debug({"success": False, "mensaje": "Se requiere campo para action=submit.", "debug": {"etapa": "falta_campo"}})
         if valor_final is None and campo_final:
@@ -196,11 +183,7 @@ async def opciones(
             out["whatsapp_oficial_debug"] = debug_of
         return _respuesta_con_debug(out)
 
-    print(
-        "[/opciones] MODO get_next:",
-        {"action_final": action_final},
-        flush=True,
-    )
+    _log.debug("opciones_modo_get_next", extra={"wa_id": wa_id, "id_from": id_from})
     out = service.get_next(wa_id, id_from, id_plataforma_final)
     payload_list = out.get("payload_whatsapp_list")
     if payload_list:
