@@ -21,71 +21,66 @@ En el panel web de EasyPanel:
 
 Ahí se ven en vivo, sin necesidad de saber el `container_id`.
 
-### 1.2 Ver logs por Docker (solo si tienes SSH al host de EasyPanel)
+### 1.2 Ver logs por Docker (SOLO desde el HOST de EasyPanel)
 
-Primero necesitas saber el `<container_id>` — lo obtienes con `docker ps`:
+> ⚠️ **Importante:** estos comandos NO funcionan desde dentro del contenedor (cuando ves `root@f4db0e9faf0b:/app#` estás DENTRO y no tienes acceso al daemon Docker). Tienen que ejecutarse por SSH en el **servidor físico** donde corre EasyPanel.
+>
+> Si solo tienes acceso al contenedor, **usa el panel web** (sección 1.1) o el **CLI persistente** (sección 2).
+
+Primero, conectándote por SSH al host, obtén el nombre del contenedor:
 
 ```bash
-# Lista todos los contenedores corriendo
-docker ps
-
-# Filtrar por el bot (EasyPanel suele nombrar: <proyecto>_<servicio>_1)
 docker ps | grep maravia
-
-# Solo el ID del contenedor con nombre "maravia"
-docker ps --filter "name=maravia" -q
 ```
 
-Puedes usar el **CONTAINER ID** (hash corto, ej `a1b2c3d4e5f6`) o el **NAMES** (ej `maravia-bot_app_1`). Ambos funcionan como `<container_id>`.
+El nombre del contenedor del bot es **`maravia/facturacion`** (o similar — verifica con `docker ps`). Comandos hardcodeados:
 
 ```bash
-# Últimas 200 líneas (reemplaza <c> por el ID o nombre)
-docker logs --tail 200 <c>
+# Últimas 200 líneas
+docker logs --tail 200 maravia/facturacion
 
 # Seguir en vivo (tail -f)
-docker logs -f <c>
+docker logs -f maravia/facturacion
 
 # Con timestamps del sistema
-docker logs -f -t <c>
+docker logs -f -t maravia/facturacion
 
 # Últimos 15 minutos
-docker logs --since 15m <c>
+docker logs --since 15m maravia/facturacion
 
 # Desde una fecha específica
-docker logs --since 2026-04-24T10:00:00 <c>
+docker logs --since 2026-04-24T10:00:00 maravia/facturacion
 ```
 
-**Nota:** desde dentro del contenedor (`/app #`) **no** puedes usar `docker logs` — el daemon de Docker no está expuesto al interior del contenedor. Usa el panel web o SSH al host.
-
-### 1.3 Filtros con `grep` y `jq`
+### 1.3 Filtros con `grep` y `jq` (desde el HOST, no desde dentro)
 
 ```bash
 # Solo errores
-docker logs <c> 2>&1 | grep '"level": "ERROR"'
+docker logs maravia/facturacion 2>&1 | grep '"level": "ERROR"'
 
 # Solo warnings
-docker logs <c> 2>&1 | grep '"level": "WARNING"'
+docker logs maravia/facturacion 2>&1 | grep '"level": "WARNING"'
 
 # Todo lo de un usuario específico
-docker logs <c> 2>&1 | grep '"wa_id": "51987654321"'
+docker logs maravia/facturacion 2>&1 | grep '"wa_id": "51987654321"'
 
 # Solo eventos de finalización (SUNAT/compra)
-docker logs <c> 2>&1 | grep '"logger": "maravia.finalizar"'
+docker logs maravia/facturacion 2>&1 | grep '"logger": "maravia.finalizar"'
 
 # Solo eventos de extracción IA
-docker logs <c> 2>&1 | grep '"logger": "maravia.extraccion"'
+docker logs maravia/facturacion 2>&1 | grep '"logger": "maravia.extraccion"'
 
 # Errores de un usuario específico (combinando)
-docker logs <c> 2>&1 | grep '"wa_id": "51987654321"' | grep '"level": "ERROR"'
+docker logs maravia/facturacion 2>&1 | grep '"wa_id": "51987654321"' | grep '"level": "ERROR"'
 
 # Pretty-print con jq
-docker logs <c> 2>&1 | grep '"level": "ERROR"' | jq .
+docker logs maravia/facturacion 2>&1 | grep '"level": "ERROR"' | jq .
 
 # Solo el mensaje + wa_id + error
-docker logs <c> 2>&1 | grep '"level": "ERROR"' | jq '{ts, msg, wa_id, error}'
+docker logs maravia/facturacion 2>&1 | grep '"level": "ERROR"' | jq '{ts, msg, wa_id, error}'
 
 # Contar errores por tipo
-docker logs <c> 2>&1 | grep '"level": "ERROR"' | jq -r .msg | sort | uniq -c | sort -rn
+docker logs maravia/facturacion 2>&1 | grep '"level": "ERROR"' | jq -r .msg | sort | uniq -c | sort -rn
 ```
 
 ### 1.4 Eventos clave que puedes filtrar
