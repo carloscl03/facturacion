@@ -153,16 +153,17 @@ def construir_detalle_desde_registro(
     """
     Construye la lista de 'detalle_items' para el payload de venta.
 
-    CONTRATO PHP (confirmado con tests reales):
-      - precio_unitario = precio BASE (sin IGV)
-      - valor_subtotal_item = 0, valor_igv = 0 → PHP los recalcula
-      - valor_total_item = round(round(pu*1.18,2)*qty / 1.18, 2) — consistente
-        con PHP que valida round(pu*1.18,2)*qty == round(vti*1.18,2)
+    CONTRATO PHP (test_precalculado.py contra ws_venta.php):
+      - precio_unitario = pu_base (10dp para precisión SUNAT)
+      - valor_subtotal_item = round(pu_base × qty, 2)
+      - valor_igv = round(subtotal × 0.18, 2)
+      - valor_total_item = subtotal + igv (CON IGV)
+      - El SP suma valor_total_item → Venta.monto queda con IGV correcto
 
     Respeta igv_incluido por producto: si un producto tiene igv_incluido=false,
-    su precio es base y se convierte a CON IGV (× 1.18) para el payload.
+    su precio es base; si es True (default), su precio incluye IGV.
     """
-    from services.helpers.igv import es_tipo_sin_igv, precio_base, valor_total_item as _vti
+    from services.helpers.igv import calcular_item, es_tipo_sin_igv
 
     productos: List[Dict[str, Any]] = []
     try:
@@ -184,8 +185,7 @@ def construir_detalle_desde_registro(
 
     if not productos:
         mt = round(float(monto_total), 2)
-        # monto_total es con IGV → extraer base para el payload
-        pu_b = precio_base(mt, igv_incluido=True, sin_igv=sin_igv)
+        pu_b, sub, igv, total = calcular_item(mt, 1, igv_incluido=True, sin_igv=sin_igv)
         return [
             {
                 "id_inventario": reg.get("id_inventario"),
@@ -196,9 +196,9 @@ def construir_detalle_desde_registro(
                 "precio_unitario": pu_b,
                 "porcentaje_descuento": 0,
                 "valor_descuento": 0,
-                "valor_subtotal_item": 0,
-                "valor_igv": 0,
-                "valor_total_item": _vti(pu_b, 1, sin_igv=sin_igv),
+                "valor_subtotal_item": sub,
+                "valor_igv": igv,
+                "valor_total_item": total,
             }
         ]
 
@@ -212,13 +212,9 @@ def construir_detalle_desde_registro(
         # - Productos sin catálogo: usar el GLOBAL (la IA no es confiable con este campo
         #   per-producto — suele copiar igv_incluido=true a todos por defecto)
         tiene_catalogo = bool(p.get("id_catalogo"))
-        if tiene_catalogo:
-            prod_igv_incluido = True
-        else:
-            prod_igv_incluido = igv_incluido_global
+        prod_igv_incluido = True if tiene_catalogo else igv_incluido_global
 
-        # Convertir a precio BASE (sin IGV) — PHP agrega 18% internamente
-        pu_b = precio_base(pu_raw, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)
+        pu_b, sub, igv, total = calcular_item(pu_raw, qty, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)
 
         detalle.append(
             {
@@ -231,9 +227,9 @@ def construir_detalle_desde_registro(
                 "concepto": str(p.get("nombre") or p.get("concepto") or "").strip(),
                 "porcentaje_descuento": float(p.get("porcentaje_descuento", 0)),
                 "valor_descuento": float(p.get("valor_descuento", 0)),
-                "valor_subtotal_item": 0,
-                "valor_igv": 0,
-                "valor_total_item": _vti(pu_b, qty, sin_igv=sin_igv),
+                "valor_subtotal_item": sub,
+                "valor_igv": igv,
+                "valor_total_item": total,
             }
         )
     return detalle

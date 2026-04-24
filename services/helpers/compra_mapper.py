@@ -37,10 +37,10 @@ def construir_detalles_compra(
     Construye la lista 'detalles' para el payload de compra (API ws_compra.php)
     a partir de los productos del registro y montos agregados.
 
-    Usa el módulo igv.py para cálculos consistentes con Decimal.
+    Usa calcular_item para llenar sub/igv/total precalculados (contrato base→IGV→total).
     Respeta el flag igv_incluido del registro.
     """
-    from services.helpers.igv import es_tipo_sin_igv, precio_base, valor_total_item as _vti
+    from services.helpers.igv import calcular_item, es_tipo_sin_igv
 
     productos = normalizar_productos_raw(reg.get("productos"))
     id_unidad = reg.get("id_unidad", id_unidad_default)
@@ -52,6 +52,7 @@ def construir_detalles_compra(
 
     if not productos:
         mt = round(float(monto_total), 2)
+        pu_b, sub, igv, total = calcular_item(mt, 1, igv_incluido=True, sin_igv=sin_igv)
         return [
             {
                 "id_inventario": reg.get("id_inventario"),
@@ -59,15 +60,15 @@ def construir_detalles_compra(
                 "id_tipo_producto": reg.get("id_tipo_producto", 1),
                 "cantidad": 1,
                 "id_unidad": id_unidad,
-                "precio_unitario": mt,
+                "precio_unitario": pu_b,
                 "concepto": str(reg.get("observacion") or "Compra").strip() or "Item compra",
-                "valor_subtotal_item": 0,
+                "valor_subtotal_item": sub,
                 "porcentaje_descuento": 0,
                 "valor_descuento": 0,
                 "valor_isc": 0,
-                "valor_igv": 0,
+                "valor_igv": igv,
                 "valor_icbper": 0,
-                "valor_total_item": _vti(mt, 1, sin_igv=sin_igv),
+                "valor_total_item": total,
                 "anticipo": 0,
                 "otros_cargos": 0,
                 "otros_tributos": 0,
@@ -80,12 +81,9 @@ def construir_detalles_compra(
         pu_raw = float(p.get("precio_unitario") or p.get("precio", 0))
 
         tiene_catalogo = bool(p.get("id_catalogo"))
-        if tiene_catalogo:
-            prod_igv_incluido = True
-        else:
-            prod_igv_incluido = igv_incluido_global
+        prod_igv_incluido = True if tiene_catalogo else igv_incluido_global
 
-        pu_final = precio_base(pu_raw, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)
+        pu_b, sub, igv, total = calcular_item(pu_raw, qty, igv_incluido=prod_igv_incluido, sin_igv=sin_igv)
         concepto = str(p.get("nombre") or p.get("concepto") or "Item").strip() or "Producto"
         detalles.append(
             {
@@ -94,15 +92,15 @@ def construir_detalles_compra(
                 "id_tipo_producto": p.get("id_tipo_producto", reg.get("id_tipo_producto", 1)),
                 "cantidad": qty,
                 "id_unidad": p.get("id_unidad", id_unidad),
-                "precio_unitario": pu_final,
+                "precio_unitario": pu_b,
                 "concepto": concepto,
-                "valor_subtotal_item": 0,
+                "valor_subtotal_item": sub,
                 "porcentaje_descuento": float(p.get("porcentaje_descuento", 0)),
                 "valor_descuento": float(p.get("valor_descuento", 0)),
                 "valor_isc": 0,
-                "valor_igv": 0,
+                "valor_igv": igv,
                 "valor_icbper": 0,
-                "valor_total_item": _vti(pu_final, qty, sin_igv=sin_igv),
+                "valor_total_item": total,
                 "anticipo": 0,
                 "otros_cargos": 0,
                 "otros_tributos": 0,
