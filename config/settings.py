@@ -25,6 +25,10 @@ URL_MEDIO_PAGO: str = os.getenv(
 )
 URL_PARAMETROS: str = "https://api.maravia.pe/servicio/n8n/ws_parametros.php"
 URL_COMPRA: str = "https://api.maravia.pe/servicio/n8n/ws_compra.php"
+URL_BOT_API_LOG: str = os.getenv(
+    "URL_BOT_API_LOG",
+    "https://api.maravia.pe/servicio/ws_bot_api_log.php",
+)
 URL_SEND_WHATSAPP_LIST: str = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_list.php"
 URL_SEND_WHATSAPP_OFICIAL: str = "https://api.maravia.pe/servicio/n8n/ws_send_whatsapp_oficial.php"
 URL_SEND_WHATSAPP_BUTTONS: str = os.getenv(

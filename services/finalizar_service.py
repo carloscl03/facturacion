@@ -35,6 +35,7 @@ MAPEO_ERRORES_API_COMPRA = {
 }
 
 from repositories.base import CacheRepository
+from repositories.bot_api_log_repository import BotApiLogRepository, clasificar_tipo_falla
 from repositories.entity_repository import EntityRepository
 from services.eliminar_service import EliminarService
 from services.helpers.compra_mapper import construir_payload_compra
@@ -63,10 +64,19 @@ class FinalizarService:
         cache_repo: CacheRepository,
         entity_repo: EntityRepository,
         sunat_client: SunatClient | None = None,
+        bot_api_log: BotApiLogRepository | None = None,
     ) -> None:
         self._cache = cache_repo
         self._entities = entity_repo
         self._sunat = sunat_client or SunatClient()
+        self._bot_api_log = bot_api_log or BotApiLogRepository()
+
+    def _registrar_log(self, **kwargs) -> None:
+        """Wrapper fire-and-forget: nunca debe romper el flujo si falla."""
+        try:
+            self._bot_api_log.crear(**kwargs)
+        except Exception as e:
+            _log.error("bot_api_log_wrapper_error", extra={"error": str(e), "tipo": type(e).__name__})
 
     def _debug_tipos(self, d: dict | None) -> dict:
         """Devuelve un dict clave -> tipo del valor para diagnosticar int/str en el return."""
@@ -291,6 +301,20 @@ class FinalizarService:
                     "latency_ms": ms,
                 },
             )
+            self._registrar_log(
+                wa_id=wa_id, id_from=id_from, id_empresa=id_empresa,
+                api_destino="php_venta", operacion="venta", resultado="exitoso",
+                reg=reg, params=params,
+                payload_enviado=payload,
+                respuesta_api=resultado.respuesta_api,
+                http_status=resultado.http_status,
+                latency_ms=ms,
+                id_venta=resultado.id_venta,
+                serie_numero=resultado.serie_numero if resultado.serie else None,
+                pdf_url=resultado.url_pdf,
+                sunat_estado=resultado.sunat_estado,
+                metadata={"igv_incluido": reg.get("igv_incluido", True)},
+            )
             self._marcar_completado(wa_id, id_from)
             try:
                 EliminarService(self._cache).ejecutar(wa_id, id_from)
@@ -350,6 +374,18 @@ class FinalizarService:
                 "n_items": len(payload.get("detalle_items", [])),
                 "latency_ms": ms,
             },
+        )
+        self._registrar_log(
+            wa_id=wa_id, id_from=id_from, id_empresa=id_empresa,
+            api_destino="php_venta", operacion="venta", resultado="fallido",
+            reg=reg, params=params,
+            payload_enviado=payload,
+            respuesta_api=resultado.respuesta_api or resultado.error_debug,
+            http_status=resultado.http_status,
+            latency_ms=ms,
+            tipo_falla=clasificar_tipo_falla(resultado.error_mensaje, resultado.http_status),
+            error_mensaje=resultado.error_mensaje,
+            metadata={"igv_incluido": reg.get("igv_incluido", True)},
         )
         sintesis = construir_sintesis_actual(reg)
         error_sunat = f"❌ Error SUNAT: {resultado.error_mensaje}"
@@ -422,6 +458,17 @@ class FinalizarService:
                     "latency_ms": ms,
                 },
             )
+            self._registrar_log(
+                wa_id=wa_id, id_from=id_from, id_empresa=id_empresa,
+                api_destino="php_compra", operacion="compra", resultado="exitoso",
+                reg=reg, params=params,
+                payload_enviado=payload,
+                respuesta_api=resultado,
+                http_status=resultado.get("status_code") or 200,
+                latency_ms=ms,
+                id_compra=resultado.get("id_compra"),
+                metadata={"igv_incluido": reg.get("igv_incluido", True)},
+            )
             self._marcar_completado(wa_id, id_from)
             try:
                 EliminarService(self._cache).ejecutar(wa_id, id_from)
@@ -466,6 +513,20 @@ class FinalizarService:
                 "nro_documento": reg.get("numero_documento"),
                 "latency_ms": ms,
             },
+        )
+        _err_msg_compra = resultado.get("details") or resultado.get("error") or resultado.get("message") or "Error al registrar compra"
+        _http_compra = resultado.get("status_code")
+        self._registrar_log(
+            wa_id=wa_id, id_from=id_from, id_empresa=id_empresa,
+            api_destino="php_compra", operacion="compra", resultado="fallido",
+            reg=reg, params=params,
+            payload_enviado=payload,
+            respuesta_api=resultado,
+            http_status=_http_compra,
+            latency_ms=ms,
+            tipo_falla=clasificar_tipo_falla(_err_msg_compra, _http_compra),
+            error_mensaje=str(_err_msg_compra)[:1000] if _err_msg_compra else None,
+            metadata={"igv_incluido": reg.get("igv_incluido", True)},
         )
         sintesis = construir_sintesis_actual(reg)
         error_msg = resultado.get("error") or resultado.get("message", "Error al registrar compra")

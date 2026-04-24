@@ -63,6 +63,10 @@ class SunatResult:
     numero: Optional[str] = None
     error_mensaje: Optional[str] = None
     error_debug: Optional[Dict[str, Any]] = None  # Respuesta cruda de la API en caso de error (para diagnóstico)
+    http_status: Optional[int] = None             # Código HTTP de la respuesta
+    respuesta_api: Optional[Dict[str, Any]] = None  # JSON completo de la respuesta (éxito o error)
+    sunat_estado: Optional[str] = None
+    id_venta: Optional[int] = None
 
     @property
     def serie_numero(self) -> str:
@@ -130,6 +134,7 @@ class SunatClient:
                 success=False,
                 error_mensaje=f"Respuesta no JSON (status {res.status_code}).",
                 error_debug={"status_code": res.status_code, "raw": raw_preview},
+                http_status=res.status_code,
             )
 
         # Caso N8N (ws_venta.php): pdf_url y sunat_estado están en la raíz
@@ -141,12 +146,18 @@ class SunatClient:
                     url_pdf=url_pdf,
                     serie=res_json.get("serie"),
                     numero=str(res_json.get("numero")) if res_json.get("numero") is not None else None,
+                    http_status=res.status_code,
+                    respuesta_api=res_json,
+                    sunat_estado=res_json.get("sunat_estado"),
+                    id_venta=res_json.get("id_venta"),
                 )
             err = res_json.get("details") or res_json.get("message") or res_json.get("error") or "No se pudo registrar la venta."
             return SunatResult(
                 success=False,
                 error_mensaje=err,
                 error_debug={"status_code": res.status_code, **{k: res_json.get(k) for k in ("success", "error", "message", "details")}},
+                http_status=res.status_code,
+                respuesta_api=res_json,
             )
 
         # Caso CREAR_VENTA (ws_ventas.php): estructura sunat.sunat_data + payload.pdf

@@ -5,6 +5,7 @@ from redis import Redis
 
 from config import settings
 from repositories.base import CacheRepository
+from repositories.bot_api_log_repository import BotApiLogRepository
 from repositories.cache_repository import HttpCacheRepository
 from repositories.entity_repository import EntityRepository
 from repositories.informacion_repository import InformacionRepository
@@ -61,3 +62,8 @@ def get_sunat_client() -> SunatClient:
     """Cliente SUNAT; el token se obtiene por LOGIN al llamar crear_venta (MARAVIA_USER / MARAVIA_PASSWORD)."""
     token, _ = obtener_token_sunat()
     return SunatClient(token=token or None)
+
+
+def get_bot_api_log_repo() -> BotApiLogRepository:
+    """Cliente HTTP para ws_bot_api_log.php (log permanente de payloads y respuestas)."""
+    return BotApiLogRepository(url=settings.URL_BOT_API_LOG)
