@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+from config.logging_config import get_logger
 from prompts.casual import build_prompt_casual
 from services.ai_service import AIService
 from services.whatsapp_sender import enviar_botones as _enviar_botones_whatsapp
+
+_log = get_logger("maravia.casual")
 
 # Opciones: dos botones (id/título; WhatsApp limita títulos cortos)
 OPCIONES_REGISTRO = [
@@ -93,6 +96,8 @@ class CasualService:
                     out["whatsapp_buttons_error"] = error
                 out["whatsapp_buttons_debug"] = debug_wa
                 out["whatsapp_buttons_debug"]["id_empresa_usado_en_envio"] = payload_whatsapp_buttons["id_empresa"]
+            _log.info("casual_ok", extra={"wa_id": wa_id, "id_empresa": id_empresa, "botones_enviados": bool(payload_whatsapp_buttons)})
             return out
         except Exception as e:
+            _log.error("casual_error", extra={"wa_id": wa_id, "id_empresa": id_empresa, "error": str(e)}, exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))

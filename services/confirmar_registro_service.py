@@ -4,8 +4,11 @@ Pasa a estado 4 y el orquestador debe llamar a opciones (sucursal, forma de pago
 """
 from __future__ import annotations
 
+from config.logging_config import get_logger
 from repositories.base import CacheRepository
 from services.whatsapp_sender import enviar_texto as _enviar_texto
+
+_log = get_logger("maravia.confirmar_registro")
 
 
 def _datos_obligatorios_completos(registro: dict | None) -> bool:
@@ -82,6 +85,14 @@ class ConfirmarRegistroService:
         }
         if getattr(self._repo, "guardar_debug", None):
             self._repo.guardar_debug(wa_id, id_from, "registro", _debug_registro)
+        registro_confirmado = self._repo.consultar(wa_id, id_from) or {}
+        _log.info("confirmar_registro_ok", extra={
+            "wa_id": wa_id, "id_from": id_from,
+            "entidad_nombre": registro_confirmado.get("entidad_nombre"),
+            "monto_total": registro_confirmado.get("monto_total"),
+            "tipo_documento": registro_confirmado.get("tipo_documento"),
+            "operacion": registro_confirmado.get("operacion"),
+        })
         mensaje = "Registro confirmado. Siguiente: elegir sucursal, forma de pago y medio de pago."
         if id_empresa is not None:
             _enviar_texto(id_empresa, wa_id, mensaje, id_plataforma)

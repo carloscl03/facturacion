@@ -1,5 +1,8 @@
+from config.logging_config import get_logger
 from repositories.base import CacheRepository
 from services.whatsapp_sender import enviar_texto as _enviar_texto
+
+_log = get_logger("maravia.eliminar")
 
 
 class EliminarService:
@@ -11,10 +14,12 @@ class EliminarService:
         if resultado.get("success"):
             if getattr(self._repo, "limpiar_debug", None):
                 self._repo.limpiar_debug(wa_id, id_from)
+            _log.info("eliminar_ok", extra={"wa_id": wa_id, "id_from": id_from})
             mensaje = "Entendido. He cancelado la operación y limpiado el borrador. ¿Deseas iniciar un registro nuevo?"
             if id_empresa is not None:
                 _enviar_texto(id_empresa, wa_id, mensaje, id_plataforma)
             return {"status": "borrado", "mensaje_usuario": mensaje}
+        _log.warning("eliminar_sin_registro", extra={"wa_id": wa_id, "id_from": id_from})
         mensaje_err = "No encontré ninguna operación activa para borrar."
         if id_empresa is not None:
             _enviar_texto(id_empresa, wa_id, mensaje_err, id_plataforma)

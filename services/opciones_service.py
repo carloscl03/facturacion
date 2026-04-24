@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from config.logging_config import get_logger
 from repositories.base import CacheRepository
 from repositories.informacion_repository import InformacionRepository
 from repositories.parametros_repository import ParametrosRepository
@@ -22,6 +23,8 @@ from services.helpers.opciones_domain import (
     normalizar_opciones_actuales,
     siguiente_campo_pendiente,
 )
+
+_log = get_logger("maravia.opciones")
 
 # Clave en Redis para el diccionario temporal de opciones mostradas (matchear mensaje → id)
 OPCIONES_ACTUALES_KEY = "opciones_actuales"
@@ -211,20 +214,12 @@ class OpcionesService:
         debug: dict = {"ai_llamada": False}
 
         if campo not in CAMPOS_ESTADO2:
-            print(
-                "[OpcionesService.submit] Campo no válido",
-                {"wa_id": wa_id, "id_from": id_from, "campo": campo},
-                flush=True,
-            )
+            _log.warning("opciones_campo_invalido", extra={"wa_id": wa_id, "id_from": id_from, "campo": campo})
             return {"success": False, "mensaje": f"Campo no válido: {campo}", "debug": {"etapa": "validacion_campo"}}
 
         registro = self._cache.consultar(wa_id, id_from) if wa_id and id_from else None
         if not registro:
-            print(
-                "[OpcionesService.submit] No hay registro activo",
-                {"wa_id": wa_id, "id_from": id_from},
-                flush=True,
-            )
+            _log.warning("opciones_sin_registro", extra={"wa_id": wa_id, "id_from": id_from, "campo": campo})
             return {"success": False, "mensaje": "No hay registro activo.", "debug": {"etapa": "sin_registro"}}
 
         valor_id = valor
@@ -235,17 +230,7 @@ class OpcionesService:
         debug["valor_tipo"] = type(valor).__name__
         debug["ai_inyectado"] = self._ai is not None
 
-        print(
-            "[OpcionesService.submit] IN",
-            {
-                "wa_id": wa_id,
-                "id_from": id_from,
-                "campo": campo,
-                "valor_raw": valor,
-                "opciones_actuales": opciones_actuales,
-            },
-            flush=True,
-        )
+        _log.debug("opciones_submit_in", extra={"wa_id": wa_id, "id_from": id_from, "campo": campo, "n_opciones": len(opciones_actuales)})
 
         if isinstance(valor, str) and opciones_actuales:
             match_etapa = "ninguno"
@@ -272,11 +257,7 @@ class OpcionesService:
                     valor_nombre = next((op.get("nombre") or op.get("title") for op in opciones_actuales if _id_match(op, valor_id)), None)
                     match_etapa = "int"
                 except (TypeError, ValueError):
-                    print(
-                        "[OpcionesService.submit] No se reconoce la opción",
-                        {"valor": valor},
-                        flush=True,
-                    )
+                    _log.warning("opciones_opcion_no_reconocida", extra={"wa_id": wa_id, "id_from": id_from, "campo": campo, "valor": str(valor)[:100]})
                     debug["match_etapa"] = match_etapa
                     return {
                         "success": False,
@@ -292,12 +273,6 @@ class OpcionesService:
                 debug["match_etapa"] = "sin_opciones_actuales"
                 debug["mensaje_interno"] = "No hay opciones_actuales en Redis; llame primero a get_next para cargar la lista."
 
-        print(
-            "[OpcionesService.submit] Después de resolver valor",
-            {"valor_id": valor_id, "valor_nombre": valor_nombre},
-            flush=True,
-        )
-
         datos = {}
         # Para sucursales / métodos de pago, id_from se usa como id_empresa de tablas externas.
         id_tablas = id_from
@@ -309,11 +284,7 @@ class OpcionesService:
                 nombre = valor_nombre or next((s.get("nombre") or str(s.get("id")) for s in lista_suc if s.get("id") == id_suc), str(valor_id))
                 datos["sucursal"] = nombre
             except (TypeError, ValueError):
-                print(
-                    "[OpcionesService.submit] Valor de sucursal no válido",
-                    {"valor_id": valor_id},
-                    flush=True,
-                )
+                _log.warning("opciones_sucursal_invalida", extra={"wa_id": wa_id, "id_from": id_from, "valor_id": str(valor_id)})
                 return {"success": False, "mensaje": "Valor de sucursal no válido."}
         elif campo == "centro_costo":
             try:
@@ -323,20 +294,12 @@ class OpcionesService:
                 nombre = valor_nombre or next((c.get("nombre") or str(c.get("id")) for c in centros if c.get("id") == id_cc), str(valor_id))
                 datos["centro_costo"] = nombre
             except (TypeError, ValueError):
-                print(
-                    "[OpcionesService.submit] Valor de centro de costo no válido",
-                    {"valor_id": valor_id},
-                    flush=True,
-                )
+                _log.warning("opciones_centro_costo_invalido", extra={"wa_id": wa_id, "id_from": id_from, "valor_id": str(valor_id)})
                 return {"success": False, "mensaje": "Valor de centro de costo no válido."}
         elif campo == "forma_pago":
             v = (str(valor_id) or str(valor) or "").strip()
             if not v:
-                print(
-                    "[OpcionesService.submit] Valor de forma de pago vacío",
-                    {"valor_id": valor_id, "valor": valor},
-                    flush=True,
-                )
+                _log.warning("opciones_forma_pago_vacia", extra={"wa_id": wa_id, "id_from": id_from})
                 return {"success": False, "mensaje": "Valor de forma de pago vacío."}
             datos["forma_pago"] = valor_nombre or v
             try:
@@ -356,12 +319,14 @@ class OpcionesService:
         try:
             self._cache.actualizar(wa_id, id_from, payload)
         except Exception as e:
-            print(
-                "[OpcionesService.submit] Error al actualizar cache",
-                {"wa_id": wa_id, "id_from": id_from, "error": str(e)},
-                flush=True,
-            )
+            _log.error("opciones_cache_error", extra={"wa_id": wa_id, "id_from": id_from, "campo": campo, "error": str(e)})
             return {"success": False, "mensaje": str(e)}
+
+        _log.info("opciones_campo_guardado", extra={
+            "wa_id": wa_id, "id_from": id_from,
+            "campo": campo, "valor_id": str(valor_id), "valor_nombre": valor_nombre,
+            "siguiente_campo": siguiente, "estado2_completo": siguiente is None,
+        })
 
         titulo_siguiente = self._titulo_campo(siguiente) if siguiente else None
         texto_siguiente = (f"{titulo_siguiente}\n" + self._formatear_texto_lista(opciones_actuales_next)) if opciones_actuales_next else None
@@ -386,11 +351,6 @@ class OpcionesService:
             "nombre_detectado": valor_nombre,
             "debug": debug,
         }
-        print(
-            "[OpcionesService.submit] OUT respuesta",
-            resp,
-            flush=True,
-        )
         return resp
 
     def _resolver_opcion_ia(self, mensaje: str, opciones: list[dict]) -> tuple:

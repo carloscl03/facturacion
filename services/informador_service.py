@@ -2,10 +2,13 @@ import json
 
 from fastapi import HTTPException
 
+from config.logging_config import get_logger
 from prompts.informador import build_prompt_info
 from repositories.base import CacheRepository
 from services.ai_service import AIService
 from services.whatsapp_sender import enviar_texto as _enviar_texto
+
+_log = get_logger("maravia.informador")
 
 
 class InformadorService:
@@ -22,12 +25,14 @@ class InformadorService:
             texto_final = texto or "Puedes indicarme, por ejemplo: cliente con RUC o DNI, productos con cantidad y precio, tipo de comprobante (Factura/Boleta) y si el pago es al contado o crédito."
             if id_empresa is not None and wa_id:
                 _enviar_texto(id_empresa, wa_id, texto_final, id_plataforma)
+            _log.info("informador_ok", extra={"wa_id": wa_id, "id_from": id_from, "id_empresa": id_empresa})
             return {
                 "status": "ok",
                 "destino": "informador",
                 "whatsapp_output": {"texto": texto_final},
             }
         except Exception as e:
+            _log.error("informador_error", extra={"wa_id": wa_id, "id_from": id_from, "error": str(e)}, exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
     def _obtener_estado_y_debug(self, wa_id: str | None, id_from: int | None) -> tuple[str, str]:

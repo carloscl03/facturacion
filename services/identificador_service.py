@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from config.logging_config import get_logger
 from prompts.plantillas import formatear_ficha_identificacion
 from repositories.base import CacheRepository
 from repositories.entity_repository import EntityRepository
+
+_log = get_logger("maravia.identificador")
 
 
 def _sin_nulos(d: dict) -> dict:
@@ -141,6 +144,7 @@ class IdentificadorService:
             }
 
         except Exception as e:
+            _log.error("identificador_buscar_error", extra={"id_from": id_from, "tipo_ope": tipo_ope, "error": str(e)}, exc_info=True)
             return {
                 "identificado": False,
                 "mensaje": f"💥 Error técnico: {e}",
@@ -325,6 +329,14 @@ class IdentificadorService:
         if campos_cache:
             self._cache.actualizar(wa_id, id_from, campos_cache)
 
+        _log.info("identificador_ok", extra={
+            "wa_id": wa_id, "id_from": id_from,
+            "tipo_ope": tipo_ope,
+            "entidad_nombre": campos.get("entidad_nombre"),
+            "entidad_numero": campos.get("entidad_numero"),
+            "entidad_id": campos.get("entidad_id"),
+            "created": resultado.get("created", False),
+        })
         return {
             "identificado": True,
             "mensaje": resultado["mensaje"],
