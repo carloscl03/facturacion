@@ -6,9 +6,14 @@ para evitar duplicación entre servicios y rutas.
 """
 from __future__ import annotations
 
+import time
+
 import requests
 
 from config import settings
+from config.logging_config import get_logger
+
+_log = get_logger("maravia.whatsapp")
 
 
 # ------------------------------------------------------------------ #
@@ -31,18 +36,25 @@ def enviar_texto(
     }
     if id_plataforma is not None:
         payload["id_plataforma"] = id_plataforma
+    t0 = time.perf_counter()
     try:
         r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        ms = round((time.perf_counter() - t0) * 1000)
         if r.status_code != 200:
             if id_plataforma is not None and r.status_code in (400, 404):
                 payload.pop("id_plataforma", None)
                 r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
                 if r2.status_code != 200:
+                    _log.error("wa_texto_error", extra={"phone": phone, "id_empresa": id_empresa, "http": r2.status_code, "latency_ms": ms})
                     return False, f"HTTP {r2.status_code}"
                 data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
                 if not data2.get("success", True):
-                    return False, data2.get("error") or data2.get("message") or "API error"
+                    err2 = data2.get("error") or data2.get("message") or "API error"
+                    _log.error("wa_texto_error", extra={"phone": phone, "id_empresa": id_empresa, "error": err2, "latency_ms": ms})
+                    return False, err2
+                _log.info("wa_texto_ok", extra={"phone": phone, "id_empresa": id_empresa, "latency_ms": ms})
                 return True, None
+            _log.error("wa_texto_error", extra={"phone": phone, "id_empresa": id_empresa, "http": r.status_code, "latency_ms": ms})
             return False, f"HTTP {r.status_code}"
         data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
         if not data.get("success", True):
@@ -53,14 +65,22 @@ def enviar_texto(
                 payload.pop("id_plataforma", None)
                 r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
                 if r2.status_code != 200:
+                    _log.error("wa_texto_error", extra={"phone": phone, "id_empresa": id_empresa, "http": r2.status_code, "latency_ms": ms})
                     return False, f"HTTP {r2.status_code}"
                 data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
                 if not data2.get("success", True):
-                    return False, data2.get("error") or data2.get("message") or "API error"
+                    err2 = data2.get("error") or data2.get("message") or "API error"
+                    _log.error("wa_texto_error", extra={"phone": phone, "id_empresa": id_empresa, "error": err2, "latency_ms": ms})
+                    return False, err2
+                _log.info("wa_texto_ok", extra={"phone": phone, "id_empresa": id_empresa, "latency_ms": ms})
                 return True, None
+            _log.error("wa_texto_error", extra={"phone": phone, "id_empresa": id_empresa, "error": err, "latency_ms": ms})
             return False, err
+        _log.info("wa_texto_ok", extra={"phone": phone, "id_empresa": id_empresa, "chars": len(mensaje), "latency_ms": ms})
         return True, None
     except requests.RequestException as e:
+        ms = round((time.perf_counter() - t0) * 1000)
+        _log.error("wa_texto_excepcion", extra={"phone": phone, "id_empresa": id_empresa, "error": str(e), "latency_ms": ms})
         return False, str(e)
 
 
@@ -89,18 +109,25 @@ def enviar_pdf(
         payload["id_plataforma"] = id_plataforma
     if caption:
         payload["message"] = caption
+    t0 = time.perf_counter()
     try:
         r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        ms = round((time.perf_counter() - t0) * 1000)
         if r.status_code != 200:
             if id_plataforma is not None and r.status_code in (400, 404):
                 payload.pop("id_plataforma", None)
                 r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
                 if r2.status_code != 200:
+                    _log.error("wa_pdf_error", extra={"phone": phone, "id_empresa": id_empresa, "http": r2.status_code, "latency_ms": ms})
                     return False, f"HTTP {r2.status_code}"
                 data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
                 if not data2.get("success", True):
-                    return False, data2.get("error") or data2.get("message") or "API error"
+                    err2 = data2.get("error") or data2.get("message") or "API error"
+                    _log.error("wa_pdf_error", extra={"phone": phone, "id_empresa": id_empresa, "error": err2, "latency_ms": ms})
+                    return False, err2
+                _log.info("wa_pdf_ok", extra={"phone": phone, "id_empresa": id_empresa, "filename": filename, "latency_ms": ms})
                 return True, None
+            _log.error("wa_pdf_error", extra={"phone": phone, "id_empresa": id_empresa, "http": r.status_code, "latency_ms": ms})
             return False, f"HTTP {r.status_code}"
         data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
         if not data.get("success", True):
@@ -111,14 +138,22 @@ def enviar_pdf(
                 payload.pop("id_plataforma", None)
                 r2 = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
                 if r2.status_code != 200:
+                    _log.error("wa_pdf_error", extra={"phone": phone, "id_empresa": id_empresa, "http": r2.status_code, "latency_ms": ms})
                     return False, f"HTTP {r2.status_code}"
                 data2 = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else {}
                 if not data2.get("success", True):
-                    return False, data2.get("error") or data2.get("message") or "API error"
+                    err2 = data2.get("error") or data2.get("message") or "API error"
+                    _log.error("wa_pdf_error", extra={"phone": phone, "id_empresa": id_empresa, "error": err2, "latency_ms": ms})
+                    return False, err2
+                _log.info("wa_pdf_ok", extra={"phone": phone, "id_empresa": id_empresa, "filename": filename, "latency_ms": ms})
                 return True, None
+            _log.error("wa_pdf_error", extra={"phone": phone, "id_empresa": id_empresa, "error": err, "latency_ms": ms})
             return False, err
+        _log.info("wa_pdf_ok", extra={"phone": phone, "id_empresa": id_empresa, "filename": filename, "latency_ms": ms})
         return True, None
     except requests.RequestException as e:
+        ms = round((time.perf_counter() - t0) * 1000)
+        _log.error("wa_pdf_excepcion", extra={"phone": phone, "id_empresa": id_empresa, "error": str(e), "latency_ms": ms})
         return False, str(e)
 
 
@@ -138,6 +173,7 @@ def enviar_lista(payload_list: dict) -> tuple[bool, str | None, dict]:
         "response_body_preview": None,
         "donde_arreglar": "Ver url_llamada: si 404, la URL no existe o cambió en el backend. Revisar config (URL_SEND_WHATSAPP_LIST) o .env.",
     }
+    t0 = time.perf_counter()
     try:
         r = requests.post(url, json=payload_list, headers={"Content-Type": "application/json"}, timeout=30)
         debug_whatsapp["status_code"] = r.status_code
@@ -164,17 +200,23 @@ def enviar_lista(payload_list: dict) -> tuple[bool, str | None, dict]:
                 debug_whatsapp["donde_arreglar"] = "400 Bad Request: el payload puede tener campos incorrectos; revisar response_body_preview."
         except Exception:
             pass
+        ms = round((time.perf_counter() - t0) * 1000)
         if r.status_code != 200:
+            _log.error("wa_lista_error", extra={"http": r.status_code, "latency_ms": ms})
             return False, f"HTTP {r.status_code}", debug_whatsapp
         data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
         if not data.get("success", True):
             err = data.get("error") or data.get("message") or "API error"
             debug_whatsapp["donde_arreglar"] = f"API devolvió success=false: {err}. Revisar credenciales (id_empresa) o formato del payload."
+            _log.error("wa_lista_error", extra={"error": err, "latency_ms": ms})
             return False, err, debug_whatsapp
         debug_whatsapp["donde_arreglar"] = None
+        _log.info("wa_lista_ok", extra={"latency_ms": ms})
         return True, None, debug_whatsapp
     except requests.RequestException as e:
+        ms = round((time.perf_counter() - t0) * 1000)
         debug_whatsapp["donde_arreglar"] = f"Error de conexión/timeout: {e}. Comprobar que la URL sea accesible desde este servidor: {url}"
+        _log.error("wa_lista_excepcion", extra={"error": str(e), "latency_ms": ms})
         return False, str(e), debug_whatsapp
 
 

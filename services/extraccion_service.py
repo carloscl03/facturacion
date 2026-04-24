@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import time
 import unicodedata
 
+from config.logging_config import get_logger
 from prompts.extraccion import build_prompt_extractor
 from services.helpers.resumen_visual import generar_resumen_completo
+
+_log = get_logger("maravia.extraccion")
 
 
 def _sin_tildes(texto: str) -> str:
@@ -67,9 +71,35 @@ class ExtraccionService:
             operacion=operacion,
         )
 
+        t0_ia = time.perf_counter()
         try:
             output_ia = self._ai.completar_json(prompt)
+            ms_ia = round((time.perf_counter() - t0_ia) * 1000)
+            _log.info(
+                "ia_extraccion_ok",
+                extra={
+                    "wa_id": wa_id,
+                    "id_from": id_from,
+                    "operacion": operacion,
+                    "estado_previo": estado_actual.get("estado"),
+                    "es_registro_nuevo": es_registro_nuevo,
+                    "latency_ms": ms_ia,
+                },
+            )
         except Exception as e:
+            ms_ia = round((time.perf_counter() - t0_ia) * 1000)
+            _log.error(
+                "ia_extraccion_error",
+                extra={
+                    "wa_id": wa_id,
+                    "id_from": id_from,
+                    "operacion": operacion,
+                    "estado_previo": estado_actual.get("estado"),
+                    "error": str(e),
+                    "latency_ms": ms_ia,
+                },
+                exc_info=True,
+            )
             return {"status": "error", "detalle": str(e)}
 
         propuesta = output_ia.get("propuesta_cache", {})
@@ -189,6 +219,30 @@ class ExtraccionService:
         else:
             estado = estado_calculado
         payload_db["estado"] = estado
+
+        # Contar productos extraídos para el log
+        _prods = normalizar_productos_raw(payload_db.get("productos"))
+        _log.info(
+            "extraccion_resultado",
+            extra={
+                "wa_id": wa_id,
+                "id_from": id_from,
+                "estado_prev": estado_actual.get("estado"),
+                "estado_nuevo": estado,
+                "operacion": payload_db.get("operacion"),
+                "monto_total": payload_db.get("monto_total"),
+                "moneda": payload_db.get("moneda"),
+                "entidad_nombre": payload_db.get("entidad_nombre"),
+                "entidad_numero": payload_db.get("entidad_numero"),
+                "entidad_id": payload_db.get("entidad_id"),
+                "tipo_documento": payload_db.get("tipo_documento"),
+                "metodo_pago": payload_db.get("metodo_pago"),
+                "n_productos": len(_prods),
+                "productos": [{"nombre": p.get("nombre"), "cantidad": p.get("cantidad"), "precio_unitario": p.get("precio_unitario")} for p in _prods] if _prods else None,
+                "identificado": bool(payload_db.get("entidad_id") or payload_db.get("identificado")),
+                "listo_para_finalizar": estado >= 3,
+            },
+        )
 
         # --- Generar resumen visual + diagnóstico estructuralmente (sin IA) ---
         _resumen = generar_resumen_completo(payload_db, mensaje_entendimiento=mensaje_entendimiento)

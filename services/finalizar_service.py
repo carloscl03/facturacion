@@ -10,10 +10,14 @@ En venta exitosa: envía 2 mensajes WhatsApp separados (texto + PDF).
 from __future__ import annotations
 
 import os
+import time
 from urllib.parse import urlparse
 
 from config import settings
+from config.logging_config import get_logger
 from services.whatsapp_sender import enviar_texto as _enviar_texto_whatsapp, enviar_pdf as _enviar_pdf_whatsapp
+
+_log = get_logger("maravia.finalizar")
 
 # Usuario con el que se registran ventas y compras (temporal; informado por Maravia).
 ID_USUARIO_REGISTRO = 3
@@ -72,11 +76,13 @@ class FinalizarService:
 
     def ejecutar(self, wa_id: str, id_from: int, id_empresa: int, id_plataforma: int | None = 6) -> dict:
         debug: dict = {"paso": "inicio"}
+        _log.info("finalizar_inicio", extra={"wa_id": wa_id, "id_from": id_from, "id_empresa": id_empresa, "id_plataforma": id_plataforma})
 
         try:
             registro = self._cache.consultar(wa_id, id_from)
             debug["paso"] = "consultar_cache"
         except Exception as e:
+            _log.error("finalizar_cache_error", extra={"wa_id": wa_id, "id_from": id_from, "error": str(e), "tipo": type(e).__name__}, exc_info=True)
             msg = "Hubo un problema al procesar tu solicitud. Por favor, intenta de nuevo."
             _enviar_texto_whatsapp(id_empresa, wa_id, msg, id_plataforma)
             return {
@@ -86,6 +92,7 @@ class FinalizarService:
             }
 
         if not registro:
+            _log.warning("finalizar_sin_registro", extra={"wa_id": wa_id, "id_from": id_from})
             msg = "No hay una operación activa para finalizar."
             _enviar_texto_whatsapp(id_empresa, wa_id, msg, id_plataforma)
             return {"status": "error", "mensaje": msg, "debug": debug}
@@ -96,7 +103,23 @@ class FinalizarService:
             debug["operacion"] = operacion
             debug["registro_tipos"] = self._debug_tipos(registro)
             debug["params_tipos"] = self._debug_tipos(params)
+            _log.info(
+                "finalizar_operacion_detectada",
+                extra={
+                    "wa_id": wa_id,
+                    "id_from": id_from,
+                    "operacion": operacion,
+                    "monto_total": params.get("monto_total"),
+                    "monto_base": params.get("monto_base"),
+                    "monto_igv": params.get("monto_igv"),
+                    "moneda": params.get("moneda_simbolo"),
+                    "tipo_comprobante": params.get("id_tipo_comprobante"),
+                    "id_cliente": params.get("id_cliente"),
+                    "fecha_emision": params.get("fecha_emision"),
+                },
+            )
         except Exception as e:
+            _log.error("finalizar_traducir_error", extra={"wa_id": wa_id, "id_from": id_from, "error": str(e)}, exc_info=True)
             msg = "Hubo un problema al procesar los datos del registro. Por favor, revisa los datos e intenta de nuevo."
             _enviar_texto_whatsapp(id_empresa, wa_id, msg, id_plataforma)
             return {
@@ -130,6 +153,7 @@ class FinalizarService:
             }
 
         if errores:
+            _log.warning("finalizar_campos_faltantes", extra={"wa_id": wa_id, "id_from": id_from, "operacion": operacion, "errores": errores})
             try:
                 sintesis = construir_sintesis_actual(registro)
                 faltan = f"⚠️ *No se puede finalizar.*\n\nFaltan: **{', '.join(errores)}**."
@@ -228,12 +252,45 @@ class FinalizarService:
             params=params,
         )
 
-        import json as _json, logging as _log
-        _log.getLogger("finalizar").info("PAYLOAD VENTA SUNAT: %s", _json.dumps(payload, ensure_ascii=False, default=str))
+        import json as _json
+        _log.debug("sunat_payload", extra={"wa_id": wa_id, "id_from": id_from, "payload": _json.dumps(payload, ensure_ascii=False, default=str)})
+        _log.info(
+            "sunat_llamada",
+            extra={
+                "wa_id": wa_id,
+                "id_from": id_from,
+                "id_cliente": id_cliente,
+                "entidad_nombre": reg.get("entidad_nombre"),
+                "entidad_numero": reg.get("entidad_numero"),
+                "monto_total": params.get("monto_total"),
+                "monto_base": params.get("monto_base"),
+                "monto_igv": params.get("monto_igv"),
+                "moneda": params.get("moneda_simbolo"),
+                "tipo_comprobante": params.get("id_tipo_comprobante"),
+                "fecha_emision": params.get("fecha_emision"),
+                "n_items": len(payload.get("detalle_items", [])),
+            },
+        )
 
+        t0 = time.perf_counter()
         resultado = self._sunat.crear_venta(payload)
+        ms = round((time.perf_counter() - t0) * 1000)
 
         if resultado.success:
+            _log.info(
+                "sunat_ok",
+                extra={
+                    "wa_id": wa_id,
+                    "id_from": id_from,
+                    "serie_numero": resultado.serie_numero,
+                    "pdf_url": resultado.url_pdf,
+                    "sunat_estado": getattr(resultado, "sunat_estado", None),
+                    "entidad_nombre": reg.get("entidad_nombre"),
+                    "monto_total": params.get("monto_total"),
+                    "moneda": params.get("moneda_simbolo"),
+                    "latency_ms": ms,
+                },
+            )
             self._marcar_completado(wa_id, id_from)
             try:
                 EliminarService(self._cache).ejecutar(wa_id, id_from)
@@ -279,6 +336,21 @@ class FinalizarService:
                 },
             }
 
+        _log.error(
+            "sunat_error",
+            extra={
+                "wa_id": wa_id,
+                "id_from": id_from,
+                "error": resultado.error_mensaje,
+                "entidad_nombre": reg.get("entidad_nombre"),
+                "entidad_numero": reg.get("entidad_numero"),
+                "monto_total": params.get("monto_total"),
+                "moneda": params.get("moneda_simbolo"),
+                "tipo_comprobante": params.get("id_tipo_comprobante"),
+                "n_items": len(payload.get("detalle_items", [])),
+                "latency_ms": ms,
+            },
+        )
         sintesis = construir_sintesis_actual(reg)
         error_sunat = f"❌ Error SUNAT: {resultado.error_mensaje}"
         mensaje = f"{sintesis}\n\n{error_sunat}" if sintesis else error_sunat
@@ -316,9 +388,40 @@ class FinalizarService:
     ) -> dict:
         """Construye payload REGISTRAR_COMPRA para ws_compra.php y devuelve resultado."""
         payload = construir_payload_compra(reg, params, id_from, id_usuario=ID_USUARIO_REGISTRO)
+        _log.info(
+            "compra_llamada",
+            extra={
+                "wa_id": wa_id,
+                "id_from": id_from,
+                "entidad_nombre": reg.get("entidad_nombre"),
+                "entidad_numero": reg.get("entidad_numero"),
+                "monto_total": params.get("monto_total"),
+                "monto_base": params.get("monto_base"),
+                "monto_igv": params.get("monto_igv"),
+                "moneda": params.get("moneda_simbolo"),
+                "tipo_comprobante": params.get("id_tipo_comprobante"),
+                "fecha_emision": params.get("fecha_emision"),
+                "nro_documento": reg.get("numero_documento"),
+                "n_items": len(payload.get("detalles", [])),
+            },
+        )
+        t0 = time.perf_counter()
         resultado = self._entities.registrar_compra(payload)
+        ms = round((time.perf_counter() - t0) * 1000)
 
         if resultado.get("success") is True:
+            _log.info(
+                "compra_ok",
+                extra={
+                    "wa_id": wa_id,
+                    "id_from": id_from,
+                    "id_compra": resultado.get("id_compra"),
+                    "entidad_nombre": reg.get("entidad_nombre"),
+                    "monto_total": params.get("monto_total"),
+                    "moneda": params.get("moneda_simbolo"),
+                    "latency_ms": ms,
+                },
+            )
             self._marcar_completado(wa_id, id_from)
             try:
                 EliminarService(self._cache).ejecutar(wa_id, id_from)
@@ -350,6 +453,20 @@ class FinalizarService:
                 },
             }
 
+        _log.error(
+            "compra_error",
+            extra={
+                "wa_id": wa_id,
+                "id_from": id_from,
+                "error": resultado.get("error") or resultado.get("message"),
+                "details": resultado.get("details"),
+                "entidad_nombre": reg.get("entidad_nombre"),
+                "entidad_numero": reg.get("entidad_numero"),
+                "monto_total": params.get("monto_total"),
+                "nro_documento": reg.get("numero_documento"),
+                "latency_ms": ms,
+            },
+        )
         sintesis = construir_sintesis_actual(reg)
         error_msg = resultado.get("error") or resultado.get("message", "Error al registrar compra")
         error_msg = _mensaje_error_mapeado(str(error_msg), MAPEO_ERRORES_API_COMPRA)

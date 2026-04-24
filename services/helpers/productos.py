@@ -228,6 +228,7 @@ def construir_detalle_desde_registro(
                 "cantidad": qty,
                 "id_unidad": p.get("id_unidad", id_unidad),
                 "precio_unitario": pu_b,
+                "concepto": str(p.get("nombre") or p.get("concepto") or "").strip(),
                 "porcentaje_descuento": float(p.get("porcentaje_descuento", 0)),
                 "valor_descuento": float(p.get("valor_descuento", 0)),
                 "valor_subtotal_item": 0,

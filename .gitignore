@@ -11,11 +11,20 @@ ENV/
 build/
 dist/
 *.egg-info/
-.claude 
+.installed.cfg
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Claude / Agents
+.claude
 .agents
+tmpclaude-*-cwd
+skills-locked.json
+
 # Environment
 .env
 .env.local
+.env.*.local
 
 # IDE
 .vscode/
@@ -27,6 +36,7 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Logs
 *.log
@@ -36,9 +46,12 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
-
 .tmpcache/
 
-# Temporary files
-tmpclaude-*-cwd
-skills-locked.json
+# MyPy / type checkers
+.mypy_cache/
+.dmypy.json
+.pytype/
+
+# Ruff / linters
+.ruff_cache/

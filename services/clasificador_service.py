@@ -9,8 +9,11 @@ Clasificador: orquestador de intenciones.
 """
 from __future__ import annotations
 
+import time
+
 from fastapi import HTTPException
 
+from config.logging_config import get_logger
 from prompts.clasificador import build_prompt_router
 from repositories.base import CacheRepository
 from services.ai_service import AIService
@@ -19,6 +22,8 @@ from services.helpers.registro_domain import (
     operacion_desde_registro,
     opciones_completas,
 )
+
+_log = get_logger("maravia.clasificador")
 
 
 def _intencion_clara_venta_o_compra_sin_registro(mensaje: str) -> bool:
@@ -168,9 +173,13 @@ class ClasificadorService:
             hay_registro_en_redis=True,
         )
 
+        t0 = time.perf_counter()
         try:
             resultado = self._ai.completar_json(prompt)
+            ms = round((time.perf_counter() - t0) * 1000)
         except Exception as e:
+            ms = round((time.perf_counter() - t0) * 1000)
+            _log.error("clasificador_ia_error", extra={"wa_id": wa_id, "id_from": id_from, "estado": estado, "error": str(e), "latency_ms": ms}, exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
         intencion = (resultado.get("intencion") or "").strip().lower()
@@ -215,6 +224,19 @@ class ClasificadorService:
         if registro and siguiente_estado and estado == 3:
             destino = "confirmar-registro"
             intencion = "opciones"
+            _log.info(
+                "transicion_estado",
+                extra={
+                    "wa_id": wa_id,
+                    "id_from": id_from,
+                    "de": 3,
+                    "a": 4,
+                    "operacion": operacion,
+                    "entidad_nombre": registro.get("entidad_nombre"),
+                    "monto_total": registro.get("monto_total"),
+                    "tipo_documento": registro.get("tipo_documento"),
+                },
+            )
             try:
                 payload = {**registro, "estado": 4}
                 self._repo.actualizar(wa_id, id_from, payload)
@@ -226,6 +248,21 @@ class ClasificadorService:
         if registro and siguiente_estado and estado == 4 and opciones_completo:
             destino = "finalizar-operacion"
             intencion = "finalizar"
+            _log.info(
+                "transicion_estado",
+                extra={
+                    "wa_id": wa_id,
+                    "id_from": id_from,
+                    "de": 4,
+                    "a": 5,
+                    "operacion": operacion,
+                    "entidad_nombre": registro.get("entidad_nombre"),
+                    "monto_total": registro.get("monto_total"),
+                    "tipo_documento": registro.get("tipo_documento"),
+                    "id_sucursal": registro.get("id_sucursal"),
+                    "forma_pago": registro.get("forma_pago"),
+                },
+            )
             try:
                 payload = {**registro, "estado": 5}
                 self._repo.actualizar(wa_id, id_from, payload)
@@ -234,6 +271,25 @@ class ClasificadorService:
                 pass
 
         necesidad_extraccion = intencion == "actualizar"
+
+        _log.info(
+            "clasificador_decision",
+            extra={
+                "wa_id": wa_id,
+                "id_from": id_from,
+                "estado": estado,
+                "intencion": intencion,
+                "destino": destino,
+                "operacion": operacion,
+                "op_visible": op_visible,
+                "siguiente_estado": siguiente_estado,
+                "opciones_completo": opciones_completo,
+                "confianza": float(resultado.get("confianza") or 0.9),
+                "campo_detectado": (resultado.get("campo_detectado") or "ninguno").strip().lower(),
+                "hay_registro": bool(registro),
+                "latency_ms": ms,
+            },
+        )
 
         return {
             "estado": estado,

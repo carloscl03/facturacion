@@ -337,17 +337,18 @@ def construir_payload_venta_n8n(
     detalle_base = construir_detalle_desde_registro(reg, params["monto_total"], params["monto_base"], params["monto_igv"])
     detalle_items: list[Dict[str, Any]] = []
     for i, it in enumerate(detalle_base):
-        concepto = str((it.get("concepto") or reg.get("observaciones") or reg.get("observacion") or f"Item {i+1}")).strip() or f"Item {i+1}"
-        # No forzar id_catalogo ni id_inventario: si el registro no los tiene, enviar None (como en test_pdf_sunat).
-        id_inv = it.get("id_inventario") if it.get("id_inventario") is not None else reg.get("id_inventario")
-        id_cat = it.get("id_catalogo") if it.get("id_catalogo") is not None else reg.get("id_catalogo")
+        id_cat = it.get("id_catalogo") or reg.get("id_catalogo")
+        id_inv = it.get("id_inventario") or reg.get("id_inventario")
+        # PHP no resuelve nombre ni unidad desde el ID — siempre enviar concepto e id_unidad.
+        concepto = str(it.get("concepto") or reg.get("observaciones") or reg.get("observacion") or "").strip() or f"Item {i+1}"
+        id_unidad = it.get("id_unidad", reg.get("id_unidad", 1))
         detalle_items.append(
             {
-                "id_inventario": id_inv,
-                "id_catalogo": id_cat,
+                "id_catalogo": int(id_cat) if id_cat else None,
+                "id_inventario": int(id_inv) if id_inv else None,
                 "id_tipo_producto": it.get("id_tipo_producto", reg.get("id_tipo_producto", 2)),
                 "cantidad": it.get("cantidad", 1),
-                "id_unidad": it.get("id_unidad", reg.get("id_unidad", 1)),
+                "id_unidad": id_unidad,
                 "precio_unitario": float(it.get("precio_unitario") or 0),
                 "concepto": concepto,
                 "valor_subtotal_item": float(it.get("valor_subtotal_item") or 0),
