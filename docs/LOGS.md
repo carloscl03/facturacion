@@ -12,28 +12,50 @@ El bot tiene **dos sistemas de logs complementarios**. Este documento lista todo
 
 Salen por stdout del contenedor en formato JSON (una línea por evento). Viven mientras el contenedor corre — se pierden al reiniciar.
 
-### 1.1 Ver logs desde el panel de EasyPanel
+### 1.1 Ver logs desde el panel de EasyPanel (más común)
 
-En el panel web de EasyPanel hay un botón de **"Logs"** por contenedor. Ahí se ven en vivo.
+En el panel web de EasyPanel:
+1. Entra al proyecto del bot
+2. Clic en el servicio
+3. Pestaña **"Logs"**
 
-### 1.2 Ver logs por Docker (si tienes acceso al host)
+Ahí se ven en vivo, sin necesidad de saber el `container_id`.
+
+### 1.2 Ver logs por Docker (solo si tienes SSH al host de EasyPanel)
+
+Primero necesitas saber el `<container_id>` — lo obtienes con `docker ps`:
 
 ```bash
-# Últimas 200 líneas
-docker logs --tail 200 <container_id>
+# Lista todos los contenedores corriendo
+docker ps
+
+# Filtrar por el bot (EasyPanel suele nombrar: <proyecto>_<servicio>_1)
+docker ps | grep maravia
+
+# Solo el ID del contenedor con nombre "maravia"
+docker ps --filter "name=maravia" -q
+```
+
+Puedes usar el **CONTAINER ID** (hash corto, ej `a1b2c3d4e5f6`) o el **NAMES** (ej `maravia-bot_app_1`). Ambos funcionan como `<container_id>`.
+
+```bash
+# Últimas 200 líneas (reemplaza <c> por el ID o nombre)
+docker logs --tail 200 <c>
 
 # Seguir en vivo (tail -f)
-docker logs -f <container_id>
+docker logs -f <c>
 
 # Con timestamps del sistema
-docker logs -f -t <container_id>
+docker logs -f -t <c>
 
 # Últimos 15 minutos
-docker logs --since 15m <container_id>
+docker logs --since 15m <c>
 
 # Desde una fecha específica
-docker logs --since 2026-04-24T10:00:00 <container_id>
+docker logs --since 2026-04-24T10:00:00 <c>
 ```
+
+**Nota:** desde dentro del contenedor (`/app #`) **no** puedes usar `docker logs` — el daemon de Docker no está expuesto al interior del contenedor. Usa el panel web o SSH al host.
 
 ### 1.3 Filtros con `grep` y `jq`
 
