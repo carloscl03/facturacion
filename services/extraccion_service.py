@@ -11,6 +11,25 @@ from services.helpers.resumen_visual import generar_resumen_completo
 _log = get_logger("maravia.extraccion")
 
 
+def _inferir_tipo_documento(numero_documento: str | None) -> str | None:
+    """Infiere tipo_documento desde la serie del numero_documento (SERIE-NUMERO).
+    F = factura, B = boleta. Devuelve None si no se puede inferir."""
+    if not numero_documento or not isinstance(numero_documento, str):
+        return None
+    s = numero_documento.strip().upper()
+    if "-" not in s or len(s.split("-")) != 2:
+        return None
+    serie = s.split("-")[0]
+    if not serie:
+        return None
+    primera = serie[0]
+    if primera == "F":
+        return "factura"
+    if primera == "B":
+        return "boleta"
+    return None
+
+
 def _sin_tildes(texto: str) -> str:
     """Quita tildes/acentos y pasa a minúsculas: 'Cámara' → 'camara'."""
     nfkd = unicodedata.normalize("NFKD", texto)
@@ -826,6 +845,20 @@ class ExtraccionService:
             if not p.get("id_catalogo"):
                 p.pop("igv_incluido", None)
 
+        # FIX ROBUSTO: si el monto viene de un comprobante real (numero_documento
+        # con patrón SERIE-NUMERO ej F377-11103), el total impreso SIEMPRE incluye
+        # IGV en Perú. Forzar igv_incluido=True ignora interpretaciones erróneas
+        # de la IA visión que pudo leer "subtotal" o "base imponible" de la imagen.
+        _nro_doc = str(propuesta.get("numero_documento") or estado_actual.get("numero_documento") or "").strip().upper()
+        _viene_de_comprobante = bool(
+            _nro_doc and "-" in _nro_doc and len(_nro_doc.split("-")) == 2
+            and _nro_doc.split("-")[0][:1] in ("F", "B", "E")
+        )
+        if _viene_de_comprobante:
+            propuesta["igv_incluido"] = True
+            for p in productos_existentes:
+                p["igv_incluido"] = True
+
         # Recalcular total_item de cada producto desde cantidad × precio (nunca confiar en valor guardado)
         for p in productos_existentes:
             pu = float(p.get("precio_unitario") or p.get("precio") or 0)
@@ -955,10 +988,14 @@ class ExtraccionService:
             igv_val = 0.0
 
         return {
+            # FIX: inferir tipo_documento desde serie del numero_documento si no vino explícito.
+            # F=factura, B=boleta, E=nota electrónica (mantener None para nota → flujo aparte).
             "operacion": contexto_previo if contexto_previo else obtener("operacion", "cod_ope", None),
             "entidad_nombre": obtener("entidad_nombre", default=""),
             "entidad_numero": entidad_numero,
-            "tipo_documento": obtener("tipo_documento", default=None),
+            "tipo_documento": obtener("tipo_documento", default=None) or _inferir_tipo_documento(
+                obtener("numero_documento", default=None)
+            ),
             "numero_documento": obtener("numero_documento", default=None),
             "moneda": obtener("moneda", default=None),
             "metodo_pago": metodo_pago,
