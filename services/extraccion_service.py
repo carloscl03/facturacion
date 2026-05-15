@@ -11,23 +11,62 @@ from services.helpers.resumen_visual import generar_resumen_completo
 _log = get_logger("maravia.extraccion")
 
 
-def _inferir_tipo_documento(numero_documento: str | None) -> str | None:
-    """Infiere tipo_documento desde la serie del numero_documento (SERIE-NUMERO).
-    F = factura, B = boleta. Devuelve None si no se puede inferir."""
-    if not numero_documento or not isinstance(numero_documento, str):
+def _extraer_hint_desde_json_visión(mensaje: str) -> str | None:
+    """
+    Detecta si el mensaje del usuario es un JSON estructurado (servicio visión
+    upstream que ya parseó la imagen de comprobante) y genera un hint
+    determinístico para la IA con las reglas inferibles directamente del JSON.
+
+    Casos cubiertos:
+    - Si monto_total + impuesto > 0 → igv_incluido=true (el precio_unitario es
+      precio CON IGV, NO base). Evita que la IA infle el total agregando otro 18%.
+    - Si serie empieza con F/B → tipo_documento factura/boleta.
+
+    Devuelve string a inyectar al prompt, o None si no aplica.
+    """
+    if not mensaje or not isinstance(mensaje, str):
         return None
-    s = numero_documento.strip().upper()
-    if "-" not in s or len(s.split("-")) != 2:
+    s = mensaje.strip()
+    if not (s.startswith("{") and s.endswith("}")):
         return None
-    serie = s.split("-")[0]
-    if not serie:
+    import json as _json
+    try:
+        data = _json.loads(s)
+    except (ValueError, TypeError):
         return None
-    primera = serie[0]
-    if primera == "F":
-        return "factura"
-    if primera == "B":
-        return "boleta"
-    return None
+    if not isinstance(data, dict):
+        return None
+
+    hints: list[str] = []
+
+    try:
+        impuesto = float(data.get("impuesto") or 0)
+        monto_total = float(data.get("monto_total") or 0)
+        monto_sin = float(data.get("monto_sin_impuesto") or 0)
+    except (ValueError, TypeError):
+        impuesto = monto_total = monto_sin = 0.0
+
+    if monto_total > 0 and impuesto > 0 and monto_sin > 0:
+        hints.append(
+            f"- El JSON trae monto_total={monto_total} (CON IGV), "
+            f"monto_sin_impuesto={monto_sin}, impuesto={impuesto}. "
+            f"Los precio_unitario de productos ya INCLUYEN IGV. "
+            f"OBLIGATORIO: igv_incluido=true (en propuesta_cache Y en cada producto). "
+            f"NO agregar 18% adicional."
+        )
+
+    serie = ""
+    dg = data.get("datos_generales") or {}
+    if isinstance(dg, dict):
+        serie = str(dg.get("serie_comprobante") or "").strip().upper()
+    if serie:
+        primera = serie[:1]
+        if primera == "F":
+            hints.append("- serie_comprobante empieza con F → tipo_documento=factura.")
+        elif primera == "B":
+            hints.append("- serie_comprobante empieza con B → tipo_documento=boleta.")
+
+    return "\n".join(hints) if hints else None
 
 
 def _sin_tildes(texto: str) -> str:
@@ -83,10 +122,18 @@ class ExtraccionService:
 
         ultima_kw = (estado_actual.get("ultima_pregunta") or "").strip()
 
+        # Pre-procesador: si mensaje es JSON estructurado (servicio visión upstream),
+        # inyectar hints determinísticos antes que la IA. Evita alucinaciones de
+        # igv_incluido y precios cuando el JSON ya trae monto_total + impuesto.
+        hint_json = _extraer_hint_desde_json_visión(mensaje)
+        mensaje_para_ia = mensaje
+        if hint_json:
+            mensaje_para_ia = mensaje + "\n\n[HINT_DETERMINISTICO]\n" + hint_json
+
         prompt = build_prompt_extractor(
             estado_actual=estado_actual,
             ultima_pregunta_bot=ultima_kw,
-            mensaje=mensaje,
+            mensaje=mensaje_para_ia,
             operacion=operacion,
         )
 
@@ -988,14 +1035,10 @@ class ExtraccionService:
             igv_val = 0.0
 
         return {
-            # FIX: inferir tipo_documento desde serie del numero_documento si no vino explícito.
-            # F=factura, B=boleta, E=nota electrónica (mantener None para nota → flujo aparte).
             "operacion": contexto_previo if contexto_previo else obtener("operacion", "cod_ope", None),
             "entidad_nombre": obtener("entidad_nombre", default=""),
             "entidad_numero": entidad_numero,
-            "tipo_documento": obtener("tipo_documento", default=None) or _inferir_tipo_documento(
-                obtener("numero_documento", default=None)
-            ),
+            "tipo_documento": obtener("tipo_documento", default=None),
             "numero_documento": obtener("numero_documento", default=None),
             "moneda": obtener("moneda", default=None),
             "metodo_pago": metodo_pago,
