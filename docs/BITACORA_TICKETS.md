@@ -165,3 +165,37 @@ Cubierto por los 7 commits pusheados a `main` el 2026-06-11:
 - Cerrar ticket #67 después de deploy bot + backend PHP.
 - Verificar compras #73, #204 — quedaron mal en BD, requieren corrección
   manual o reemisión.
+
+---
+
+## Ticket #42 — TKT-2026-00035 (FUERA DE SCOPE)
+
+**Asunto:** Error en cálculo de boletas
+**Categoría:** ❌ NO es bot WhatsApp
+
+**Hallazgo:** "Boletas" aquí = boletas de pago de empleados (planilla/RRHH),
+NO boletas de venta SUNAT. Bug en módulo PHP de planilla: cliente cambió
+puesto del empleado pero el cálculo sigue usando el sueldo anterior
+(S/565 vs S/1130 esperado).
+
+**Acción:** reportar al equipo backend PHP módulo RRHH. Fuera de scope
+del bot WhatsApp.
+
+---
+
+## Tickets revisados y descartados (fuera de scope bot WhatsApp)
+
+Resumen de tickets revisados que NO son del bot maravia-bot:
+
+| # | Asunto | Categoría real |
+|---|---|---|
+| #26 | Chat WhatsApp Maravia no funciona | Chatweb (UI). Sin adjuntos/info concreta. |
+| #49 | Nota de crédito | Módulo PHP notas crédito SUNAT (web). |
+| #57 | Problemas con chatbot | Otro bot ("bot atención al cliente"). Empresa 19. |
+| #68 | No verificar importe pendiente IGV | Módulo PHP tesorería. |
+| #200 | Mensaje recuperación chatbot | Otro bot ("bot atención al cliente"), feature de mensajes a clientes inactivos. |
+
+**Conclusión review batch 2026-06-11:** de 7 tickets pendientes revisados,
+solo **#67 era del bot** y ya está cubierto por los 7 commits de hoy.
+Los demás corresponden a otros productos (chatweb, bot atención cliente,
+módulo RRHH, tesorería, notas crédito web).
