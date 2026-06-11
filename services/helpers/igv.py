@@ -116,14 +116,21 @@ def calcular_item(
         return (float(pu_b), float(subtotal), 0.0, float(subtotal))
 
     if igv_incluido:
+        # FIX: cuando precio ya incluye IGV, el total preserva precisión original
+        # (precio × qty), y el IGV se deriva por resta. Si calculamos IGV sobre
+        # base redondeada, perdemos 1 céntimo (caso TAMBO: 10 → 1.52 vs 1.53 real).
         pu_b = (pu / _FACTOR).quantize(_10D, ROUND_HALF_UP)
+        total_d = (pu * q).quantize(_2D, ROUND_HALF_UP)
+        subtotal = (pu_b * q).quantize(_2D, ROUND_HALF_UP)
+        igv = (total_d - subtotal).quantize(_2D, ROUND_HALF_UP)
+        return (float(pu_b), float(subtotal), float(igv), float(total_d))
     else:
+        # Precio es base sin IGV: calcular IGV a partir de base
         pu_b = pu.quantize(_10D, ROUND_HALF_UP)
-
-    subtotal = (pu_b * q).quantize(_2D, ROUND_HALF_UP)
-    igv = (subtotal * _TASA).quantize(_2D, ROUND_HALF_UP)
-    total = subtotal + igv
-    return (float(pu_b), float(subtotal), float(igv), float(total))
+        subtotal = (pu_b * q).quantize(_2D, ROUND_HALF_UP)
+        igv = (subtotal * _TASA).quantize(_2D, ROUND_HALF_UP)
+        total = subtotal + igv
+        return (float(pu_b), float(subtotal), float(igv), float(total))
 
 
 def sumar_productos(

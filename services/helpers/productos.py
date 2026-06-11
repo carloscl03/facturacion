@@ -202,6 +202,27 @@ def construir_detalle_desde_registro(
             }
         ]
 
+    # FIX CRÍTICO (ticket #661): si todos los productos tienen precio=0 pero hay
+    # monto_total > 0, distribuir monto_total entre items proporcionalmente a
+    # cantidad. Caso: usuario dice "3 filtros total 83.76" y la IA pone precio=0
+    # en el item. Sin esto, SUNAT recibe valor=0 y emite comprobante con S/0.00.
+    suma_qty = 0.0
+    todos_cero = True
+    for p in productos:
+        try:
+            pu = float(p.get("precio_unitario") or p.get("precio", 0))
+            qty = float(p.get("cantidad", 1))
+        except (ValueError, TypeError):
+            pu, qty = 0.0, 1.0
+        if pu > 0:
+            todos_cero = False
+        suma_qty += qty
+    if todos_cero and float(monto_total or 0) > 0 and suma_qty > 0:
+        precio_por_unidad = float(monto_total) / suma_qty
+        for p in productos:
+            p["precio_unitario"] = precio_por_unidad
+            p["precio"] = precio_por_unidad
+
     detalle = []
     for p in productos:
         qty = float(p.get("cantidad", 1))
@@ -231,6 +252,16 @@ def construir_detalle_desde_registro(
                 "valor_igv": igv,
                 "valor_total_item": total,
             }
+        )
+
+    # FIX CRÍTICO (ticket #661): si el detalle final quedó con suma total = 0,
+    # algo está mal (extracción IA falló y la distribución no compensó). Mejor
+    # lanzar excepción que enviar a SUNAT/PHP un payload que emitiría boleta con cero.
+    suma_total = sum(d.get("valor_total_item", 0) for d in detalle)
+    if suma_total <= 0:
+        raise ValueError(
+            "Detalle de venta con suma total = 0. Items con precio_unitario cero "
+            "y sin monto_total para distribuir. Revisar extracción de productos."
         )
     return detalle
 

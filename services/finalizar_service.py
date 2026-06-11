@@ -225,6 +225,40 @@ class FinalizarService:
             errores.append("Cliente identificado (complete la identificación antes de finalizar)")
         if operacion == "compra" and not reg.get("entidad_id"):
             errores.append("Proveedor (debe estar seleccionado para registrar la compra)")
+
+        # FIX CRÍTICO (ticket #661): coherencia entre monto_total y suma de productos.
+        # Caso: bot dijo "S/34" al usuario (monto_total) pero productos en Redis
+        # tienen precio=0. Sin esta validación, el mapper recibe y emite cero.
+        import json as _json
+        productos_raw = reg.get("productos")
+        productos = []
+        try:
+            if isinstance(productos_raw, str) and productos_raw.strip():
+                productos = _json.loads(productos_raw)
+            elif isinstance(productos_raw, list):
+                productos = productos_raw
+        except (ValueError, TypeError):
+            productos = []
+        if productos and params["monto_total"] > 0:
+            suma_productos = 0.0
+            for p in productos:
+                try:
+                    pu = float(p.get("precio_unitario") or p.get("precio") or 0)
+                    qty = float(p.get("cantidad") or 1)
+                    suma_productos += pu * qty
+                except (ValueError, TypeError):
+                    pass
+            if suma_productos <= 0:
+                # Caso recuperable: mapper redistribuirá monto_total entre items.
+                # Solo log; el mapper aplica el fix automático y si falla lanza error.
+                pass
+            else:
+                # Verificar coherencia razonable: diferencia mayor a 50% es señal de bug.
+                ratio = suma_productos / params["monto_total"]
+                if not (0.5 < ratio < 2.0):
+                    errores.append(
+                        f"Inconsistencia: monto_total={params['monto_total']:.2f} vs suma de productos={suma_productos:.2f}"
+                    )
         return errores
 
     # ------------------------------------------------------------------ #
