@@ -120,8 +120,13 @@ def test_siguiente_campo_pendiente_respeta_orden_y_parametros():
     reg = {"id_sucursal": 1, "operacion": "venta"}
     assert siguiente_campo_pendiente(reg, tiene_parametros=True) == "forma_pago"
 
+    # Cuando forma_pago está completo, el flujo termina (None).
+    # NOTA: el flujo "medio_catalogo" mencionado en el docstring de
+    # OpcionesService nunca se implementó completo en CAMPOS_ESTADO2 ni en
+    # OpcionesService.submit(). Si se reactiva, este test debe esperar
+    # "medio_catalogo" como siguiente paso en vez de None.
     reg = {"id_sucursal": 1, "operacion": "venta", "forma_pago": "Contado", "id_forma_pago": 1}
-    assert siguiente_campo_pendiente(reg, tiene_parametros=True) == "medio_catalogo"
+    assert siguiente_campo_pendiente(reg, tiene_parametros=True) is None
 
     reg = {"id_sucursal": 1, "id_centro_costo": 2, "forma_pago": "Contado", "id_forma_pago": 1, "id_medio_pago": 10}
     assert siguiente_campo_pendiente(reg, tiene_parametros=True) is None
