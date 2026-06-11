@@ -117,3 +117,51 @@ Cruzando `bot_api_log` con tablas `compra`/`venta`/`detalleitem_*`:
 - Acción correctiva en BD: anular compra #1863 (S/0) y venta #1744 (S/0,
   boleta SUNAT BM01-000001). La boleta SUNAT con cero es problema fiscal
   — requiere emitir nota de crédito.
+
+---
+
+## Ticket #67 — TKT-2026-00053
+
+**Asunto:** Error al registrar factura con el agente
+**Estado/Prioridad:** En progreso / **Crítica**
+**Fecha:** 2026-04-22 (creado), 2026-05-21 (último comentario cliente)
+**Empresa:** 1
+**Reporta:** usr 2 → asignado usr 58
+
+### Reporte
+Tres manifestaciones del mismo bug IGV (cronológicas):
+
+1. **Compra #73 (abr 2026):** P.Unitario S/93.22 pero Subtotal=0, IGV=0,
+   Total=S/93.22. PHP no recalculó IGV — quedó "todo en P.Unitario".
+2. **WhatsApp bot (abr 2026):** bot reportó S/110.00 al usuario; sistema
+   guardó S/93.22 (= 110/1.18). Bot interpretó precio como base sin IGV
+   y dividió antes de enviar.
+3. **Compra #204 (may 2026, tras fix interim):** chip claro pu=8.47,
+   igv=1.52, total=9.99. Cliente dice "no considera todos los decimales"
+   — debió ser igv=1.53, total=10.00.
+
+### Bug raíz
+
+Mismo bug compuesto que #232, #339, #661:
+- **Manifestación A:** servicio visión/extracción IA pone `igv_incluido=False`
+  cuando el monto leído del comprobante ya incluye IGV.
+- **Manifestación B:** redondeo de IGV sobre subtotal redondeado pierde 1
+  céntimo (igv.py calculaba `igv = round(round(pu_b × qty, 2) × 0.18, 2)`
+  en vez de derivarlo por resta del total preservado).
+
+### Acción tomada
+
+Cubierto por los 7 commits pusheados a `main` el 2026-06-11:
+- `5aefc96` — bot fuerza `igv_incluido=True` cuando viene de comprobante F/B/E
+- `3992b93` — bot pre-procesador con hint determinístico cuando mensaje es
+  JSON visión con `monto_total + impuesto > 0`
+- `62cd0da` — bot mappers usan `calcular_item` con valores precalculados
+- `70fcf9a` — bot `igv.py` preserva precisión: `total = pu × qty`, `igv = total - subtotal`
+- `9403b89` (backend) — defense in depth: validación coherencia, rechazo
+  suma=0, throw SUNAT con totalVenta≤0, prompt visión endurecido
+
+### Pendiente
+
+- Cerrar ticket #67 después de deploy bot + backend PHP.
+- Verificar compras #73, #204 — quedaron mal en BD, requieren corrección
+  manual o reemisión.
