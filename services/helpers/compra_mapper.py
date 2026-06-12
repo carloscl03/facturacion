@@ -52,6 +52,12 @@ def construir_detalles_compra(
 
     if not productos:
         mt = round(float(monto_total), 2)
+        # FIX (test adversarial): rama sin productos también rechaza suma cero.
+        if mt <= 0:
+            raise ValueError(
+                "Detalle de compra con suma total = 0. Sin productos y sin monto_total. "
+                "Revisar extracción."
+            )
         pu_b, sub, igv, total = calcular_item(mt, 1, igv_incluido=True, sin_igv=sin_igv)
         return [
             {

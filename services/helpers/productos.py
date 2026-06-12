@@ -185,6 +185,13 @@ def construir_detalle_desde_registro(
 
     if not productos:
         mt = round(float(monto_total), 2)
+        # FIX (test adversarial): rama sin productos también debe rechazar suma cero.
+        # Sin esto, productos con JSON inválido + monto_total=0 generaban item con total=0.
+        if mt <= 0:
+            raise ValueError(
+                "Detalle de venta con suma total = 0. Sin productos y sin monto_total. "
+                "Revisar extracción."
+            )
         pu_b, sub, igv, total = calcular_item(mt, 1, igv_incluido=True, sin_igv=sin_igv)
         return [
             {

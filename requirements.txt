@@ -4,3 +4,4 @@ openai
 requests
 python-dotenv
 redis>=5.0
+hypothesis
